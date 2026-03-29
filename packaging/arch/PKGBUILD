@@ -1,0 +1,99 @@
+# Maintainer: Leonard Li <leo@lsamc.website>
+pkgname=vocotype
+pkgver=2.2.0
+pkgrel=1
+pkgdesc="Linux 离线语音输入法，支持 IBus 和 Fcitx5"
+arch=('x86_64')
+url="https://github.com/LeonardNJU/VocoType-linux"
+license=('custom')
+depends=(
+    'python>=3.11'
+    'python<3.13'
+    'python-pip'
+    'portaudio'
+    'libffi'
+    'gobject-introspection'
+    'fcitx5'
+    'ibus'
+    'cmake'
+    'nlohmann-json'
+)
+makedepends=(
+    'cmake'
+    'gcc'
+    'python-build'
+    'python-installer'
+    'python-wheel'
+    'python-setuptools'
+)
+optdepends=(
+    'librime: Rime 拼音输入支持'
+)
+source=("$pkgname-$pkgver.tar.gz::https://github.com/LeonardNJU/VocoType-linux/archive/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+    cd "VocoType-linux-$pkgver"
+
+    # 构建 Fcitx5 C++ addon
+    cd fcitx5/addon
+    mkdir -p build && cd build
+    cmake .. -DCMAKE_INSTALL_PREFIX=/usr \
+             -DCMAKE_BUILD_TYPE=Release
+    make
+    cd ../../..
+
+    # 构建 Python 包
+    python -m build --wheel --no-isolation
+}
+
+package() {
+    cd "VocoType-linux-$pkgver"
+
+    # 安装 Python 包
+    python -m installer --destdir="$pkgdir" dist/*.whl
+
+    # 安装 Fcitx5 addon
+    cd fcitx5/addon/build
+    make DESTDIR="$pkgdir" install
+    cd ../../..
+
+    # 安装 Fcitx5 配置
+    install -Dm644 fcitx5/data/vocotype.conf "$pkgdir/usr/share/fcitx5/addon/vocotype.conf"
+    install -Dm644 fcitx5/data/vocotype-addon.conf "$pkgdir/usr/share/fcitx5/inputmethod/vocotype.conf"
+
+    # 安装 IBus 组件
+    install -Dm644 ibus/vocotype.xml "$pkgdir/usr/share/ibus/component/vocotype.xml"
+    install -Dm755 ibus/start-vocotype.sh "$pkgdir/usr/lib/vocotype/ibus/start-vocotype.sh"
+
+    # 安装启动脚本
+    install -Dm755 scripts/vocotype-ibus-engine "$pkgdir/usr/lib/vocotype/ibus/vocotype-ibus-engine"
+
+    # 安装数据目录
+    mkdir -p "$pkgdir/usr/share/vocotype"
+    cp -r app "$pkgdir/usr/share/vocotype/"
+
+    # 安装文档
+    install -Dm644 readme.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+
+    # 安装系统服务文件（可选）
+    install -Dm644 packaging/systemd/vocotype-fcitx5-backend.service "$pkgdir/usr/lib/systemd/user/vocotype-fcitx5-backend.service"
+}
+
+# 安装后钩子
+post_install() {
+    echo "=========================================="
+    echo "VoCoType 语音输入法安装完成"
+    echo "=========================================="
+    echo ""
+    echo "使用方法："
+    echo "  1. IBus 版本：重新登录或在终端运行 'ibus restart'"
+    echo "  2. Fcitx5 版本：运行 'fcitx5 -r' 重启"
+    echo ""
+    echo "首次使用需要下载模型："
+    echo "  vocotype-download-models"
+    echo ""
+    echo "快捷键：按住 F9 说话，松开自动输入"
+    echo "=========================================="
+}

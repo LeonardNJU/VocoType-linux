@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<component>
+    <name>org.vocotype.IBus.VoCoType</name>
+    <description>VoCoType Voice Input Method</description>
+    <exec>/usr/lib/vocotype/ibus/vocotype-ibus-engine --ibus</exec>
+    <version>2.1.3</version>
+    <author>VoCoType</author>
+    <license>GPL</license>
+    <homepage>https://github.com/vocotype</homepage>
+    <textdomain>vocotype</textdomain>
+    <engines>
+        <engine>
+            <name>vocotype</name>
+            <language>zh</language>
+            <license>GPL</license>
+            <author>VoCoType</author>
+            <layout>default</layout>
+            <longname>VoCoType Voice Input</longname>
+            <description>Push-to-Talk Voice Input (F9)</description>
+            <rank>50</rank>
+            <symbol>🎤</symbol>
+        </engine>
+    </engines>
+</component>

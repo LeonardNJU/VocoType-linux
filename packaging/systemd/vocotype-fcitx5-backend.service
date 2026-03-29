@@ -1,0 +1,15 @@
+[Unit]
+Description=VoCoType Fcitx5 Backend Service
+Documentation=https://github.com/LeonardNJU/VocoType-linux
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/vocotype-fcitx5-addon
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/usr/share/vocotype
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,10 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: vocotype
+Source: https://github.com/LeonardNJU/VocoType-linux
+
+Files: *
+Copyright: 2025 Leonard Li <leo@lsamc.website>
+License: LicenseRef-VoCoType
+
+License: LicenseRef-VoCoType
+ See LICENSE file for full license text.

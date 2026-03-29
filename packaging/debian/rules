@@ -1,0 +1,65 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DEB_CFLAGS_MAINT_APPEND = -Wall -Wextra
+export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
+
+%:
+	dh $@ --buildsystem=cmake
+
+override_dh_auto_configure:
+	# 配置 Fcitx5 addon
+	dh_auto_configure --sourcedirectory=fcitx5/addon -- \
+		-DCMAKE_INSTALL_PREFIX=/usr \
+		-DCMAKE_BUILD_TYPE=Release
+
+override_dh_auto_build:
+	# 构建 C++ addon
+	dh_auto_build --sourcedirectory=fcitx5/addon
+	# 构建 Python 包
+	cd $(CURDIR) && python3 -m build --wheel --no-isolation
+
+override_dh_auto_install:
+	# 安装 C++ addon
+	dh_auto_install --sourcedirectory=fcitx5/addon
+	# 复制到 debian/tmp 以便 dh_install 处理
+	mkdir -p $(CURDIR)/debian/tmp/usr/lib/x86_64-linux-gnu/fcitx5
+	cp $(CURDIR)/debian/vocotype/usr/lib/x86_64-linux-gnu/fcitx5/vocotype.so \
+		$(CURDIR)/debian/tmp/usr/lib/x86_64-linux-gnu/fcitx5/
+
+	# 安装 Python 包
+	python3 -m installer --destdir=$(CURDIR)/debian/tmp dist/*.whl
+
+	# 安装 Fcitx5 配置文件
+	install -Dm644 fcitx5/data/vocotype.conf \
+		$(CURDIR)/debian/tmp/usr/share/fcitx5/addon/vocotype.conf
+	install -Dm644 fcitx5/data/vocotype-addon.conf \
+		$(CURDIR)/debian/tmp/usr/share/fcitx5/inputmethod/vocotype.conf
+
+	# 安装 IBus 组件文件
+	install -Dm644 ibus/vocotype.xml \
+		$(CURDIR)/debian/tmp/usr/share/ibus/component/vocotype.xml
+	install -Dm755 ibus/start-vocotype.sh \
+		$(CURDIR)/debian/tmp/usr/lib/vocotype/ibus/start-vocotype.sh
+
+	# 安装启动脚本
+	install -Dm755 scripts/vocotype-ibus-engine \
+		$(CURDIR)/debian/tmp/usr/lib/vocotype/ibus/vocotype-ibus-engine || true
+
+	# 创建应用数据目录
+	mkdir -p $(CURDIR)/debian/tmp/usr/share/vocotype
+	cp -r app $(CURDIR)/debian/tmp/usr/share/vocotype/
+
+	# 安装 systemd 用户服务
+	install -Dm644 packaging/systemd/vocotype-fcitx5-backend.service \
+		$(CURDIR)/debian/tmp/usr/lib/systemd/user/vocotype-fcitx5-backend.service
+
+override_dh_auto_test:
+	# 跳过测试（需要特殊硬件/模型）
+
+override_dh_shlibdeps:
+	dh_shlibdeps -l/usr/lib/fcitx5
+
+override_dh_python3:
+	dh_python3 --ignore-shebangs

@@ -1,0 +1,18 @@
+# Fcitx5 addon
+usr/lib/x86_64-linux-gnu/fcitx5/vocotype.so
+usr/share/fcitx5/addon/vocotype.conf
+usr/share/fcitx5/inputmethod/vocotype.conf
+
+# IBus engine
+usr/share/ibus/component/vocotype.xml
+usr/lib/vocotype/ibus/start-vocotype.sh
+usr/lib/vocotype/ibus/vocotype-ibus-engine
+
+# Python packages
+usr/lib/python3/dist-packages/*
+
+# Application data
+usr/share/vocotype/*
+
+# Systemd service
+usr/lib/systemd/user/vocotype-fcitx5-backend.service

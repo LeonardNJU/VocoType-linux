@@ -1,0 +1,8 @@
+vocotype (2.2.0-1) unstable; urgency=medium
+
+  * Add packaging system for DEB/RPM/Arch
+  * Add CI/CD workflows
+  * Add model manager
+  * Update for v2.2.0 compatibility
+
+ -- Leonard Li <leo@lsamc.website>  Sat, 29 Mar 2025 15:30:00 +0800

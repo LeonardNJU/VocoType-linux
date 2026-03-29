@@ -1,0 +1,465 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+命令行模型下载工具 - 用于安装时下载语音模型
+支持交互式提示和静默模式
+
+此脚本设计为独立运行，不依赖 app 模块的其他部分
+"""
+
+import os
+import sys
+import json
+import argparse
+import subprocess
+from pathlib import Path
+
+# 模型配置（与 funasr_config.py 保持一致）
+MODEL_REVISION = os.environ.get("FUNASR_MODEL_REVISION", "v2.0.5")
+MODELS = {
+    "asr": {
+        "name": os.environ.get(
+            "FUNASR_ASR_MODEL",
+            "iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-onnx",
+        ),
+        "type": "asr",
+    },
+    "vad": {
+        "name": os.environ.get(
+            "FUNASR_VAD_MODEL",
+            "iic/speech_fsmn_vad_zh-cn-16k-common-onnx",
+        ),
+        "type": "vad",
+    },
+    "punc": {
+        "name": os.environ.get(
+            "FUNASR_PUNC_MODEL",
+            "iic/punc_ct-transformer_zh-cn-common-vocab272727-onnx",
+        ),
+        "type": "punc",
+    },
+}
+
+
+def get_model_cache_path(model_name: str) -> Path:
+    """获取模型本地缓存路径"""
+    home = Path.home()
+    short_name = model_name.split('/')[-1] if '/' in model_name else model_name
+    return home / ".cache" / "modelscope" / "hub" / "models" / "iic" / short_name
+
+
+def check_model_exists(model_name: str) -> bool:
+    """检查单个模型是否已下载"""
+    model_dir = get_model_cache_path(model_name)
+    if not model_dir.exists():
+        return False
+
+    # 检查是否有模型文件
+    quant_file = model_dir / "model_quant.onnx"
+    base_file = model_dir / "model.onnx"
+
+    return quant_file.exists() or base_file.exists()
+
+
+def check_all_models() -> dict:
+    """检查所有模型是否存在"""
+    result = {}
+    for model_type, config in MODELS.items():
+        result[model_type] = check_model_exists(config["name"])
+    return result
+
+
+def get_missing_models() -> list:
+    """获取未下载的模型列表"""
+    missing = []
+    for model_type, config in MODELS.items():
+        if not check_model_exists(config["name"]):
+            missing.append(config)
+    return missing
+
+
+def download_model(model_config, progress_callback=None):
+    """下载单个模型（使用 modelscope.snapshot_download）"""
+    model_name = model_config["name"]
+    model_type = model_config["type"]
+
+    try:
+        from modelscope.hub.snapshot_download import snapshot_download
+
+        if progress_callback:
+            progress_callback(model_type, "downloading", 0)
+
+        # 下载到本地缓存目录
+        snapshot_download(model_name, revision=MODEL_REVISION)
+
+        if progress_callback:
+            progress_callback(model_type, "completed", 100)
+
+        return {"success": True, "model": model_type}
+
+    except Exception as e:
+        if progress_callback:
+            progress_callback(model_type, "error", 0, str(e))
+        return {"success": False, "model": model_type, "error": str(e)}
+
+
+def download_with_progress(progress_callback=None, console_output=True):
+    """下载模型并显示进度"""
+    import threading
+
+    models = list(MODELS.values())
+    total = len(models)
+    completed = 0
+    failed = []
+    results = {}
+    count_lock = threading.Lock()
+    results_lock = threading.Lock()
+
+    def internal_callback(model_type: str, stage: str, percent: int, error: str = None):
+        nonlocal completed
+
+        with count_lock:
+            if stage == "completed":
+                completed += 1
+            elif stage == "error":
+                completed += 1
+                failed.append(model_type)
+
+            overall = int((completed / total) * 100)
+
+        # 构建状态消息
+        if stage == "downloading":
+            status_msg = f"正在下载 {model_type.upper()} 模型 ({percent}%)..."
+        elif stage == "completed":
+            status_msg = f"✓ {model_type.upper()} 模型下载完成"
+        elif stage == "error":
+            status_msg = f"✗ {model_type.upper()} 模型下载失败: {error}"
+        else:
+            status_msg = f"{model_type.upper()}: {stage}"
+
+        # 更新图形进度
+        if progress_callback:
+            progress_callback(overall, status_msg)
+
+        # 输出到控制台
+        if console_output:
+            print(f"[{overall}%] {status_msg}")
+
+    # 开始下载
+    if console_output:
+        print("\n开始下载模型...\n")
+
+    threads = []
+    for model_config in models:
+        def worker(config=model_config):
+            result = download_model(config, internal_callback)
+            with results_lock:
+                results[config["type"]] = result
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        threads.append(thread)
+
+    # 等待所有线程完成
+    for thread in threads:
+        thread.join()
+
+    # 检查结果
+    if failed:
+        return {
+            "success": False,
+            "error": f"以下模型下载失败: {', '.join(failed)}",
+            "failed_models": failed,
+            "results": results
+        }
+
+    return {
+        "success": True,
+        "message": "所有模型下载完成",
+        "results": results
+    }
+
+
+def install_modelscope():
+    """检查并安装 modelscope"""
+    try:
+        import modelscope
+        return True
+    except ImportError:
+        print("正在安装 modelscope...")
+        try:
+            subprocess.run([
+                sys.executable, "-m", "pip", "install", "modelscope",
+                "--break-system-packages", "-q"
+            ], check=True)
+            print("modelscope 安装完成")
+            return True
+        except Exception as e:
+            print(f"安装 modelscope 失败: {e}", file=sys.stderr)
+            return False
+
+
+def prompt_user_interactive():
+    """交互式提示用户是否下载模型"""
+    print("\n" + "=" * 60)
+    print("🎤 VoCoType 语音输入法 - 首次安装设置")
+    print("=" * 60)
+    print()
+    print("检测到语音识别模型尚未下载。")
+    print()
+    print("模型信息:")
+    print("  • ASR 模型 (语音识别): Paraformer-large")
+    print("  • VAD 模型 (语音活动检测): FSMN")
+    print("  • Punctuation 模型 (标点预测): CT-Transformer")
+    print()
+    print("总大小: 约 500MB")
+    print("下载源: ModelScope (阿里云)")
+    print()
+    print("注意: 所有模型下载后在本地运行，无需联网即可使用。")
+    print()
+
+    while True:
+        try:
+            choice = input("是否现在下载模型? [Y/n]: ").strip().lower()
+            if choice in ('', 'y', 'yes'):
+                return True
+            elif choice in ('n', 'no'):
+                return False
+            else:
+                print("请输入 Y 或 n")
+        except (EOFError, KeyboardInterrupt):
+            # 非交互式环境，默认不下载
+            print("\n检测到非交互式环境，跳过模型下载")
+            return False
+
+
+def prompt_user_gui():
+    """使用GUI提示用户"""
+    import shutil
+
+    message = ("VoCoType 需要下载约 500MB 的语音识别模型才能使用。\n\n"
+               "模型下载后在本地运行，无需联网即可使用。\n\n"
+               "是否现在下载?")
+
+    # 尝试 zenity (GNOME/GTK)
+    if shutil.which("zenity"):
+        try:
+            result = subprocess.run(
+                ["zenity", "--question",
+                 "--title", "VoCoType - 下载语音模型",
+                 "--text", message,
+                 "--ok-label", "下载",
+                 "--cancel-label", "稍后"],
+                capture_output=True,
+                timeout=60
+            )
+            return result.returncode == 0
+        except Exception:
+            pass
+
+    # 尝试 kdialog (KDE)
+    if shutil.which("kdialog"):
+        try:
+            result = subprocess.run(
+                ["kdialog", "--title", "VoCoType - 下载语音模型",
+                 "--yesno", message,
+                 "--yes-label", "下载",
+                 "--no-label", "稍后"],
+                capture_output=True,
+                timeout=60
+            )
+            return result.returncode == 0
+        except Exception:
+            pass
+
+    return None
+
+
+def download_with_gui_progress():
+    """使用GUI显示下载进度"""
+    import shutil
+
+    if not shutil.which("zenity"):
+        return None
+
+    try:
+        proc = subprocess.Popen(
+            ["zenity", "--progress",
+             "--title", "下载语音模型",
+             "--text", "正在下载模型...",
+             "--percentage", "0",
+             "--auto-close",
+             "--no-cancel"],
+            stdin=subprocess.PIPE,
+            text=True
+        )
+
+        def update_progress(percent: int, message: str = ""):
+            try:
+                if proc.poll() is None:
+                    proc.stdin.write(f"{percent}\n")
+                    if message:
+                        proc.stdin.write(f"# {message}\n")
+                    proc.stdin.flush()
+            except Exception:
+                pass
+
+        return update_progress
+    except Exception:
+        return None
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='VoCoType 模型下载工具',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+使用示例:
+  %(prog)s --check          # 检查模型是否存在
+  %(prog)s --prompt         # 交互式提示并下载
+  %(prog)s --download       # 直接下载（不提示）
+  %(prog)s --json           # 以 JSON 格式输出结果
+"""
+    )
+    parser.add_argument('--check', '-c', action='store_true',
+                        help='检查模型是否存在')
+    parser.add_argument('--prompt', '-p', action='store_true',
+                        help='提示用户是否下载')
+    parser.add_argument('--download', '-d', action='store_true',
+                        help='直接下载模型')
+    parser.add_argument('--gui', '-g', action='store_true',
+                        help='使用 GUI 提示（如果有）')
+    parser.add_argument('--json', '-j', action='store_true',
+                        help='以 JSON 格式输出')
+    parser.add_argument('--skip-modelscope-check', action='store_true',
+                        help='跳过 modelscope 安装检查')
+
+    args = parser.parse_args()
+
+    # 如果没有参数，默认执行检查
+    if not any([args.check, args.prompt, args.download]):
+        args.check = True
+
+    result = {
+        "success": False,
+        "models_exist": False,
+        "downloaded": False,
+        "message": ""
+    }
+
+    # 检查 modelscope
+    if not args.skip_modelscope_check:
+        if not install_modelscope():
+            result["message"] = "无法安装 modelscope，请手动安装"
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False))
+            else:
+                print("错误: 无法安装 modelscope", file=sys.stderr)
+            return 1
+
+    # 检查模型状态
+    model_status = check_all_models()
+    all_exist = all(model_status.values())
+    result["models_exist"] = all_exist
+
+    if args.check and not args.prompt and not args.download:
+        # 仅检查模式
+        if args.json:
+            result["success"] = True
+            result["message"] = "模型检查完成"
+            result["details"] = model_status
+            print(json.dumps(result, ensure_ascii=False))
+        else:
+            print("模型状态:")
+            for model_type, exists in model_status.items():
+                status = "✓ 已下载" if exists else "✗ 未下载"
+                print(f"  {model_type}: {status}")
+        return 0 if all_exist else 1
+
+    if all_exist:
+        result["success"] = True
+        result["message"] = "所有模型已存在"
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False))
+        else:
+            print("所有模型已下载，无需重复下载")
+        return 0
+
+    # 需要下载模型
+    missing = get_missing_models()
+    missing_types = [m["type"] for m in missing]
+
+    # 提示用户
+    if args.prompt:
+        user_agreed = False
+
+        # 先尝试 GUI
+        if args.gui:
+            gui_result = prompt_user_gui()
+            if gui_result is not None:
+                user_agreed = gui_result
+
+        # 如果 GUI 不可用，使用交互式
+        if not args.gui or gui_result is None:
+            user_agreed = prompt_user_interactive()
+
+        if not user_agreed:
+            result["message"] = "用户取消下载"
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False))
+            else:
+                print("\n已取消模型下载。")
+                print("您可以稍后手动运行: python -m app.download_models")
+                print("或者运行: sudo vocotype-download-models --download")
+            return 0
+
+    # 下载模型
+    if args.download or (args.prompt and user_agreed):
+        if not args.json:
+            print(f"\n开始下载模型: {', '.join(missing_types)}")
+            print()
+
+        # 尝试 GUI 进度
+        progress_callback = None
+        if args.gui:
+            progress_callback = download_with_gui_progress()
+
+        try:
+            download_result = download_with_progress(
+                progress_callback=progress_callback,
+                console_output=not args.json
+            )
+
+            result["downloaded"] = download_result["success"]
+            result["details"] = download_result
+
+            if download_result["success"]:
+                result["success"] = True
+                result["message"] = "模型下载完成"
+                if args.json:
+                    print(json.dumps(result, ensure_ascii=False))
+                else:
+                    print("\n✓ 模型下载完成！")
+                return 0
+            else:
+                result["message"] = f"下载失败: {download_result.get('error', '未知错误')}"
+                if args.json:
+                    print(json.dumps(result, ensure_ascii=False))
+                else:
+                    print(f"\n✗ 下载失败: {download_result.get('error', '未知错误')}",
+                          file=sys.stderr)
+                return 1
+
+        except Exception as e:
+            result["message"] = f"下载出错: {str(e)}"
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False))
+            else:
+                print(f"\n✗ 下载出错: {e}", file=sys.stderr)
+            return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

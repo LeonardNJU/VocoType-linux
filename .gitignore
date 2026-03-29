@@ -1,19 +1,61 @@
+# 开发环境
 .venv
 .idea/
 logs
 *.wav
 dataset/
-__pycache__/
-build
-dist
-*.spec
 
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+dist/
+
+# 构建目录（保留 build/ 目录本身，只忽略内容）
+build/intermediate/
+build/tmp/
+build/lib/
+build/bdist.*/
+build/output/
+build/*.log
+!/build/.gitkeep
+
+# debian 构建产物（保留 debian/ 目录）
+debian/vocotype/
+debian/tmp/
+debian/.debhelper/
+debian/files
+debian/debhelper-build-stamp
+debian/*.substvars
+debian/*.log
+debian/*.postrm.debhelper
+
+# 上级目录中的构建产物
+../*.deb
+../*.changes
+../*.buildinfo
+../*.dsc
+../*.tar.gz
+../*.tar.xz
+
+# 其他生成文件
+*.spec
 pipdeptree.txt
 requirements.lock.txt
 todo.md
-/models
-vocotype_ibus.egg-info
-cc-gen-doc
-CLAUDE.md
 cc-gen-doc
 cc-gen-script
+
+# 数据/模型
+/models
+
+# IDE
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

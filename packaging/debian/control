@@ -1,0 +1,52 @@
+Source: vocotype
+Section: utils
+Priority: optional
+Maintainer: Leonard Li <leo@lsamc.website>
+Build-Depends: debhelper-compat (= 13),
+               cmake (>= 3.10),
+               pkg-config,
+               libfcitx5core-dev,
+               nlohmann-json3-dev,
+               python3 (>= 3.11),
+               python3 (<< 3.13),
+               python3-pip,
+               python3-venv,
+               python3-setuptools,
+               python3-wheel,
+               python3-build,
+               libportaudio2,
+               libgirepository1.0-dev
+Standards-Version: 4.6.0
+Homepage: https://github.com/LeonardNJU/VocoType-linux
+
+Package: vocotype
+Architecture: any
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+         python3 (>= 3.11),
+         python3 (<< 3.13),
+         python3-pip,
+         python3-venv,
+         portaudio19-dev,
+         libportaudio2,
+         libffi8,
+         gir1.2-glib-2.0,
+         gir1.2-gtk-3.0,
+         python3-gi,
+         ibus,
+         fcitx5,
+         fcitx5-frontend-gtk4,
+         fcitx5-frontend-gtk3,
+         fcitx5-frontend-qt5,
+         fcitx5-frontend-qt6
+Recommends: python3-pyrime
+Description: Linux 离线语音输入法
+ VoCoType 是基于 FunASR 的 Linux 离线语音输入法，
+ 支持 IBus 和 Fcitx5 两大输入法框架。
+ .
+ 特性：
+  - 100% 离线，隐私无忧
+  - 旗舰级 FunASR Paraformer 识别引擎
+  - PTT 按键说话 (F9)
+  - 中英混合输入
+  - 可选 Rime 拼音集成

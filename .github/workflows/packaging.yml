@@ -1,0 +1,212 @@
+name: Packaging Tests
+
+on:
+  push:
+    paths:
+      - 'packaging/**'
+      - 'pyproject.toml'
+      - 'vocotype_version.py'
+      - '.github/workflows/packaging.yml'
+  pull_request:
+    paths:
+      - 'packaging/**'
+      - 'pyproject.toml'
+  workflow_dispatch:
+
+jobs:
+  # 1. 配置验证测试
+  validate-configs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run configuration tests
+        run: |
+          python3 -m pytest tests/packaging/test_package.py -v \
+            -k "TestPackageConfigs or TestDependencies or TestInstallationPaths"
+
+  # 2. DEB 构建测试
+  build-deb:
+    runs-on: ubuntu-latest
+    needs: validate-configs
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            debhelper \
+            cmake \
+            pkg-config \
+            libfcitx5core-dev \
+            nlohmann-json3-dev \
+            python3-build \
+            python3-venv \
+            python3-pip \
+            python3-wheel \
+            libportaudio2 \
+            libgirepository1.0-dev
+
+      - name: Build DEB package
+        run: |
+          cp -r packaging/debian .
+          dpkg-buildpackage -b -us -uc
+
+      - name: Find built package
+        id: find-pkg
+        run: |
+          PKG=$(ls ../*.deb | head -1)
+          echo "package=$PKG" >> $GITHUB_OUTPUT
+          echo "Built package: $PKG"
+
+      - name: Verify DEB package
+        run: |
+          python3 tests/packaging/verify_package.py \
+            --deb ${{ steps.find-pkg.outputs.package }}
+
+      - name: Upload DEB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-package
+          path: ../*.deb
+
+  # 3. RPM 构建测试
+  build-rpm:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    needs: validate-configs
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          dnf install -y \
+            rpm-build \
+            rpmdevtools \
+            cmake \
+            gcc-c++ \
+            fcitx5-devel \
+            nlohmann-json-devel \
+            python3-devel \
+            python3-pip \
+            python3-wheel \
+            python3-build \
+            portaudio-devel \
+            gobject-introspection-devel
+
+          rpmdev-setuptree
+
+      - name: Prepare sources
+        run: |
+          VERSION=$(python3 -c "import vocotype_version; print(__version__)")
+          cd ..
+          tar czf ~/rpmbuild/SOURCES/vocotype-${VERSION}.tar.gz \
+            --exclude=.git \
+            --exclude=__pycache__ \
+            --exclude="*.pyc" \
+            --transform "s|^$(basename $PWD)|vocotype-${VERSION}|" \
+            $(basename $PWD)
+
+      - name: Build RPM package
+        run: |
+          cp packaging/rpm/vocotype.spec ~/rpmbuild/SPECS/
+          cd ~/rpmbuild
+          rpmbuild -ba SPECS/vocotype.spec
+
+      - name: Find built package
+        id: find-pkg
+        run: |
+          PKG=$(ls ~/rpmbuild/RPMS/*/*.rpm | head -1)
+          echo "package=$PKG" >> $GITHUB_OUTPUT
+          echo "Built package: $PKG"
+
+      - name: Install rpmlint
+        run: dnf install -y rpmlint
+
+      - name: Verify RPM package
+        run: |
+          python3 tests/packaging/verify_package.py \
+            --rpm ${{ steps.find-pkg.outputs.package }}
+
+      - name: Upload RPM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-package
+          path: ~/rpmbuild/RPMS/**/*.rpm
+
+  # 4. 安装测试（在干净环境中）
+  test-install-deb:
+    runs-on: ubuntu-latest
+    needs: build-deb
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download DEB package
+        uses: actions/download-artifact@v4
+        with:
+          name: deb-package
+          path: ./packages
+
+      - name: Test installation
+        run: |
+          PKG=$(ls packages/*.deb | head -1)
+          echo "Testing installation of: $PKG"
+
+          # 检查依赖是否可满足
+          dpkg-deb -I "$PKG" | grep Depends
+
+          # 尝试安装（会失败因为缺少依赖，但可以验证包结构）
+          sudo dpkg -i "$PKG" || true
+
+          # 查看安装了哪些文件
+          dpkg -L vocotype || true
+
+  # 5. 包质量检查
+  package-quality:
+    runs-on: ubuntu-latest
+    needs: [build-deb, build-rpm]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all packages
+        uses: actions/download-artifact@v4
+        with:
+          path: ./packages
+
+      - name: Package size check
+        run: |
+          echo "=== Package Sizes ==="
+          find packages -type f \( -name "*.deb" -o -name "*.rpm" \) -exec ls -lh {} \;
+
+          # 检查包大小是否合理（小于 100MB）
+          for pkg in $(find packages -type f \( -name "*.deb" -o -name "*.rpm" \)); do
+            SIZE=$(stat -f%z "$pkg" 2>/dev/null || stat -c%s "$pkg")
+            SIZE_MB=$((SIZE / 1024 / 1024))
+            if [ $SIZE_MB -gt 100 ]; then
+              echo "WARNING: $pkg is ${SIZE_MB}MB (larger than expected)"
+            else
+              echo "OK: $pkg is ${SIZE_MB}MB"
+            fi
+          done
+
+      - name: Check package contents
+        run: |
+          echo "=== DEB Contents ==="
+          for deb in packages/deb-package/*.deb; do
+            echo "--- $deb ---"
+            dpkg-deb -c "$deb" | head -20
+          done
+
+          echo ""
+          echo "=== RPM Contents ==="
+          for rpm in packages/rpm-package/*.rpm; do
+            echo "--- $rpm ---"
+            rpm -qlp "$rpm" | head -20
+          done

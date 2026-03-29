@@ -1,0 +1,155 @@
+name: Packaging Tests
+
+on:
+  push:
+    branches: [ master, main, develop ]
+    paths:
+      - 'packaging/**'
+      - 'scripts/**'
+      - 'tests/packaging/**'
+      - 'pyproject.toml'
+      - 'vocotype_version.py'
+  pull_request:
+    branches: [ master, main ]
+    paths:
+      - 'packaging/**'
+      - 'scripts/**'
+      - 'tests/packaging/**'
+      - 'pyproject.toml'
+      - 'vocotype_version.py'
+
+jobs:
+  test-packaging:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest
+
+    - name: Run packaging validation
+      run: |
+        python tests/packaging/validate_packaging.py --strict
+
+    - name: Run packaging unit tests
+      run: |
+        python -m pytest tests/packaging/test_packaging.py -v || python tests/packaging/test_packaging.py
+
+  test-build-scripts:
+    runs-on: ubuntu-latest
+    needs: test-packaging
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Check build scripts are executable
+      run: |
+        for script in scripts/build-*.sh; do
+          if [ -x "$script" ]; then
+            echo "✓ $script is executable"
+          else
+            echo "✗ $script is not executable"
+            exit 1
+          fi
+        done
+
+    - name: Validate script syntax
+      run: |
+        bash -n scripts/build-deb.sh
+        bash -n scripts/build-rpm.sh
+        bash -n scripts/build-arch.sh
+        echo "All scripts have valid bash syntax"
+
+  check-version-consistency:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Get version from vocotype_version.py
+      id: version
+      run: |
+        VERSION=$(python3 -c "import vocotype_version; print(__version__)")
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Version: $VERSION"
+
+    - name: Check RPM spec version
+      run: |
+        SPEC_VERSION=$(grep "^Version:" packaging/rpm/vocotype.spec | awk '{print $2}')
+        if [ "$SPEC_VERSION" == "${{ steps.version.outputs.version }}" ]; then
+          echo "✓ RPM spec version matches: $SPEC_VERSION"
+        else
+          echo "✗ RPM spec version mismatch: $SPEC_VERSION != ${{ steps.version.outputs.version }}"
+          exit 1
+        fi
+
+    - name: Check Arch PKGBUILD version
+      run: |
+        PKGBUILD_VERSION=$(grep "^pkgver=" packaging/arch/PKGBUILD | cut -d'=' -f2)
+        if [ "$PKGBUILD_VERSION" == "${{ steps.version.outputs.version }}" ]; then
+          echo "✓ Arch PKGBUILD version matches: $PKGBUILD_VERSION"
+        else
+          echo "✗ Arch PKGBUILD version mismatch: $PKGBUILD_VERSION != ${{ steps.version.outputs.version }}"
+          exit 1
+        fi
+
+  check-file-structure:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Check required files exist
+      run: |
+        required_files=(
+          "LICENSE"
+          "readme.md"
+          "pyproject.toml"
+          "vocotype_version.py"
+          "ibus/vocotype.xml"
+          "fcitx5/data/vocotype.conf"
+          "packaging/debian/control"
+          "packaging/debian/rules"
+          "packaging/rpm/vocotype.spec"
+          "packaging/arch/PKGBUILD"
+          "packaging/systemd/vocotype-fcitx5-backend.service"
+        )
+
+        for file in "${required_files[@]}"; do
+          if [ -f "$file" ]; then
+            echo "✓ $file exists"
+          else
+            echo "✗ $file missing"
+            exit 1
+          fi
+        done
+
+    - name: Check required directories exist
+      run: |
+        required_dirs=(
+          "app"
+          "ibus"
+          "fcitx5"
+          "scripts"
+          "packaging/debian"
+          "packaging/rpm"
+          "packaging/arch"
+          "packaging/systemd"
+        )
+
+        for dir in "${required_dirs[@]}"; do
+          if [ -d "$dir" ]; then
+            echo "✓ $dir exists"
+          else
+            echo "✗ $dir missing"
+            exit 1
+          fi
+        done

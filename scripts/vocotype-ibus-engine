@@ -1,0 +1,8 @@
+#!/bin/bash
+# VoCoType IBus Engine wrapper script
+
+export PYTHONPATH=/usr/share/vocotype:/usr/lib/python3/dist-packages:$PYTHONPATH
+export PATH=/usr/lib/vocotype/ibus:$PATH
+
+# Run the IBus engine
+exec python3 -m ibus.main "$@"

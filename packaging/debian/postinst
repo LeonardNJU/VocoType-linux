@@ -1,0 +1,279 @@
+#!/bin/bash
+set -e
+
+# VoCoType 安装后脚本
+# 功能：
+# 1. 提示用户下载语音模型（首次安装）
+# 2. 自动启动 Fcitx5 后端服务
+
+# 检测是否在交互式环境
+is_interactive() {
+    # 检查 stdin 是否是终端
+    [ -t 0 ] && return 0 || return 1
+}
+
+# 检测是否有图形界面
+has_display() {
+    [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ] && return 0 || return 1
+}
+
+# 检测是否已安装模型
+models_exist() {
+    local cache_dir="$HOME/.cache/modelscope/hub/models/iic"
+    local models=("speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-onnx"
+                  "speech_fsmn_vad_zh-cn-16k-common-onnx"
+                  "punc_ct-transformer_zh-cn-common-vocab272727-onnx")
+
+    for model in "${models[@]}"; do
+        local model_dir="$cache_dir/$model"
+        if [ ! -d "$model_dir" ]; then
+            return 1
+        fi
+        # 检查是否有模型文件
+        if [ ! -f "$model_dir/model_quant.onnx" ] && [ ! -f "$model_dir/model.onnx" ]; then
+            return 1
+        fi
+    done
+    return 0
+}
+
+# 提示用户下载模型（图形界面）
+prompt_download_gui() {
+    local title="VoCoType - 下载语音模型"
+    local message="VoCoType 语音输入法需要下载约 500MB 的语音识别模型才能使用。
+
+模型包括：
+• ASR 模型（语音识别）：Paraformer-large
+• VAD 模型（语音活动检测）：FSMN
+• 标点模型：CT-Transformer
+
+模型下载后在本地运行，无需联网即可使用。
+
+是否现在下载？"
+
+    # 尝试 zenity (GNOME/GTK)
+    if command -v zenity >/dev/null 2>&1; then
+        if zenity --question --title="$title" --text="$message" \
+                  --ok-label="下载" --cancel-label="稍后" 2>/dev/null; then
+            return 0
+        else
+            return 1
+        fi
+    fi
+
+    # 尝试 kdialog (KDE)
+    if command -v kdialog >/dev/null 2>&1; then
+        if kdialog --title "$title" --yesno "$message" \
+                   --yes-label "下载" --no-label "稍后" 2>/dev/null; then
+            return 0
+        else
+            return 1
+        fi
+    fi
+
+    return 2  # 没有 GUI 工具
+}
+
+# 提示用户下载模型（命令行）
+prompt_download_cli() {
+    echo ""
+    echo "=============================================="
+    echo "🎤 VoCoType 语音输入法 - 首次安装设置"
+    echo "=============================================="
+    echo ""
+    echo "检测到语音识别模型尚未下载。"
+    echo ""
+    echo "模型信息："
+    echo "  • ASR 模型 (语音识别): Paraformer-large (~300MB)"
+    echo "  • VAD 模型 (语音活动检测): FSMN (~50MB)"
+    echo "  • Punctuation 模型 (标点预测): CT-Transformer (~150MB)"
+    echo ""
+    echo "总大小: 约 500MB"
+    echo "下载源: ModelScope (阿里云)"
+    echo ""
+    echo "注意: 所有模型下载后在本地运行，无需联网即可使用。"
+    echo ""
+
+    local choice
+    while true; do
+        read -p "是否现在下载模型? [Y/n]: " choice </dev/tty 2>/dev/null || choice="n"
+        choice=$(echo "$choice" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+        case "$choice" in
+            '' | 'y' | 'yes')
+                return 0
+                ;;
+            'n' | 'no')
+                return 1
+                ;;
+            *)
+                echo "请输入 Y 或 n"
+                ;;
+        esac
+    done
+}
+
+# 下载模型（带进度显示）
+download_models() {
+    echo ""
+    echo "正在下载语音模型..."
+    echo ""
+
+    local python_cmd=""
+    if command -v python3 >/dev/null 2>&1; then
+        python_cmd="python3"
+    elif command -v python >/dev/null 2>&1; then
+        python_cmd="python"
+    else
+        echo "错误: 未找到 Python 解释器" >&2
+        return 1
+    fi
+
+    # 检查是否有 vocotype-download-models 脚本
+    local script_path="/usr/lib/vocotype/scripts/vocotype-download-models"
+    if [ ! -f "$script_path" ]; then
+        script_path="/usr/share/vocotype/scripts/vocotype-download-models"
+    fi
+    if [ ! -f "$script_path" ]; then
+        # 尝试使用 Python 模块
+        script_path="-m app.download_models"
+    fi
+
+    # 下载模型
+    if [ -f "$script_path" ]; then
+        if ! "$python_cmd" "$script_path" --download --gui; then
+            echo "警告: GUI 下载失败，尝试命令行模式..."
+            "$python_cmd" "$script_path" --download
+        fi
+    else
+        "$python_cmd" $script_path
+    fi
+
+    return $?
+}
+
+# 启用并启动 Fcitx5 后端服务
+setup_fcitx5_service() {
+    local service_file="/usr/lib/systemd/user/vocotype-fcitx5-backend.service"
+
+    if [ ! -f "$service_file" ]; then
+        echo "警告: Fcitx5 后端服务文件未找到"
+        return 1
+    fi
+
+    echo ""
+    echo "正在配置 Fcitx5 后端服务..."
+
+    # 重新加载 systemd 配置
+    systemctl --user daemon-reload 2>/dev/null || true
+
+    # 启用服务（开机自动启动）
+    systemctl --user enable vocotype-fcitx5-backend.service 2>/dev/null || true
+
+    # 尝试启动服务
+    if systemctl --user start vocotype-fcitx5-backend.service 2>/dev/null; then
+        echo "✓ Fcitx5 后端服务已启动"
+    else
+        echo "⚠ Fcitx5 后端服务将在下次登录时自动启动"
+    fi
+
+    return 0
+}
+
+# 重新加载 Fcitx5 配置
+reload_fcitx5() {
+    if pgrep -x fcitx5 >/dev/null 2>&1; then
+        echo ""
+        echo "正在重新加载 Fcitx5 配置..."
+        fcitx5 -r 2>/dev/null || true
+    fi
+}
+
+# 主安装逻辑
+case "$1" in
+    configure)
+        # 获取当前用户（处理 sudo 情况）
+        ACTUAL_USER="${SUDO_USER:-$USER}"
+        if [ -n "$SUDO_USER" ]; then
+            USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+        else
+            USER_HOME="$HOME"
+        fi
+
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  VoCoType 语音输入法 - 安装配置"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+        # 检查是否需要下载模型
+        if ! models_exist; then
+            local should_download=false
+
+            # 尝试 GUI 提示
+            if has_display; then
+                if prompt_download_gui; then
+                    should_download=true
+                elif [ $? -eq 2 ]; then
+                    # 没有 GUI 工具，尝试命令行
+                    if is_interactive && prompt_download_cli; then
+                        should_download=true
+                    fi
+                fi
+            elif is_interactive; then
+                # 命令行交互式提示
+                if prompt_download_cli; then
+                    should_download=true
+                fi
+            fi
+
+            if [ "$should_download" = true ]; then
+                if download_models; then
+                    echo ""
+                    echo "✓ 模型下载完成！"
+                else
+                    echo ""
+                    echo "⚠ 模型下载失败。您可以稍后手动运行："
+                    echo "  sudo vocotype-download-models --download"
+                fi
+            else
+                echo ""
+                echo "ℹ 跳过模型下载。您可以稍后手动运行："
+                echo "  sudo vocotype-download-models --prompt"
+            fi
+        else
+            echo ""
+            echo "✓ 语音模型已存在，跳过下载"
+        fi
+
+        # 设置 Fcitx5 服务
+        setup_fcitx5_service
+
+        # 重新加载 Fcitx5
+        reload_fcitx5
+
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  VoCoType 安装完成"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "使用方法："
+        echo "  1. 按 F9 开始语音输入"
+        echo "  2. 说话后释放 F9"
+        echo "  3. 语音将自动转换为文字"
+        echo ""
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+# dh_installdeb will replace this with shell code automatically
+# generated by other debhelper scripts.
+
+#DEBHELPER#
+
+exit 0
