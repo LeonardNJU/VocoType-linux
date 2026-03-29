@@ -25,6 +25,11 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Install test dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install pytest
+
       - name: Run configuration tests
         run: |
           python3 -m pytest tests/packaging/test_package.py -v \
