@@ -44,13 +44,14 @@ Homepage = "https://github.com/vocotype"
 
 [project.scripts]
 vocotype-ibus = "ibus.main:main"
+vocotype-fcitx5-addon = "fcitx5.backend.fcitx5_server:main"
 vocotype-download-models = "app.download_models:main"
 
 [tool.setuptools]
 py-modules = ["vocotype_version"]
 
 [tool.setuptools.packages.find]
-include = ["app*", "ibus*"]
+include = ["app*", "ibus*", "fcitx5*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "vocotype_version.__version__" }

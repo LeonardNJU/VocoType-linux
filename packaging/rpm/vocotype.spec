@@ -45,7 +45,7 @@ VoCoType 是基于 FunASR 的 Linux 离线语音输入法，
   - 可选 Rime 拼音集成
 
 %prep
-%autosetup -n VocoType-linux-%{version}
+%autosetup -n vocotype-%{version}
 
 %build
 # 构建 Fcitx5 C++ addon
