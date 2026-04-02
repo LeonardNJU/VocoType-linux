@@ -9,6 +9,7 @@
 3. 脚本输出临时音频文件路径到 stdout
 4. C++ Addon 读取路径，将其发送到 Backend 进行识别
 """
+
 from __future__ import annotations
 
 import sys
@@ -23,13 +24,13 @@ import numpy as np
 import sounddevice as sd
 
 # 添加项目根目录到 path
-PROJECT_ROOT = Path(__file__).parent.parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.audio_utils import load_audio_config, resample_audio, SAMPLE_RATE
 from app.wave_writer import write_wav
 
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -59,7 +60,9 @@ class AudioRecorder:
             devices = sd.query_devices()
             for idx, info in enumerate(devices):
                 if info.get("max_input_channels", 0) > 0:
-                    logger.info("回退至输入设备 #%s (%s)", idx, info.get("name", "unknown"))
+                    logger.info(
+                        "回退至输入设备 #%s (%s)", idx, info.get("name", "unknown")
+                    )
                     return idx
         except Exception as exc:
             logger.warning("查询输入设备列表失败: %s", exc)
@@ -81,7 +84,9 @@ class AudioRecorder:
                 pass
 
         try:
-            info = sd.query_devices(device if device is not None else None, kind="input")
+            info = sd.query_devices(
+                device if device is not None else None, kind="input"
+            )
             default_sr = int(info.get("default_samplerate", 0)) if info else 0
             if default_sr:
                 sd.check_input_settings(
@@ -127,7 +132,7 @@ class AudioRecorder:
             blocksize=block_size,
             device=device,
             channels=1,
-            dtype='int16',
+            dtype="int16",
             callback=audio_callback,
         )
         self.stream.start()
@@ -178,7 +183,7 @@ class AudioRecorder:
         audio_16k = resample_audio(audio_data, sample_rate, SAMPLE_RATE)
 
         # 写入临时文件
-        temp_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         temp_path = Path(temp_file.name)
         temp_file.close()
 
@@ -189,22 +194,15 @@ class AudioRecorder:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='VoCoType Audio Recorder')
+    parser = argparse.ArgumentParser(description="VoCoType Audio Recorder")
     parser.add_argument(
-        '--duration',
+        "--duration",
         type=float,
-        help='Recording duration in seconds (default: wait for stdin)'
+        help="Recording duration in seconds (default: wait for stdin)",
     )
+    parser.add_argument("--device", type=str, help="Audio device name or ID")
     parser.add_argument(
-        '--device',
-        type=str,
-        help='Audio device name or ID'
-    )
-    parser.add_argument(
-        '--sample-rate',
-        type=int,
-        default=44100,
-        help='Sample rate (default: 44100)'
+        "--sample-rate", type=int, default=44100, help="Sample rate (default: 44100)"
     )
     args = parser.parse_args()
 
@@ -227,9 +225,10 @@ def main():
     except Exception as exc:
         logger.error("录音失败: %s", exc)
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
