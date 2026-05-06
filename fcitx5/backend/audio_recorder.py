@@ -38,7 +38,12 @@ def discover_project_root() -> Path:
 PROJECT_ROOT = discover_project_root()
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.audio_utils import load_audio_config, resample_audio, SAMPLE_RATE
+from app.audio_utils import (
+    load_audio_config,
+    resample_audio,
+    resolve_default_input_device,
+    SAMPLE_RATE,
+)
 from app.wave_writer import write_wav
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -67,16 +72,7 @@ class AudioRecorder:
             except Exception as exc:
                 logger.warning("查询设备 %s 失败: %s", self.device, exc)
 
-        try:
-            devices = sd.query_devices()
-            for idx, info in enumerate(devices):
-                if info.get("max_input_channels", 0) > 0:
-                    logger.info("回退至输入设备 #%s (%s)", idx, info.get("name", "unknown"))
-                    return idx
-        except Exception as exc:
-            logger.warning("查询输入设备列表失败: %s", exc)
-
-        return None
+        return resolve_default_input_device()
 
     def _resolve_sample_rate(self, device, preferred):
         """选择可用采样率"""
@@ -225,7 +221,12 @@ def main():
     device = args.device if args.device is not None else configured_device
     if isinstance(device, str) and device.isdigit():
         device = int(device)
-    sample_rate = args.sample_rate if args.sample_rate != 44100 else configured_sr
+    # Ask the sound server for 16 kHz directly so PipeWire/PulseAudio resample
+    # with proper anti-aliasing. Honour an explicit configured rate if set.
+    if args.sample_rate != 44100:
+        sample_rate = args.sample_rate
+    else:
+        sample_rate = configured_sr if configured_sr else SAMPLE_RATE
 
     # 录音
     recorder = AudioRecorder(device, sample_rate)

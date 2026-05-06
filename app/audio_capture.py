@@ -10,6 +10,8 @@ from typing import Optional
 import numpy as np
 import sounddevice as sd
 
+from app.audio_utils import resolve_default_input_device
+
 
 logger = logging.getLogger(__name__)
 
@@ -50,12 +52,13 @@ class AudioCapture:
                 return
 
             self.flush()
-            self._stream = self._create_stream(self.device)
+            device = self.device if self.device is not None else resolve_default_input_device()
+            self._stream = self._create_stream(device)
             try:
                 self._stream.start()
             except Exception:
                 self._stream.close()
-                self._stream = self._create_stream(self._fallback_device())
+                self._stream = self._create_stream(resolve_default_input_device())
                 self._stream.start()
 
             self._running = True
@@ -99,19 +102,6 @@ class AudioCapture:
             msg = f"无法创建音频输入流: {exc}"
             logger.error(msg)
             raise AudioCaptureError(msg) from exc
-
-    def _fallback_device(self) -> Optional[int]:
-        try:
-            devices = sd.query_devices()
-            for idx, info in enumerate(devices):
-                if info.get("max_input_channels", 0) > 0:
-                    logger.warning(
-                        "回退至输入设备 #%s (%s)", idx, info.get("name", "unknown")
-                    )
-                    return idx
-        except Exception as exc:
-            logger.error("查询音频设备失败: %s", exc)
-        return None
 
     def _callback(self, in_data, frames, time, status):  # type: ignore[override]
         if status:
