@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0d151c">
+  <link rel="stylesheet" href="styles.css">
+  <title>VocoType Linux — Offline voice typing for Linux</title>
+  <meta name="description" content="A private, CPU-only Chinese speech input method for Linux with native IBus and Fcitx 5 integration.">
+  <meta property="og:title" content="VocoType Linux — Speak. Type. Stay local.">
+  <meta property="og:description" content="Offline Chinese voice input for Linux, integrated with IBus and Fcitx 5.">
+  <meta property="og:image" content="assets/vocotype-demo.png">
+</head>
+<body>
+  <nav class="site-nav">
+    <div class="nav-inner">
+      <a class="brand" href="#top"><span class="brand-mark">VT</span>VocoType Linux</a>
+      <div class="nav-links">
+        <a href="#how">How it works</a><a href="#modes">Modes</a><a href="#demo">Demo</a><a href="#install">Install</a>
+        <a href="https://github.com/LeonardNJU/VocoType-linux">GitHub</a>
+        <a class="lang-switch" href="zh.html">中文</a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero" id="top">
+    <div class="hero-inner">
+      <div class="hero-copy">
+        <div class="eyebrow">Local speech input for Linux</div>
+        <h1>Speak. Type.<span class="hero-accent">Stay local.</span></h1>
+        <p class="hero-lead">VocoType turns push-to-talk into system-wide Chinese input—offline, CPU-only, and native to both IBus and Fcitx 5.</p>
+        <div class="hero-actions">
+          <a class="button primary" href="#demo">▶ Watch the demo</a>
+          <a class="button secondary" href="https://github.com/LeonardNJU/VocoType-linux">View on GitHub ↗</a>
+        </div>
+      </div>
+      <div class="hero-visual" aria-label="VocoType desktop preview">
+        <div class="window">
+          <div class="window-bar"><span class="dots"><i></i><i></i><i></i></span><span>vocotype://local-input</span></div>
+          <img src="assets/vocotype-demo.png" alt="VocoType running on a Linux desktop">
+          <div class="window-overlay"><div class="waveform"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="rec-label">LISTENING</div></div>
+        </div>
+        <div class="key-stack">
+          <div class="keycap"><strong>F9</strong><span>fast dictation</span></div>
+          <div class="keycap"><strong>Shift + F9</strong><span>polished long-form</span></div>
+          <div class="keycap"><strong>Ctrl + F9</strong><span>voice editing</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="metrics">
+      <div class="metric"><div><span class="metric-value">100</span><span class="metric-unit">% offline</span></div><p>Audio and text stay on your machine.</p></div>
+      <div class="metric"><div><span class="metric-value">~0.1</span><span class="metric-unit">s response</span></div><p>Fast commit after speech recognition.</p></div>
+      <div class="metric"><div><span class="metric-value">~700</span><span class="metric-unit">MB</span></div><p>Peak ASR memory; no discrete GPU required.</p></div>
+      <div class="metric"><div><span class="metric-value">2</span><span class="metric-unit">frameworks</span></div><p>Native IBus and Fcitx 5 integrations.</p></div>
+    </div>
+  </header>
+
+  <main>
+    <section>
+      <div class="section-inner">
+        <div class="section-head">
+          <div><p class="kicker">The desktop should listen locally</p><h2>Voice input without a cloud detour.</h2></div>
+          <p>Most voice typing tools are web services wrapped in a microphone button. VocoType is an actual Linux input method: it listens, transcribes, and commits text directly into the active application.</p>
+        </div>
+        <div class="value-grid">
+          <article class="value-card"><span class="num">01 / PRIVACY</span><h3>No uploads</h3><p>Recognition runs locally with FunASR Paraformer. Your voice, drafts, and surrounding text never need to leave the device.</p></article>
+          <article class="value-card"><span class="num">02 / NATIVE</span><h3>Works everywhere</h3><p>Chat windows, editors, browsers, terminals, and AI tools all receive text through the Linux input-method stack.</p></article>
+          <article class="value-card"><span class="num">03 / PRACTICAL</span><h3>CPU-first</h3><p>Designed for everyday desktops and laptops, with CPU inference, modest memory use, and no dedicated GPU requirement.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="pipeline-section" id="how">
+      <div class="section-inner">
+        <div class="section-head">
+          <div><p class="kicker">A bounded local pipeline</p><h2>From keypress to committed text.</h2></div>
+          <p>Each stage has a clear responsibility. Optional language-model polishing is downstream of speech recognition and can be disabled entirely.</p>
+        </div>
+        <div class="pipeline">
+          <article class="pipe-step"><div class="pipe-icon">01</div><h3>Hold the key</h3><p>Press F9 while speaking. Release it when the utterance is complete.</p></article>
+          <article class="pipe-step"><div class="pipe-icon">02</div><h3>Capture + VAD</h3><p>Local audio capture and voice-activity detection isolate the speech segment.</p></article>
+          <article class="pipe-step"><div class="pipe-icon">03</div><h3>Local ASR</h3><p>FunASR Paraformer transcribes Chinese and mixed Chinese–English speech on CPU.</p></article>
+          <article class="pipe-step"><div class="pipe-icon">04</div><h3>Commit</h3><p>IBus or Fcitx 5 inserts the final text into the focused application.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="modes">
+      <div class="section-inner">
+        <div class="section-head">
+          <div><p class="kicker">Three interaction modes</p><h2>One keyboard, three levels of assistance.</h2></div>
+          <p>Use raw dictation for speed, optional SLM polishing for long-form writing, or voice commands to edit existing text.</p>
+        </div>
+        <div class="modes">
+          <article class="mode-card"><span class="mode-key">F9</span><h3>Fast dictation</h3><p>The shortest path from speech to text. No language-model post-processing and minimal latency.</p><span class="mode-note">ASR ONLY</span></article>
+          <article class="mode-card"><span class="mode-key">Shift + F9</span><h3>Polished long-form</h3><p>Optionally routes longer utterances through a local or OpenAI-compatible SLM endpoint for punctuation and cleanup.</p><span class="mode-note">OPTIONAL SLM</span></article>
+          <article class="mode-card"><span class="mode-key">Ctrl + F9</span><h3>Voice editing</h3><p>On IBus, commands can replace, insert, delete, navigate, undo, and redo using the active field’s surrounding text.</p><span class="mode-note">IBUS EDIT MODE</span></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="demo-section" id="demo">
+      <div class="section-inner">
+        <div class="section-head">
+          <div><p class="kicker">Real desktop workflow</p><h2>See voice typing become normal typing.</h2></div>
+          <p>The demo shows VocoType operating inside ordinary Linux applications rather than a dedicated transcription window.</p>
+        </div>
+        <div class="demo-shell">
+          <video controls preload="metadata" poster="assets/vocotype-video-poster.png"><source src="assets/vocotype-demo.mp4" type="video/mp4">Your browser does not support HTML5 video.</video>
+          <div class="demo-caption"><span><strong>VocoType Linux demo</strong> · system-wide input</span><span>64 seconds · local playback</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-inner">
+        <div class="section-head">
+          <div><p class="kicker">Desktop integration</p><h2>Choose the Linux stack you already use.</h2></div>
+          <p>The two front ends share the same recognition core while integrating with their native input-method protocols.</p>
+        </div>
+        <div class="frameworks">
+          <article class="framework"><div class="framework-top"><h3>IBus</h3><span class="badge">Full support</span></div><p>Best suited to GNOME and distributions where IBus is the default input framework.</p><ul><li>Python input engine</li><li>Fast and polished dictation</li><li>Voice editing with surrounding text</li></ul></article>
+          <article class="framework"><div class="framework-top"><h3>Fcitx 5</h3><span class="badge">Full support</span></div><p>Designed for KDE and users who prefer the modular Fcitx 5 ecosystem.</p><ul><li>C++ addon + Python backend</li><li>Fast and polished dictation</li><li>Independent installation path</li></ul></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="install-section" id="install">
+      <div class="section-inner">
+        <div class="section-head">
+          <div><p class="kicker">Install from source</p><h2>Pick a framework and start speaking.</h2></div>
+          <p>The installers set up the backend, input-method integration, and model configuration. IBus and Fcitx 5 builds can coexist.</p>
+        </div>
+        <div class="install-grid">
+          <article class="install-card"><div class="install-title"><strong>IBus</strong><span>GNOME / default stacks</span></div><pre><span class="prompt">$</span> git clone https://github.com/LeonardNJU/VocoType-linux.git
+<span class="prompt">$</span> cd VocoType-linux
+<span class="prompt">$</span> ./scripts/install-ibus.sh
+<span class="prompt">$</span> ibus restart</pre></article>
+          <article class="install-card"><div class="install-title"><strong>Fcitx 5</strong><span>KDE / modular stacks</span></div><pre><span class="prompt">$</span> git clone https://github.com/LeonardNJU/VocoType-linux.git
+<span class="prompt">$</span> cd VocoType-linux
+<span class="prompt">$</span> bash fcitx5/scripts/install-fcitx5.sh
+<span class="prompt">$</span> fcitx5 -r</pre></article>
+        </div>
+        <p class="requirements">Linux · Python 3.11–3.12 · 4 GB RAM minimum · CPU-only inference · Fedora, Ubuntu, Debian, Arch, and related distributions</p>
+      </div>
+    </section>
+  </main>
+
+  <section class="final-cta"><div class="final-inner"><h2>Make private voice input a first-class Linux feature.</h2><a class="button" href="https://github.com/LeonardNJU/VocoType-linux">Open the repository ↗</a></div></section>
+  <footer><div class="footer-inner"><span>© 2025–2026 <a href="https://lsamc.website">Leonard Li</a></span><span>VocoType Linux · open-source offline speech input · <a href="https://github.com/LeonardNJU/VocoType-linux/blob/master/LICENSE">GNU GPL v3.0</a></span></div></footer>
+</body>
+</html>

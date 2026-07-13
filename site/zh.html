@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0d151c">
+  <link rel="stylesheet" href="styles.css">
+  <title>VocoType Linux — Linux 本地离线语音输入法</title>
+  <meta name="description" content="面向 Linux 的本地离线中文语音输入法，原生支持 IBus 与 Fcitx 5。">
+  <meta property="og:title" content="VocoType Linux — 说出来，直接输入，始终本地。">
+  <meta property="og:description" content="CPU 即可运行的 Linux 离线中文语音输入法。">
+  <meta property="og:image" content="assets/vocotype-demo.png">
+</head>
+<body>
+  <nav class="site-nav">
+    <div class="nav-inner">
+      <a class="brand" href="#top"><span class="brand-mark">VT</span>VocoType Linux</a>
+      <div class="nav-links">
+        <a href="#how">工作流程</a><a href="#modes">输入模式</a><a href="#demo">演示</a><a href="#install">安装</a>
+        <a href="https://github.com/LeonardNJU/VocoType-linux">GitHub</a>
+        <a class="lang-switch" href="index.html">English</a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero" id="top">
+    <div class="hero-inner">
+      <div class="hero-copy">
+        <div class="eyebrow">Linux 本地语音输入</div>
+        <h1>说出来，直接输入。<span class="hero-accent">始终留在本地。</span></h1>
+        <p class="hero-lead">VocoType 把按键说话变成真正的系统级中文输入：完全离线、纯 CPU 运行，并原生接入 IBus 与 Fcitx 5。</p>
+        <div class="hero-actions">
+          <a class="button primary" href="#demo">▶ 查看演示</a>
+          <a class="button secondary" href="https://github.com/LeonardNJU/VocoType-linux">前往 GitHub ↗</a>
+        </div>
+      </div>
+      <div class="hero-visual" aria-label="VocoType 桌面预览">
+        <div class="window">
+          <div class="window-bar"><span class="dots"><i></i><i></i><i></i></span><span>vocotype://local-input</span></div>
+          <img src="assets/vocotype-demo.png" alt="VocoType 在 Linux 桌面中运行">
+          <div class="window-overlay"><div class="waveform"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="rec-label">正在聆听</div></div>
+        </div>
+        <div class="key-stack">
+          <div class="keycap"><strong>F9</strong><span>极速听写</span></div>
+          <div class="keycap"><strong>Shift + F9</strong><span>长句润色</span></div>
+          <div class="keycap"><strong>Ctrl + F9</strong><span>语音编辑</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="metrics">
+      <div class="metric"><div><span class="metric-value">100</span><span class="metric-unit">% 离线</span></div><p>音频和文本始终留在本机。</p></div>
+      <div class="metric"><div><span class="metric-value">~0.1</span><span class="metric-unit">秒响应</span></div><p>识别完成后快速提交文字。</p></div>
+      <div class="metric"><div><span class="metric-value">~700</span><span class="metric-unit">MB</span></div><p>ASR 峰值内存，无需独立显卡。</p></div>
+      <div class="metric"><div><span class="metric-value">2</span><span class="metric-unit">套框架</span></div><p>原生支持 IBus 与 Fcitx 5。</p></div>
+    </div>
+  </header>
+
+  <main>
+    <section>
+      <div class="section-inner">
+        <div class="section-head">
+          <div><p class="kicker">桌面应当在本地听懂你</p><h2>语音输入，不必绕道云端。</h2></div>
+          <p>很多语音输入只是网页服务外面套了一个麦克风按钮。VocoType 是真正的 Linux 输入法：在本地录音、识别，并把文字直接提交到当前应用。</p>
+        </div>
+        <div class="value-grid">
+          <article class="value-card"><span class="num">01 / 隐私</span><h3>不上传任何数据</h3><p>FunASR Paraformer 在本机完成识别；声音、草稿和输入框上下文都无需离开设备。</p></article>
+          <article class="value-card"><span class="num">02 / 原生</span><h3>几乎处处可用</h3><p>聊天窗口、编辑器、浏览器、终端与 AI 工具，都通过 Linux 输入法框架接收文字。</p></article>
+          <article class="value-card"><span class="num">03 / 实用</span><h3>为 CPU 设计</h3><p>面向普通 Linux 台式机与笔记本优化，内存占用适中，不要求独立显卡。</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="pipeline-section" id="how">
+      <div class="section-inner">
+        <div class="section-head">
+          <div><p class="kicker">边界清晰的本地流水线</p><h2>从按下按键，到文字进入输入框。</h2></div>
+          <p>每个阶段只承担明确职责。可选的语言模型润色位于语音识别之后，也可以完全关闭。</p>
+        </div>
+        <div class="pipeline">
+          <article class="pipe-step"><div class="pipe-icon">01</div><h3>按住说话</h3><p>按住 F9 开始说话，内容说完后松开按键。</p></article>
+          <article class="pipe-step"><div class="pipe-icon">02</div><h3>录音与 VAD</h3><p>本地采集音频，并通过语音活动检测提取有效语段。</p></article>
+          <article class="pipe-step"><div class="pipe-icon">03</div><h3>本地 ASR</h3><p>FunASR Paraformer 在 CPU 上识别中文和中英混合语音。</p></article>
+          <article class="pipe-step"><div class="pipe-icon">04</div><h3>提交文本</h3><p>IBus 或 Fcitx 5 把最终结果写入当前获得焦点的应用。</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="modes">
+      <div class="section-inner">
+        <div class="section-head">
+          <div><p class="kicker">三种交互模式</p><h2>一组快捷键，三档辅助强度。</h2></div>
+          <p>追求速度时直接听写；写长句时选择可选润色；需要修改已有文字时，直接用语音下达编辑命令。</p>
+        </div>
+        <div class="modes">
+          <article class="mode-card"><span class="mode-key">F9</span><h3>极速听写</h3><p>从语音到文字的最短路径，不经过语言模型后处理，尽可能降低延迟。</p><span class="mode-note">仅 ASR</span></article>
+          <article class="mode-card"><span class="mode-key">Shift + F9</span><h3>长句润色</h3><p>可将较长的识别结果交给本地模型或 OpenAI 兼容接口，补标点并清理表达。</p><span class="mode-note">可选 SLM</span></article>
+          <article class="mode-card"><span class="mode-key">Ctrl + F9</span><h3>语音编辑</h3><p>IBus 版本可读取输入框上下文，通过语音完成替换、插入、删除、导航、撤销与重做。</p><span class="mode-note">IBUS 编辑模式</span></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="demo-section" id="demo">
+      <div class="section-inner">
+        <div class="section-head">
+          <div><p class="kicker">真实桌面工作流</p><h2>让语音输入看起来就像普通输入。</h2></div>
+          <p>演示中的 VocoType 直接运行在普通 Linux 应用里，而不是要求你先打开一个专门的转写窗口。</p>
+        </div>
+        <div class="demo-shell">
+          <video controls preload="metadata" poster="assets/vocotype-video-poster.png"><source src="assets/vocotype-demo.mp4" type="video/mp4">浏览器不支持 HTML5 视频。</video>
+          <div class="demo-caption"><span><strong>VocoType Linux 演示</strong> · 系统级输入</span><span>64 秒 · 本地视频</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-inner">
+        <div class="section-head">
+          <div><p class="kicker">桌面框架集成</p><h2>沿用你本来就在使用的 Linux 输入栈。</h2></div>
+          <p>两个前端共享同一套语音识别核心，同时分别遵循各自输入法框架的原生协议。</p>
+        </div>
+        <div class="frameworks">
+          <article class="framework"><div class="framework-top"><h3>IBus</h3><span class="badge">完整支持</span></div><p>适合 GNOME，以及默认采用 IBus 的 Linux 发行版。</p><ul><li>Python 输入法引擎</li><li>极速与润色听写</li><li>基于输入框上下文的语音编辑</li></ul></article>
+          <article class="framework"><div class="framework-top"><h3>Fcitx 5</h3><span class="badge">完整支持</span></div><p>适合 KDE，以及偏好模块化 Fcitx 5 生态的用户。</p><ul><li>C++ Addon + Python 后端</li><li>极速与润色听写</li><li>独立安装路径，可与 IBus 共存</li></ul></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="install-section" id="install">
+      <div class="section-inner">
+        <div class="section-head">
+          <div><p class="kicker">从源码安装</p><h2>选择输入法框架，然后开口说话。</h2></div>
+          <p>安装脚本会配置后端、输入法集成和模型选项。IBus 与 Fcitx 5 两个版本可以同时安装。</p>
+        </div>
+        <div class="install-grid">
+          <article class="install-card"><div class="install-title"><strong>IBus</strong><span>GNOME / 默认输入栈</span></div><pre><span class="prompt">$</span> git clone https://github.com/LeonardNJU/VocoType-linux.git
+<span class="prompt">$</span> cd VocoType-linux
+<span class="prompt">$</span> ./scripts/install-ibus.sh
+<span class="prompt">$</span> ibus restart</pre></article>
+          <article class="install-card"><div class="install-title"><strong>Fcitx 5</strong><span>KDE / 模块化输入栈</span></div><pre><span class="prompt">$</span> git clone https://github.com/LeonardNJU/VocoType-linux.git
+<span class="prompt">$</span> cd VocoType-linux
+<span class="prompt">$</span> bash fcitx5/scripts/install-fcitx5.sh
+<span class="prompt">$</span> fcitx5 -r</pre></article>
+        </div>
+        <p class="requirements">Linux · Python 3.11–3.12 · 最低 4 GB 内存 · 纯 CPU 推理 · 支持 Fedora、Ubuntu、Debian、Arch 等发行版</p>
+      </div>
+    </section>
+  </main>
+
+  <section class="final-cta"><div class="final-inner"><h2>让私密的语音输入，成为 Linux 的一等功能。</h2><a class="button" href="https://github.com/LeonardNJU/VocoType-linux">打开项目仓库 ↗</a></div></section>
+  <footer><div class="footer-inner"><span>© 2025–2026 <a href="https://lsamc.website">Leonard Li</a></span><span>VocoType Linux · 开源离线语音输入法 · <a href="https://github.com/LeonardNJU/VocoType-linux/blob/master/LICENSE">GNU GPL v3.0</a></span></div></footer>
+</body>
+</html>
