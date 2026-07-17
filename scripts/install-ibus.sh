@@ -550,10 +550,6 @@ if [ "$USE_SYSTEM_PYTHON" = "1" ]; then
         echo "请把依赖安装到上面显示的同一个解释器："
         echo "  $PYTHON -m pip install -r $PROJECT_DIR/requirements.txt"
         echo ""
-        echo "如果上面的错误是 No module named 'torch'，这是 funasr_onnx 0.4.1"
-        echo "的已知打包限制。在无 Torch 的新版本发布前，可临时安装 CPU wheel："
-        echo "  $PYTHON -m pip install --index-url https://download.pytorch.org/whl/cpu torch"
-        echo ""
         echo "也可以重新运行安装脚本并选择项目或用户级虚拟环境。"
         exit 1
     fi

@@ -6,6 +6,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_CHECK = ROOT / "scripts" / "check-python-runtime.py"
 IBUS_INSTALLER = ROOT / "scripts" / "install-ibus.sh"
+REQUIREMENTS = ROOT / "requirements.txt"
+PYPROJECT = ROOT / "pyproject.toml"
 
 
 def load_runtime_check():
@@ -60,3 +62,20 @@ def test_ibus_system_python_uses_runtime_check_and_bound_pip_command():
         "$PYTHON -m pip install -r $PROJECT_DIR/requirements.txt",
         "",
     )
+
+
+def test_package_manifests_pin_torch_free_funasr_onnx_release():
+    requirements = REQUIREMENTS.read_text(encoding="utf-8")
+    pyproject = PYPROJECT.read_text(encoding="utf-8")
+
+    assert "funasr_onnx==0.4.2" in requirements
+    assert '"funasr_onnx==0.4.2"' in pyproject
+    assert "funasr_onnx==0.4.1" not in requirements
+    assert "funasr_onnx==0.4.1" not in pyproject
+
+
+def test_installer_does_not_offer_obsolete_funasr_onnx_torch_workaround():
+    source = IBUS_INSTALLER.read_text(encoding="utf-8")
+
+    assert "funasr_onnx 0.4.1" not in source
+    assert "download.pytorch.org/whl/cpu" not in source

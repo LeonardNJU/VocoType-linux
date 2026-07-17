@@ -16,7 +16,7 @@ dependencies = [
   "sounddevice==0.5.2",
   "librosa==0.11.0",
   "soundfile==0.13.1",
-  "funasr_onnx==0.4.1",
+  "funasr_onnx==0.4.2",
   "jieba==0.42.1",
   "PyGObject>=3.42.0; python_version < '3.12'",
   "PyGObject>=3.56.0; python_version >= '3.12'",
