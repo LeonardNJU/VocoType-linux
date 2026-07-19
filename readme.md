@@ -41,7 +41,7 @@ https://github.com/user-attachments/assets/94772920-0f9e-4dff-8da5-c9026eb23256
 
 ```bash
 git clone https://github.com/LeonardNJU/VocoType-linux.git
-cd vocotype-cli
+cd VocoType-linux
 ./scripts/install-ibus.sh
 ibus restart
 ```
@@ -58,7 +58,7 @@ ibus restart
 
 ```bash
 git clone https://github.com/LeonardNJU/VocoType-linux.git
-cd vocotype-cli
+cd VocoType-linux
 bash fcitx5/scripts/install-fcitx5.sh
 fcitx5 -r
 ```
