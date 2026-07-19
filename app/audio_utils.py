@@ -17,16 +17,78 @@ SAMPLE_RATE = 16000
 DEFAULT_NATIVE_SAMPLE_RATE = 44100
 
 
-def load_audio_config() -> tuple[int | str | None, int]:
-    """从配置文件加载音频设备配置
+def resolve_default_input_device(
+    *, exclude: tuple[int | str | None, ...] = ()
+) -> int | None:
+    """挑选用户实际的默认麦克风。
+
+    优先级：
+      1. ALSA "default" / "pulse" 这两个由 PipeWire/PulseAudio 注入的虚拟
+         PCM，跟随 wpctl/pavucontrol 选择的默认源。
+      2. PortAudio 自己认定的 default (sd.default.device[0])。
+      3. 第一个有输入通道的设备（兜底）。
+
+    ``exclude`` 同时匹配设备 ID 和设备名称，用于首次打开失败后选择一个
+    真正不同的回退设备。
+    """
+    import sounddevice as sd
+
+    try:
+        devices = list(sd.query_devices())
+    except Exception as exc:
+        logger.warning("查询音频设备列表失败: %s", exc)
+        return None
+
+    excluded = {item for item in exclude if item is not None}
+
+    def is_available(idx: int, info: dict) -> bool:
+        return (
+            info.get("max_input_channels", 0) > 0
+            and idx not in excluded
+            and info.get("name") not in excluded
+        )
+
+    for preferred in ("default", "pulse"):
+        for idx, info in enumerate(devices):
+            if info.get("name") == preferred and is_available(idx, info):
+                logger.info("使用服务器虚拟设备 #%s (%s)", idx, preferred)
+                return idx
+
+    try:
+        pa_default_raw = sd.default.device[0]
+        pa_default = int(pa_default_raw) if pa_default_raw is not None else -1
+        if 0 <= pa_default < len(devices):
+            info = devices[pa_default]
+            if is_available(pa_default, info):
+                logger.info(
+                    "使用 PortAudio 默认设备 #%s (%s)",
+                    pa_default,
+                    info.get("name", "unknown"),
+                )
+                return pa_default
+    except Exception:
+        pass
+
+    for idx, info in enumerate(devices):
+        if is_available(idx, info):
+            logger.info("回退至输入设备 #%s (%s)", idx, info.get("name", "unknown"))
+            return idx
+
+    logger.warning("没有发现可用的音频输入设备")
+    return None
+
+
+def load_audio_config() -> tuple[int | str | None, int | None]:
+    """从配置文件加载音频设备配置。
 
     Returns:
-        (device, sample_rate): 设备（可能为 None、整数 ID 或字符串名称）和采样率
+        (device, sample_rate): 没有配置文件时返回 (None, None)，让调用方使用
+        服务器虚拟设备并直接请求 16 kHz；配置文件存在则按内容返回。
     """
     config_file = Path.home() / ".config" / "vocotype" / "audio.conf"
     if not config_file.exists():
-        logger.warning("音频配置文件不存在: %s，使用默认设备", config_file)
-        return None, DEFAULT_NATIVE_SAMPLE_RATE
+        logger.info("未找到 %s，使用系统默认输入设备", config_file)
+        return None, None
 
     try:
         import configparser
@@ -47,7 +109,7 @@ def load_audio_config() -> tuple[int | str | None, int]:
         return device_id, sample_rate
     except Exception as e:
         logger.warning("读取音频配置失败: %s，使用默认设备", e)
-        return None, DEFAULT_NATIVE_SAMPLE_RATE
+        return None, None
 
 
 def resample_audio(audio: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarray:
@@ -63,7 +125,14 @@ def resample_audio(audio: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarra
     """
     if orig_sr == target_sr:
         return audio
-    duration = len(audio) / orig_sr
-    target_length = int(duration * target_sr)
-    indices = np.linspace(0, len(audio) - 1, target_length)
-    return np.interp(indices, np.arange(len(audio)), audio.astype(np.float32)).astype(np.int16)
+
+    import librosa
+
+    float_audio = audio.astype(np.float32) / 32768.0
+    resampled = librosa.resample(
+        float_audio,
+        orig_sr=orig_sr,
+        target_sr=target_sr,
+        res_type="soxr_hq",
+    )
+    return np.clip(resampled * 32768.0, -32768, 32767).astype(np.int16)

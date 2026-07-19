@@ -38,11 +38,28 @@ def discover_project_root() -> Path:
 PROJECT_ROOT = discover_project_root()
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.audio_utils import load_audio_config, resample_audio, SAMPLE_RATE
+from app.audio_utils import (
+    load_audio_config,
+    resample_audio,
+    resolve_default_input_device,
+    SAMPLE_RATE,
+)
 from app.wave_writer import write_wav
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
+
+
+def resolve_requested_sample_rate(
+    cli_sample_rate: int | None,
+    configured_sample_rate: int | None,
+) -> int:
+    """Resolve CLI/config/default sample rate without using a magic sentinel."""
+    if cli_sample_rate is not None:
+        return cli_sample_rate
+    if configured_sample_rate:
+        return configured_sample_rate
+    return SAMPLE_RATE
 
 
 class AudioRecorder:
@@ -67,16 +84,7 @@ class AudioRecorder:
             except Exception as exc:
                 logger.warning("查询设备 %s 失败: %s", self.device, exc)
 
-        try:
-            devices = sd.query_devices()
-            for idx, info in enumerate(devices):
-                if info.get("max_input_channels", 0) > 0:
-                    logger.info("回退至输入设备 #%s (%s)", idx, info.get("name", "unknown"))
-                    return idx
-        except Exception as exc:
-            logger.warning("查询输入设备列表失败: %s", exc)
-
-        return None
+        return resolve_default_input_device()
 
     def _resolve_sample_rate(self, device, preferred):
         """选择可用采样率"""
@@ -215,8 +223,8 @@ def main():
     parser.add_argument(
         '--sample-rate',
         type=int,
-        default=44100,
-        help='Sample rate (default: 44100)'
+        default=None,
+        help='Sample rate (default: configured rate or 16000)'
     )
     args = parser.parse_args()
 
@@ -225,7 +233,9 @@ def main():
     device = args.device if args.device is not None else configured_device
     if isinstance(device, str) and device.isdigit():
         device = int(device)
-    sample_rate = args.sample_rate if args.sample_rate != 44100 else configured_sr
+    # Ask the sound server for 16 kHz directly when no rate was configured.
+    # An explicit --sample-rate value, including 44100, must always win.
+    sample_rate = resolve_requested_sample_rate(args.sample_rate, configured_sr)
 
     # 录音
     recorder = AudioRecorder(device, sample_rate)
