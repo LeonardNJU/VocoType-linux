@@ -55,6 +55,23 @@ def test_local_provider_default_keepalive_enabled():
     assert polisher.keepalive_ms == 60000
 
 
+def test_local_provider_ignores_http_endpoint():
+    polisher = SLMPolisher(
+        {
+            "enabled": True,
+            "provider": "local_ephemeral",
+            "endpoint": "http://127.0.0.1:18080/v1/chat/completions",
+        }
+    )
+    assert polisher.endpoint == ""
+
+
+def test_remote_provider_has_network_safe_defaults():
+    polisher = SLMPolisher({"enabled": True, "provider": "remote"})
+    assert polisher.timeout_ms == 20000
+    assert polisher.max_tokens == 128
+
+
 def test_local_ready_timeout_uses_request_timeout_ceiling():
     polisher = SLMPolisher(
         {

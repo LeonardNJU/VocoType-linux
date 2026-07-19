@@ -55,10 +55,10 @@ SLM_ENDPOINT="http://127.0.0.1:18080/v1/chat/completions"
 SLM_MODEL="Qwen/Qwen3.5-0.8B"
 SLM_LOCAL_MODEL="$SLM_MODEL"
 SLM_LOCAL_PYTHON=""
-SLM_TIMEOUT_MS=600
-SLM_WARMUP_TIMEOUT_MS=12000
+SLM_TIMEOUT_MS=12000
+SLM_WARMUP_TIMEOUT_MS=90000
 SLM_MIN_CHARS=8
-SLM_MAX_TOKENS=24
+SLM_MAX_TOKENS=96
 SLM_ENABLE_THINKING=0
 SLM_API_KEY=""
 SLM_INSTALL_LOCAL_DEPS=0
@@ -196,7 +196,6 @@ slm.update(
     {
         "enabled": enabled,
         "provider": provider,
-        "endpoint": endpoint,
         "model": model,
         "local_model": local_model,
         "local_python": local_python,
@@ -208,6 +207,10 @@ slm.update(
         "api_key": api_key,
     }
 )
+if provider == "remote":
+    slm["endpoint"] = endpoint
+else:
+    slm.pop("endpoint", None)
 cfg["slm"] = slm
 
 os.makedirs(os.path.dirname(target), exist_ok=True)
@@ -238,6 +241,9 @@ case "$SLM_CHOICE" in
 
         if [ "$SLM_PROVIDER_CHOICE" = "2" ]; then
             SLM_PROVIDER="remote"
+            SLM_TIMEOUT_MS=20000
+            SLM_WARMUP_TIMEOUT_MS=12000
+            SLM_MAX_TOKENS=128
             read -r -p "SLM 模型名 (默认 $SLM_MODEL): " SLM_MODEL_INPUT
             if [ -n "$SLM_MODEL_INPUT" ]; then
                 SLM_MODEL="$SLM_MODEL_INPUT"

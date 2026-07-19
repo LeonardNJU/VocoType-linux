@@ -798,27 +798,12 @@ wheels = [
 
 [[package]]
 name = "pygobject"
-version = "3.42.0"
+version = "3.50.2"
 source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version < '3.12'",
-]
 dependencies = [
     { name = "pycairo" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/cc/72/48cfdd7a0caf3c27f392d2657731ac6f7c3c1c0a60bfeba3e1ba9ffa7ba9/PyGObject-3.42.0.tar.gz", hash = "sha256:b9803991ec0b0b4175e81fee0ad46090fa7af438fe169348a9b18ae53447afcd", size = 716094, upload-time = "2021-09-19T10:21:14.777Z" }
-
-[[package]]
-name = "pygobject"
-version = "3.56.3"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.12'",
-]
-dependencies = [
-    { name = "pycairo" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/da/61/978c5fbca34f10a90df362502fbb5a005637909e7b5a0e9212349ea9d010/pygobject-3.56.3.tar.gz", hash = "sha256:12760e4a0e3d04b6eb95e06f7a27e362c826d567ea613373a92c003b6c70d2d6", size = 1411853, upload-time = "2026-05-08T20:46:39.904Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a7/5d/f2946cc6c1baf56dee6e942af8cfa16472538a8ad9d780d9f484e7554288/pygobject-3.50.2.tar.gz", hash = "sha256:ece6b860aab77cb649fdfc6e88d8a83765e7a62f7ffd39a628d6e2a0d397a7ff", size = 1085854, upload-time = "2025-10-18T13:44:45.634Z" }
 
 [[package]]
 name = "pyreadline3"
@@ -1301,15 +1286,14 @@ wheels = [
 ]
 
 [[package]]
-name = "vocotype-ibus"
+name = "vocotype-linux"
 source = { editable = "." }
 dependencies = [
     { name = "funasr-onnx" },
     { name = "jieba" },
     { name = "librosa" },
     { name = "modelscope" },
-    { name = "pygobject", version = "3.42.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "pygobject", version = "3.56.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "pygobject" },
     { name = "sounddevice" },
     { name = "soundfile" },
 ]
@@ -1334,8 +1318,7 @@ requires-dist = [
     { name = "jieba", specifier = "==0.42.1" },
     { name = "librosa", specifier = "==0.11.0" },
     { name = "modelscope", specifier = "==1.30.0" },
-    { name = "pygobject", marker = "python_full_version < '3.12'", specifier = ">=3.42.0" },
-    { name = "pygobject", marker = "python_full_version >= '3.12'", specifier = ">=3.56.0" },
+    { name = "pygobject", specifier = ">=3.46,<3.52" },
     { name = "pyrime", marker = "extra == 'full'", specifier = ">=0.2.1" },
     { name = "pyrime", marker = "extra == 'rime'", specifier = ">=0.2.1" },
     { name = "sentencepiece", marker = "extra == 'slm'", specifier = ">=0.2.1" },

@@ -50,7 +50,7 @@ Python Backend (fcitx5/backend/)
 ### 快速安装
 
 ```bash
-cd vocotype-cli
+cd VocoType-linux
 bash fcitx5/scripts/install-fcitx5.sh
 ```
 

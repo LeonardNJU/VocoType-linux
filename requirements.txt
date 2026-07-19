@@ -1,4 +1,4 @@
-# VoCoType Linux IBus 输入法依赖
+# VoCoType Linux 输入法依赖（IBus / Fcitx 5 backend）
 # 注：pyproject.toml 为标准安装入口；本文件保留用于 pinned 安装
 
 # 音频采集和处理
@@ -11,10 +11,9 @@ funasr_onnx==0.4.2
 jieba==0.42.1
 
 # IBus Python 绑定 (Linux 必需)
-# PyGObject 3.42 在 Python 3.12 上会导致 gi.repository 动态导入失效
-#（F9 无响应，engine 进程启动即退出），因此按 Python 版本分流。
-PyGObject>=3.42.0; python_version < "3.12"
-PyGObject>=3.56.0; python_version >= "3.12"
+# 3.52+ 改用 girepository-2.0，并要求 GLib >= 2.80；Ubuntu 22.04 不满足。
+# 3.46-3.50 同时支持 Python 3.12 与传统 gobject-introspection-1.0。
+PyGObject>=3.46,<3.52
 
 # 模型下载 (推荐)
 modelscope==1.30.0

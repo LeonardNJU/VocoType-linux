@@ -34,6 +34,7 @@ from app.audio_utils import (
     resample_audio,
 )
 from app.config import DEFAULT_CONFIG, load_config
+from app.ibus_compat import build_capability_flags
 from app.slm_polisher import SLMPolisher
 
 if TYPE_CHECKING:
@@ -116,16 +117,7 @@ class VoCoTypeEngine(IBus.Engine):
         IBus.KEY_a: 30,
         IBus.KEY_z: 44,
     }
-    _CAPABILITY_FLAGS = (
-        (int(IBus.Capabilite.PREEDIT_TEXT), "preedit"),
-        (int(IBus.Capabilite.AUXILIARY_TEXT), "aux"),
-        (int(IBus.Capabilite.LOOKUP_TABLE), "lookup"),
-        (int(IBus.Capabilite.FOCUS), "focus"),
-        (int(IBus.Capabilite.PROPERTY), "property"),
-        (int(IBus.Capabilite.SURROUNDING_TEXT), "surrounding"),
-        (int(IBus.Capabilite.OSK), "osk"),
-        (int(IBus.Capabilite.SYNC_PROCESS_KEY), "sync_key"),
-    )
+    _CAPABILITY_FLAGS = build_capability_flags(IBus.Capabilite)
 
     # 全局session跟踪（用于调试）
     _active_sessions = set()

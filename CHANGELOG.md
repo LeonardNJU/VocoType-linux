@@ -1,9 +1,23 @@
 # Changelog
 
-All notable changes to VoCoType Linux IBus will be documented in this file.
+All notable changes to VoCoType Linux will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Fixed
+
+- Ubuntu 22.04/24.04 now install a Python 3.12-compatible PyGObject release without requiring the newer `girepository-2.0` toolchain.
+- IBus 1.5.26 no longer fails to import when optional `OSK` and `SYNC_PROCESS_KEY` capability constants are absent.
+- The system-Python installer validates the complete FunASR ONNX runtime before installing the IBus launcher.
+- Remote SLM defaults now allow 20 seconds and 128 output tokens; local ephemeral configs no longer contain a misleading HTTP endpoint.
+
+### Changed
+
+- Python distribution metadata now describes the combined IBus/Fcitx 5 Linux package as `vocotype-linux`.
+- Installation examples consistently use the `VocoType-linux` clone directory.
 
 ## [2.2.3] - 2026-04-06
 
@@ -353,7 +367,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 建议重新运行安装脚本，它会引导您选择合适的版本：
 
 ```bash
-cd vocotype-cli
+cd VocoType-linux
 ./scripts/install-ibus.sh
 ```
 

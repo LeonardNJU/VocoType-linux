@@ -1,0 +1,45 @@
+from pathlib import Path
+import tomllib
+
+from app.config import DEFAULT_CONFIG
+
+
+ROOT = Path(__file__).resolve().parents[1]
+INSTALLERS = (
+    ROOT / "scripts" / "install-ibus.sh",
+    ROOT / "fcitx5" / "scripts" / "install-fcitx5.sh",
+)
+
+
+def test_pygobject_constraint_supports_ubuntu_22_04_and_python_3_12():
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    dependencies = project["project"]["dependencies"]
+    assert "PyGObject>=3.46,<3.52" in dependencies
+    assert not any(
+        dependency.startswith("PyGObject") and ";" in dependency
+        for dependency in dependencies
+    )
+
+
+def test_ibus_installer_checks_the_pkg_config_name_used_by_pygobject_3_50():
+    script = (ROOT / "scripts" / "install-ibus.sh").read_text(encoding="utf-8")
+    assert "pkg-config --exists gobject-introspection-1.0" in script
+    assert 'missing="$missing libgirepository1.0-dev"' in script
+
+
+def test_default_remote_slm_budget_is_not_the_legacy_600ms_24_tokens():
+    slm = DEFAULT_CONFIG["slm"]
+    assert slm["provider"] == "remote"
+    assert slm["timeout_ms"] == 20000
+    assert slm["max_tokens"] == 128
+
+
+def test_installers_omit_endpoint_for_local_provider_and_use_provider_defaults():
+    for path in INSTALLERS:
+        script = path.read_text(encoding="utf-8")
+        assert 'slm.pop("endpoint", None)' in script
+        assert "SLM_TIMEOUT_MS=12000" in script
+        assert "SLM_WARMUP_TIMEOUT_MS=90000" in script
+        assert "SLM_MAX_TOKENS=96" in script
+        assert 'SLM_PROVIDER="remote"\n            SLM_TIMEOUT_MS=20000' in script
+        assert "SLM_MAX_TOKENS=128" in script

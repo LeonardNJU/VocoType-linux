@@ -36,7 +36,7 @@ VoCoType 离线语音输入法的 IBus 版本实现。
 ### 纯语音版（推荐新手）
 
 ```bash
-cd vocotype-cli
+cd VocoType-linux
 
 # 安装 IBus 引擎
 ./scripts/install-ibus.sh
@@ -77,7 +77,7 @@ sudo pacman -S librime ibus-rime
 #### 2. 安装 VoCoType
 
 ```bash
-cd vocotype-cli
+cd VocoType-linux
 
 # 安装 IBus 引擎
 ./scripts/install-ibus.sh

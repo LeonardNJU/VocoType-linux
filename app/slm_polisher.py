@@ -132,10 +132,11 @@ class SLMPolisher:
         if self.provider == self.PROVIDER_REMOTE:
             self.endpoint = self._normalize_remote_endpoint(endpoint)
         else:
-            self.endpoint = endpoint
+            # local_ephemeral communicates with slm_local_worker over stdio.
+            self.endpoint = ""
         self.model = str(cfg.get("model", "Qwen/Qwen3.5-0.8B"))
-        default_timeout_ms = 12000 if self.provider == self.PROVIDER_LOCAL_EPHEMERAL else 600
-        default_max_tokens = 96 if self.provider == self.PROVIDER_LOCAL_EPHEMERAL else 24
+        default_timeout_ms = 12000 if self.provider == self.PROVIDER_LOCAL_EPHEMERAL else 20000
+        default_max_tokens = 96 if self.provider == self.PROVIDER_LOCAL_EPHEMERAL else 128
         default_warmup_timeout_ms = (
             90000 if self.provider == self.PROVIDER_LOCAL_EPHEMERAL else 12000
         )
