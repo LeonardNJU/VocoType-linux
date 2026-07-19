@@ -40,8 +40,8 @@ https://github.com/user-attachments/assets/94772920-0f9e-4dff-8da5-c9026eb23256
 ### IBus 版本
 
 ```bash
-git clone https://github.com/LeonardNJU/VocoType-linux.git vocotype-cli
-cd vocotype-cli
+git clone https://github.com/LeonardNJU/VocoType-linux.git
+cd VocoType-linux
 ./scripts/install-ibus.sh
 ibus restart
 ```
@@ -57,8 +57,8 @@ ibus restart
 ### Fcitx 5 版本
 
 ```bash
-git clone https://github.com/LeonardNJU/VocoType-linux.git vocotype-cli
-cd vocotype-cli
+git clone https://github.com/LeonardNJU/VocoType-linux.git
+cd VocoType-linux
 bash fcitx5/scripts/install-fcitx5.sh
 fcitx5 -r
 ```
