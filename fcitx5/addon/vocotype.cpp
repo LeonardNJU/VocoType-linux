@@ -48,6 +48,17 @@ constexpr std::array<const char *, 8> RECORDING_ANIMATION_FRAMES = {
     "⚫ 正在听  ●    ",
 };
 
+constexpr std::array<const char *, 8> LONG_RECORDING_ANIMATION_FRAMES = {
+    "✨ 正在听·将润色 ●     ",
+    "✨ 正在听·将润色  ●    ",
+    "✨ 正在听·将润色   ●   ",
+    "✨ 正在听·将润色    ●  ",
+    "✨ 正在听·将润色     ● ",
+    "✨ 正在听·将润色    ●  ",
+    "✨ 正在听·将润色   ●   ",
+    "✨ 正在听·将润色  ●    ",
+};
+
 constexpr std::array<const char *, 8> POLISHING_ANIMATION_FRAMES = {
     "✨ 正在润色 ●     ",
     "✨ 正在润色  ●    ",
@@ -466,7 +477,9 @@ void VoCoTypeAddon::showPanelMessage(fcitx::InputContext* ic, const std::string&
 
 void VoCoTypeAddon::showAnimationFrame(fcitx::InputContext* ic) {
     const auto *frames = &RECORDING_ANIMATION_FRAMES;
-    if (panel_animation_kind_ == PanelAnimationKind::Polishing) {
+    if (panel_animation_kind_ == PanelAnimationKind::RecordingLong) {
+        frames = &LONG_RECORDING_ANIMATION_FRAMES;
+    } else if (panel_animation_kind_ == PanelAnimationKind::Polishing) {
         frames = &POLISHING_ANIMATION_FRAMES;
     }
 
@@ -522,6 +535,10 @@ void VoCoTypeAddon::startPanelAnimation(fcitx::InputContext* ic,
 
 void VoCoTypeAddon::startRecordingAnimation(fcitx::InputContext* ic) {
     startPanelAnimation(ic, PanelAnimationKind::Recording);
+}
+
+void VoCoTypeAddon::startLongRecordingAnimation(fcitx::InputContext* ic) {
+    startPanelAnimation(ic, PanelAnimationKind::RecordingLong);
 }
 
 void VoCoTypeAddon::startPolishingAnimation(fcitx::InputContext* ic) {
@@ -702,7 +719,11 @@ void VoCoTypeAddon::startRecording(fcitx::InputContext* ic, bool long_mode) {
         }).detach();
     }
 
-    startRecordingAnimation(ic);
+    if (long_mode) {
+        startLongRecordingAnimation(ic);
+    } else {
+        startRecordingAnimation(ic);
+    }
 
     FCITX_INFO() << "Recording started, mode=" << (long_mode ? "long" : "normal");
 }
@@ -782,7 +803,7 @@ void VoCoTypeAddon::stopRecording(fcitx::InputContext* ic, bool transcribe) {
                     return;
                 }
                 if (result.success && !result.text.empty()) {
-                    commitText(ic_ptr, result.text);
+                    commitText(ic_ptr, result.text, strip_trailing_period_on_commit_);
                 } else if (!result.success) {
                     showError(ic_ptr,
                               result.error.empty() ? "转录失败" : result.error,
@@ -808,8 +829,10 @@ void VoCoTypeAddon::updateUI(fcitx::InputContext* ic, const RimeUIState& state) 
     if (!state.preedit_text.empty()) {
         fcitx::Text preedit;
         preedit.append(state.preedit_text, fcitx::TextFormatFlag::Underline);
-        inputPanel.setPreedit(preedit);
+        inputPanel.setClientPreedit(preedit);
+        inputPanel.setPreedit(fcitx::Text());
     } else {
+        inputPanel.setClientPreedit(fcitx::Text());
         inputPanel.setPreedit(fcitx::Text());
     }
 
@@ -931,8 +954,9 @@ bool VoCoTypeAddon::pasteTextForClient(fcitx::InputContext* ic, const std::strin
     return true;
 }
 
-void VoCoTypeAddon::commitText(fcitx::InputContext* ic, const std::string& text) {
-    const std::string commit_text = strip_trailing_period_on_commit_
+void VoCoTypeAddon::commitText(fcitx::InputContext* ic, const std::string& text,
+                               bool strip_trailing_period) {
+    const std::string commit_text = strip_trailing_period
                                         ? stripTrailingCommitPeriod(text)
                                         : text;
     const uint64_t now = fcitx::now(CLOCK_MONOTONIC);

@@ -91,6 +91,7 @@ private:
     enum class PanelAnimationKind {
         None,
         Recording,
+        RecordingLong,
         Polishing,
     };
 
@@ -107,6 +108,7 @@ private:
     void showPanelMessage(fcitx::InputContext* ic, const std::string& message);
     void startPanelAnimation(fcitx::InputContext* ic, PanelAnimationKind kind);
     void startRecordingAnimation(fcitx::InputContext* ic);
+    void startLongRecordingAnimation(fcitx::InputContext* ic);
     void startPolishingAnimation(fcitx::InputContext* ic);
     void stopRecordingAnimation();
     void showAnimationFrame(fcitx::InputContext* ic);
@@ -140,7 +142,8 @@ private:
     /**
      * 提交文本
      */
-    void commitText(fcitx::InputContext* ic, const std::string& text);
+    void commitText(fcitx::InputContext* ic, const std::string& text,
+                    bool strip_trailing_period = false);
 
     /**
      * 显示错误信息
