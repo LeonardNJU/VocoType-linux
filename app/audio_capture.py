@@ -52,14 +52,36 @@ class AudioCapture:
                 return
 
             self.flush()
-            device = self.device if self.device is not None else resolve_default_input_device()
-            self._stream = self._create_stream(device)
-            try:
-                self._stream.start()
-            except Exception:
-                self._stream.close()
-                self._stream = self._create_stream(resolve_default_input_device())
-                self._stream.start()
+            primary_device = (
+                self.device if self.device is not None else resolve_default_input_device()
+            )
+            fallback_device = resolve_default_input_device(exclude=(primary_device,))
+            candidates = [primary_device]
+            if fallback_device is not None and fallback_device != primary_device:
+                candidates.append(fallback_device)
+
+            last_error: Exception | None = None
+            for device in candidates:
+                stream: Optional[sd.RawInputStream] = None
+                try:
+                    stream = self._create_stream(device)
+                    stream.start()
+                except Exception as exc:
+                    last_error = exc
+                    if stream is not None:
+                        try:
+                            stream.close()
+                        except Exception:
+                            logger.debug("关闭失败的音频流时出错", exc_info=True)
+                    logger.warning("启动输入设备 %s 失败: %s", device, exc)
+                    continue
+
+                self._stream = stream
+                break
+            else:
+                if isinstance(last_error, AudioCaptureError):
+                    raise last_error
+                raise AudioCaptureError(f"无法启动音频输入流: {last_error}") from last_error
 
             self._running = True
             logger.info(

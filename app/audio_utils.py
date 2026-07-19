@@ -17,7 +17,9 @@ SAMPLE_RATE = 16000
 DEFAULT_NATIVE_SAMPLE_RATE = 44100
 
 
-def resolve_default_input_device() -> int | None:
+def resolve_default_input_device(
+    *, exclude: tuple[int | str | None, ...] = ()
+) -> int | None:
     """挑选用户实际的默认麦克风。
 
     优先级：
@@ -25,6 +27,9 @@ def resolve_default_input_device() -> int | None:
          PCM，跟随 wpctl/pavucontrol 选择的默认源。
       2. PortAudio 自己认定的 default (sd.default.device[0])。
       3. 第一个有输入通道的设备（兜底）。
+
+    ``exclude`` 同时匹配设备 ID 和设备名称，用于首次打开失败后选择一个
+    真正不同的回退设备。
     """
     import sounddevice as sd
 
@@ -34,17 +39,27 @@ def resolve_default_input_device() -> int | None:
         logger.warning("查询音频设备列表失败: %s", exc)
         return None
 
+    excluded = {item for item in exclude if item is not None}
+
+    def is_available(idx: int, info: dict) -> bool:
+        return (
+            info.get("max_input_channels", 0) > 0
+            and idx not in excluded
+            and info.get("name") not in excluded
+        )
+
     for preferred in ("default", "pulse"):
         for idx, info in enumerate(devices):
-            if info.get("name") == preferred and info.get("max_input_channels", 0) > 0:
+            if info.get("name") == preferred and is_available(idx, info):
                 logger.info("使用服务器虚拟设备 #%s (%s)", idx, preferred)
                 return idx
 
     try:
-        pa_default = sd.default.device[0]
-        if pa_default is not None and pa_default >= 0:
+        pa_default_raw = sd.default.device[0]
+        pa_default = int(pa_default_raw) if pa_default_raw is not None else -1
+        if 0 <= pa_default < len(devices):
             info = devices[pa_default]
-            if info.get("max_input_channels", 0) > 0:
+            if is_available(pa_default, info):
                 logger.info(
                     "使用 PortAudio 默认设备 #%s (%s)",
                     pa_default,
@@ -55,7 +70,7 @@ def resolve_default_input_device() -> int | None:
         pass
 
     for idx, info in enumerate(devices):
-        if info.get("max_input_channels", 0) > 0:
+        if is_available(idx, info):
             logger.info("回退至输入设备 #%s (%s)", idx, info.get("name", "unknown"))
             return idx
 
