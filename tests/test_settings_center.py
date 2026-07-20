@@ -256,7 +256,7 @@ def test_gui_installers_use_noninteractive_polkit_ready_mode():
         assert "--bootstrap-uv" in command
         assert command[command.index("--python-choice") + 1] == "user"
         assert command[command.index("--slm-provider") + 1] == "preserve"
-    assert ibus[1].endswith("scripts/install-ibus-gui.sh")
+    assert ibus[1].endswith("ibus/scripts/install-gui.sh")
     assert ibus[ibus.index("--rime") + 1] == "enabled"
     assert ibus[ibus.index("--rime-schema") + 1] == "rime_ice"
     assert ibus[ibus.index("--component-mode") + 1] == "system"
@@ -285,7 +285,7 @@ def test_settings_application_exposes_both_install_paths():
 
 
 def test_installers_have_gui_noninteractive_paths_without_terminal_password_prompts():
-    script = Path("fcitx5/scripts/install-fcitx5.sh").read_text(encoding="utf-8")
+    script = Path("fcitx5/scripts/install.sh").read_text(encoding="utf-8")
     for fragment in (
         "--non-interactive",
         "--preserve-config",
@@ -301,14 +301,14 @@ def test_installers_have_gui_noninteractive_paths_without_terminal_password_prom
 
 
 def test_ibus_uninstall_preserves_shared_user_configuration():
-    script = Path("scripts/uninstall-ibus.sh").read_text(encoding="utf-8")
+    script = Path("ibus/scripts/uninstall.sh").read_text(encoding="utf-8")
     assert 'rm -rf "$VOCOTYPE_CONFIG_DIR"' not in script
     assert "用户配置已保留" in script
     assert "FCITX_PRESENT" in script
 
 
 def test_ibus_gui_installer_uses_pkexec_and_never_reads_from_a_terminal():
-    script = Path("scripts/install-ibus-gui.sh").read_text(encoding="utf-8")
+    script = Path("ibus/scripts/install-gui.sh").read_text(encoding="utf-8")
     assert "--non-interactive" in script
     assert "--component-mode" in script
     assert "pkexec" in script
@@ -320,7 +320,7 @@ def test_ibus_gui_installer_uses_pkexec_and_never_reads_from_a_terminal():
 
 
 def test_system_dependency_helper_has_fixed_actions_and_no_arbitrary_package_arguments():
-    helper = Path("scripts/install-system-dependencies.sh").read_text(encoding="utf-8")
+    helper = Path("installers/install-system-dependencies.sh").read_text(encoding="utf-8")
     assert "fcitx5|ibus|ibus-rime" in helper
     assert "apt-get install" in helper
     assert "dnf install" in helper

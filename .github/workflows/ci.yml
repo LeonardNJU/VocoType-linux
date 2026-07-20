@@ -33,7 +33,7 @@ jobs:
       - name: Run tests
         run: python -m pytest -q
       - name: Compile Python sources
-        run: python -m compileall -q app settings_center ibus fcitx5/backend test
+        run: python -m compileall -q app settings_center ibus fcitx5/backend tests
 
   release-contract:
     runs-on: ubuntu-24.04
@@ -49,16 +49,16 @@ jobs:
           python -m pip install build twine pytest pyyaml
       - name: Validate scripts and metadata
         run: |
-          bash -n packaging/stage-system-package.sh scripts/build-deb.sh scripts/build-rpm.sh scripts/build-arch.sh scripts/smoke-installed-package.sh scripts/smoke-removed-package.sh
-          python -m pytest -q test/test_release_packaging.py
+          bash -n packaging/tools/stage-system-package.sh packaging/tools/build-deb.sh packaging/tools/build-rpm.sh packaging/tools/build-arch.sh packaging/tests/smoke-installed-package.sh packaging/tests/smoke-removed-package.sh
+          python -m pytest -q tests/test_release_packaging.py
       - name: Build staged system tree
-        run: packaging/stage-system-package.sh --destdir "$RUNNER_TEMP/vocotype-stage" --build-dir "$RUNNER_TEMP/fcitx-build"
+        run: packaging/tools/stage-system-package.sh --destdir "$RUNNER_TEMP/vocotype-stage" --build-dir "$RUNNER_TEMP/fcitx-build"
       - name: Build Python and source distributions
-        run: python scripts/build-release.py
+        run: python packaging/tools/build-release.py
       - name: Validate distributions
         run: |
           python -m twine check dist/release/python/*
-          python scripts/validate-release.py
+          python packaging/tools/validate-release.py
       - uses: actions/upload-artifact@v7
         with:
           name: vocotype-release-preview
@@ -76,15 +76,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential debhelper cmake pkg-config libfcitx5core-dev nlohmann-json3-dev
       - name: Build Debian package
-        run: scripts/build-deb.sh
+        run: packaging/tools/build-deb.sh
       - name: Install and validate Debian package
         run: |
           package=$(find dist/packages -maxdepth 1 -name 'vocotype-linux_*.deb' -print -quit)
           test -n "$package"
           sudo apt-get install -y "$(realpath "$package")"
-          sudo scripts/smoke-installed-package.sh "$(python3 -c 'from vocotype_version import __version__; print(__version__)')"
+          sudo packaging/tests/smoke-installed-package.sh "$(python3 -c 'from vocotype_version import __version__; print(__version__)')"
           sudo apt-get purge -y vocotype-linux
-          sudo scripts/smoke-removed-package.sh
+          sudo packaging/tests/smoke-removed-package.sh
       - uses: actions/upload-artifact@v7
         with:
           name: deb
@@ -106,15 +106,15 @@ jobs:
       - name: Trust the checked-out repository
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Build RPM
-        run: scripts/build-rpm.sh
+        run: packaging/tools/build-rpm.sh
       - name: Install and validate RPM
         run: |
           package=$(find dist/packages -maxdepth 1 -name 'vocotype-linux-*.x86_64.rpm' ! -name '*debug*' -print -quit)
           test -n "$package"
           dnf install -y "$package"
-          scripts/smoke-installed-package.sh "$(python3 -c 'from vocotype_version import __version__; print(__version__)')"
+          packaging/tests/smoke-installed-package.sh "$(python3 -c 'from vocotype_version import __version__; print(__version__)')"
           dnf remove -y vocotype-linux
-          scripts/smoke-removed-package.sh
+          packaging/tests/smoke-removed-package.sh
       - uses: actions/upload-artifact@v7
         with:
           name: rpm
@@ -134,15 +134,15 @@ jobs:
         run: |
           useradd -m builder
           chown -R builder:builder "$GITHUB_WORKSPACE"
-          su builder -c "cd '$GITHUB_WORKSPACE' && scripts/build-arch.sh"
+          su builder -c "cd '$GITHUB_WORKSPACE' && packaging/tools/build-arch.sh"
       - name: Install and validate Arch package
         run: |
           package=$(find dist/packages -maxdepth 1 -name 'vocotype-linux-*.pkg.tar.*' ! -name '*debug*' -print -quit)
           test -n "$package"
           pacman -U --noconfirm "$package"
-          scripts/smoke-installed-package.sh "$(python3 -c 'from vocotype_version import __version__; print(__version__)')"
+          packaging/tests/smoke-installed-package.sh "$(python3 -c 'from vocotype_version import __version__; print(__version__)')"
           pacman -Rns --noconfirm vocotype-linux
-          scripts/smoke-removed-package.sh
+          packaging/tests/smoke-removed-package.sh
       - uses: actions/upload-artifact@v7
         with:
           name: arch

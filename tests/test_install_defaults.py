@@ -6,8 +6,8 @@ from app.config import DEFAULT_CONFIG
 
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLERS = (
-    ROOT / "scripts" / "install-ibus.sh",
-    ROOT / "fcitx5" / "scripts" / "install-fcitx5.sh",
+    ROOT / "ibus" / "scripts" / "install.sh",
+    ROOT / "fcitx5" / "scripts" / "install.sh",
 )
 
 
@@ -22,7 +22,7 @@ def test_pygobject_constraint_supports_ubuntu_22_04_and_python_3_12():
 
 
 def test_ibus_installer_checks_the_pkg_config_name_used_by_pygobject_3_50():
-    script = (ROOT / "scripts" / "install-ibus.sh").read_text(encoding="utf-8")
+    script = (ROOT / "ibus" / "scripts" / "install.sh").read_text(encoding="utf-8")
     assert "pkg-config --exists gobject-introspection-1.0" in script
     assert 'missing="$missing libgirepository1.0-dev"' in script
 

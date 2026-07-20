@@ -94,4 +94,4 @@ VoCoType 数字产品规则
 强制 WeTextProcessing FST ITN（仅接受安全数字变化）
 ```
 
-原生热词是概率性偏置，确定性 alias 替换负责保证最终标准写法；二者互补，不应互相替代。ITN 细节见 [`ITN.md`](ITN.md)。
+原生热词是概率性偏置，确定性 alias 替换负责保证最终标准写法；二者互补，不应互相替代。ITN 细节见 [`ITN.md`](itn.md)。

@@ -44,7 +44,7 @@ pip install uv
 
 # uv会自动下载并使用正确的Python版本
 # 运行安装脚本时会自动处理
-./scripts/install-ibus.sh
+./ibus/scripts/install.sh
 ```
 
 **方法2：手动安装正确的Python版本**
@@ -156,7 +156,7 @@ ibus restart
 #### 1. 查看日志
 ```bash
 # 使用日志分析工具
-./cc-gen-script/analyze-rime-logs.sh
+./tools/diagnostics/analyze-rime-logs.sh
 
 # 或直接查看日志
 tail -100 ~/.local/share/vocotype/ibus.log
@@ -222,7 +222,7 @@ ibus-daemon -drx
 
 2. 重新配置音频设备：
    ```bash
-   python scripts/setup-audio.py
+   python installers/setup-audio.py
    ```
 
 3. 检查可用设备：
@@ -279,7 +279,7 @@ ibus-daemon -drx
 VoCoType提供了交互式日志分析工具：
 
 ```bash
-./cc-gen-script/analyze-rime-logs.sh
+./tools/diagnostics/analyze-rime-logs.sh
 ```
 
 **功能菜单**：
@@ -326,7 +326,7 @@ grep "Key event:\|handled=" ~/.local/share/vocotype/ibus.log | tail -20
 
 2. **使用日志分析脚本**：
    ```bash
-   ./cc-gen-script/analyze-rime-logs.sh
+   ./tools/diagnostics/analyze-rime-logs.sh
    ```
 
 3. **提交Issue**：
@@ -569,7 +569,7 @@ Backend 无法启动
 
 2. 重新配置音频设备：
    ```bash
-   python scripts/setup-audio.py
+   python installers/setup-audio.py
    ```
 
 3. 检查可用设备：
@@ -683,7 +683,7 @@ Failed to <operation>
 VoCoType提供了交互式日志分析工具：
 
 ```bash
-./cc-gen-script/analyze-rime-logs.sh
+./tools/diagnostics/analyze-rime-logs.sh
 ```
 
 **功能**：
@@ -697,7 +697,7 @@ VoCoType提供了交互式日志分析工具：
 
 **实时监控示例**：
 ```bash
-./cc-gen-script/analyze-rime-logs.sh
+./tools/diagnostics/analyze-rime-logs.sh
 # 选择选项 6 进入实时监控模式
 ```
 
@@ -759,7 +759,7 @@ grep -E "ERROR|Failed" ~/.local/share/vocotype/ibus.log
 **解决方案**：
 1. 重新运行音频设置：
    ```bash
-   python scripts/setup-audio.py
+   python installers/setup-audio.py
    ```
 
 2. 检查配置目录权限：
@@ -794,7 +794,7 @@ sample_rate = 48000
 
 2. **使用日志分析脚本**：
    ```bash
-   ./cc-gen-script/analyze-rime-logs.sh
+   ./tools/diagnostics/analyze-rime-logs.sh
    ```
 
 3. **提交Issue**：

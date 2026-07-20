@@ -35,7 +35,7 @@ def test_fcitx_backend_no_longer_embeds_rime():
 
 def test_installer_builds_module_and_removes_legacy_input_method():
     installer = (
-        ROOT / "fcitx5" / "scripts" / "install-fcitx5.sh"
+        ROOT / "fcitx5" / "scripts" / "install.sh"
     ).read_text(encoding="utf-8")
     assert '"$PROJECT_DIR/fcitx5/module/build"' in installer
     assert 'rm -f "$HOME/.local/share/fcitx5/inputmethod/vocotype.conf"' in installer

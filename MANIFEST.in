@@ -6,14 +6,16 @@ include requirements.txt
 include uv.lock
 include vocotype_version.py
 recursive-include app *.py
-recursive-include ibus *.py *.md
+recursive-include ibus *.py *.sh *.md
 recursive-include settings_center *.py
 recursive-include data *
 recursive-include docs *.md
 recursive-include fcitx5 *.cpp *.h *.py *.sh *.md CMakeLists.txt *.conf
 recursive-include packaging *
-recursive-include scripts *.py *.sh
+recursive-include installers *.py *.sh
+recursive-include tools *.py *.sh
 recursive-include site *.png *.svg *.ico *.webmanifest
-recursive-include test *.py
+recursive-include tests *.py
+global-exclude *.pyc *.pyo
 
 prune fcitx5/module/build

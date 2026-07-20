@@ -3,7 +3,7 @@
 """Benchmark ASR-only vs ASR+SLM(long mode) pipeline overhead.
 
 Usage example:
-  python scripts/benchmark_slm_pipeline.py samples/*.wav \
+  python tools/benchmarks/slm-pipeline.py samples/*.wav \
     --repeat 5 \
     --slm-model Qwen/Qwen3.5-0.8B \
     --slm-endpoint http://127.0.0.1:18080/v1/chat/completions \

@@ -346,7 +346,7 @@ def main():
 
                 if choice == '2':
                     print("\n⚠️  跳过音频配置。")
-                    print("请稍后运行 'python scripts/setup-audio.py' 重新配置。")
+                    print("请稍后运行 'python installers/setup-audio.py' 重新配置。")
                     sys.exit(0)  # 跳过但不报错
                 elif choice == '3':
                     print("\n音频配置未完成，退出。")

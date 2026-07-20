@@ -59,7 +59,7 @@ make package-arch   # Arch 构建机
 ```bash
 git clone https://github.com/LeonardNJU/VocoType-linux.git
 cd VocoType-linux
-bash scripts/launch-settings.sh
+bash installers/launch-settings.sh
 ```
 
 在 **概览与安装** 页面选择 Fcitx 5 或 IBus。两者都在设置窗口内完成选择、依赖安装、进度显示和错误处理；需要系统权限时由 Polkit 弹出标准授权框，不会打开终端或读取管理员密码。安装后可在 GUI 中选择/测试麦克风，并使用 ITN 预览、用户词典、AI endpoint、Doctor、日志打包和反馈入口。
@@ -75,21 +75,21 @@ vocotype-settings
 IBus：
 
 ```bash
-./scripts/install-ibus.sh
+./ibus/scripts/install.sh
 ibus restart
 ```
 
 Fcitx 5：
 
 ```bash
-bash fcitx5/scripts/install-fcitx5.sh
+bash fcitx5/scripts/install.sh
 systemctl --user enable --now vocotype-fcitx5-backend.service
 fcitx5 -r
 ```
 
 Fcitx 版本安装为全局 Module，无需在输入法列表中添加 VoCoType；继续使用原来的 Rime、拼音或其他输入法即可。
 
-详细说明：[图形设置中心](docs/SETTINGS_CENTER.md)、[IBus 安装](ibus/README.md)、[Fcitx 5 安装](fcitx5/README.md)。
+详细说明：[图形设置中心](docs/guides/settings-center.md)、[IBus 安装](ibus/README.md)、[Fcitx 5 安装](fcitx5/README.md)。
 
 ---
 
@@ -99,7 +99,7 @@ Fcitx 版本安装为全局 Module，无需在输入法列表中添加 VoCoType�
 `~/.config/vocotype/terms.yaml`：同一条术语既可作为模型原生 hotword，也可配置
 ASR 后的确定性 alias → canonical 替换，并保护标准词不被 ITN/数字规则误改。
 
-详见：[术语库与原生热词](docs/TERMS.md)。
+详见：[术语库与原生热词](docs/guides/terms.md)。
 
 ---
 
@@ -116,7 +116,7 @@ ASR 后的确定性 alias → canonical 替换，并保护标准词不被 ITN/�
 
 设置中心可以整体关闭数字/ITN，也可以分别关闭日期、时间、路程单位和金额符号转换。术语 canonicalization 始终保留，`protect: true` 的词条不会被紧凑格式改写。
 
-详见：[ITN 与数字格式策略](docs/ITN.md)。
+详见：[ITN 与数字格式策略](docs/guides/itn.md)。
 
 ---
 
@@ -195,7 +195,7 @@ Fcitx 5 可将 `PolishByDefault=true`，此时两者语义反转：`F9` 默认�
 OpenRouter endpoint 会自动获得项目标识 header，并按其 API 映射 reasoning 参数。远程失败、
 流式超时或只返回 thinking 时，Fcitx 会保留 ASR 原文供用户确认提交。
 
-详见：[流式 AI 润色](docs/SLM_STREAMING.md)。
+详见：[流式 AI 润色](docs/guides/slm-streaming.md)。
 
 ---
 
@@ -241,7 +241,7 @@ OpenRouter endpoint 会自动获得项目标识 header，并按其 API 映射 re
 
 **IBus 版本**：
 ```bash
-./scripts/uninstall-ibus.sh
+./ibus/scripts/uninstall.sh
 ```
 
 卸载时可选择：
@@ -325,14 +325,14 @@ IBus 和 Fcitx 5 是**并列独立**的实现，共享 VoCoType 核心（语音�
 
 ### SLM 开销基准测试（ASR vs ASR+SLM）
 
-新增脚本：`scripts/benchmark_slm_pipeline.py`，用于对比：
+新增脚本：`tools/benchmarks/slm-pipeline.py`，用于对比：
 - `ASR-only`（对应 F9 快速模式）
 - `ASR+SLM`（对应 Shift+F9 长句模式）
 
 示例（以 `Qwen/Qwen3.5-0.8B` 为例）：
 
 ```bash
-python scripts/benchmark_slm_pipeline.py ./samples \
+python tools/benchmarks/slm-pipeline.py ./samples \
   --pattern "*.wav" \
   --repeat 5 \
   --warmup 1 \
@@ -351,11 +351,11 @@ python scripts/benchmark_slm_pipeline.py ./samples \
 
 - [IBus 版本安装指南](ibus/README.md)
 - [Fcitx 5 版本安装指南](fcitx5/README.md)
-- [术语库与原生热词](docs/TERMS.md)
-- [ITN 与数字格式策略](docs/ITN.md)
-- [图形设置中心、Doctor 与反馈](docs/SETTINGS_CENTER.md)
-- [流式 AI 润色](docs/SLM_STREAMING.md)
-- [Rime 拼音配置指南](RIME_CONFIG_GUIDE.md)（主要面向 IBus；Fcitx 版本直接使用现有 fcitx5-rime）
+- [术语库与原生热词](docs/guides/terms.md)
+- [ITN 与数字格式策略](docs/guides/itn.md)
+- [图形设置中心、Doctor 与反馈](docs/guides/settings-center.md)
+- [流式 AI 润色](docs/guides/slm-streaming.md)
+- [Rime 拼音配置指南](docs/guides/rime.md)（主要面向 IBus；Fcitx 版本直接使用现有 fcitx5-rime）
 
 ---
 

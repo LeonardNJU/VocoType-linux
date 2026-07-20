@@ -13,10 +13,7 @@ requirements.lock.txt
 todo.md
 /models
 vocotype_ibus.egg-info
-cc-gen-doc
 CLAUDE.md
-cc-gen-doc
-cc-gen-script
 
 *.egg-info/
 *.deb
@@ -24,3 +21,5 @@ cc-gen-script
 *.pkg.tar.*
 *.changes
 *.buildinfo
+.pytest_cache/
+*.py[cod]

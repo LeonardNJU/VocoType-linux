@@ -2,7 +2,7 @@
 # VoCoType Linux IBus 语音输入法安装脚本（用户级安装）
 # 基于 VoCoType 核心引擎: https://github.com/233stone/vocotype-cli
 #
-# 用法: install-ibus.sh [--device <id>] [--sample-rate <rate>]
+# 用法: install.sh [--device <id>] [--sample-rate <rate>]
 #   --device <id>      指定音频设备ID，跳过交互式配置
 #   --sample-rate <rate>  指定采样率（默认44100）
 
@@ -29,7 +29,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Python 版本范围（onnxruntime 暂不支持 3.13+）
 PYTHON_MIN_MINOR=11
@@ -566,7 +566,7 @@ if [ ! -x "$PYTHON" ]; then
 fi
 
 if [ "$USE_SYSTEM_PYTHON" = "1" ]; then
-    if ! "$PYTHON" "$PROJECT_DIR/scripts/check-python-runtime.py"
+    if ! "$PYTHON" "$PROJECT_DIR/installers/check-python-runtime.py"
     then
         echo ""
         echo "系统 Python 无法加载完整的 VoCoType ASR 运行时。"
@@ -847,11 +847,11 @@ else
     echo "  - 验证语音识别效果"
     echo ""
 
-    if ! "$PYTHON" "$PROJECT_DIR/scripts/setup-audio.py"; then
+    if ! "$PYTHON" "$PROJECT_DIR/installers/setup-audio.py"; then
         echo ""
         echo "音频配置失败或被取消。"
         echo "请稍后运行以下命令重新配置："
-        echo "  $PYTHON $PROJECT_DIR/scripts/setup-audio.py"
+        echo "  $PYTHON $PROJECT_DIR/installers/setup-audio.py"
         exit 1
     fi
 fi
@@ -1048,7 +1048,7 @@ fi
 if [ "$USE_SYSTEM_COMPONENT" = "1" ]; then
     sed -e "s|VOCOTYPE_EXEC_PATH|$EXEC_PATH|g" \
         -e "s|VOCOTYPE_VERSION|$VOCOTYPE_VERSION|g" \
-        "$PROJECT_DIR/data/ibus/vocotype.xml.in" > "/tmp/vocotype.xml"
+        "$PROJECT_DIR/ibus/data/vocotype.xml.in" > "/tmp/vocotype.xml"
 
     if sudo cp "/tmp/vocotype.xml" "$SYSTEM_COMPONENT_DIR/vocotype.xml"; then
         echo "✓ IBus 组件已安装到 $SYSTEM_COMPONENT_DIR"
@@ -1068,7 +1068,7 @@ else
     mkdir -p "$COMPONENT_DIR"
     sed -e "s|VOCOTYPE_EXEC_PATH|$EXEC_PATH|g" \
         -e "s|VOCOTYPE_VERSION|$VOCOTYPE_VERSION|g" \
-        "$PROJECT_DIR/data/ibus/vocotype.xml.in" > "$COMPONENT_DIR/vocotype.xml"
+        "$PROJECT_DIR/ibus/data/vocotype.xml.in" > "$COMPONENT_DIR/vocotype.xml"
 fi
 
 echo ""

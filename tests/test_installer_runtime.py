@@ -4,8 +4,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNTIME_CHECK = ROOT / "scripts" / "check-python-runtime.py"
-IBUS_INSTALLER = ROOT / "scripts" / "install-ibus.sh"
+RUNTIME_CHECK = ROOT / "installers" / "check-python-runtime.py"
+IBUS_INSTALLER = ROOT / "ibus" / "scripts" / "install.sh"
 REQUIREMENTS = ROOT / "requirements.txt"
 PYPROJECT = ROOT / "pyproject.toml"
 
@@ -58,7 +58,7 @@ def test_runtime_check_reports_nested_dependency_failure():
 def test_ibus_system_python_uses_runtime_check_and_bound_pip_command():
     source = IBUS_INSTALLER.read_text(encoding="utf-8")
 
-    assert '"$PYTHON" "$PROJECT_DIR/scripts/check-python-runtime.py"' in source
+    assert '"$PYTHON" "$PROJECT_DIR/installers/check-python-runtime.py"' in source
     assert '$PYTHON -m pip install -r $PROJECT_DIR/requirements.txt' in source
     assert "pip install -r $PROJECT_DIR/requirements.txt" not in source.replace(
         "$PYTHON -m pip install -r $PROJECT_DIR/requirements.txt",

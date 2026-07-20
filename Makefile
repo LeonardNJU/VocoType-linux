@@ -6,21 +6,21 @@ test:
 	$(PYTHON) -m pytest -q
 
 release:
-	$(PYTHON) scripts/build-release.py
-	$(PYTHON) scripts/validate-release.py
+	$(PYTHON) packaging/tools/build-release.py
+	$(PYTHON) packaging/tools/validate-release.py
 
 package-stage:
 	rm -rf build/package-stage
-	packaging/stage-system-package.sh --destdir build/package-stage
+	packaging/tools/stage-system-package.sh --destdir build/package-stage
 
 package-deb:
-	scripts/build-deb.sh
+	packaging/tools/build-deb.sh
 
 package-rpm:
-	scripts/build-rpm.sh
+	packaging/tools/build-rpm.sh
 
 package-arch:
-	scripts/build-arch.sh
+	packaging/tools/build-arch.sh
 
 clean:
 	rm -rf build dist *.egg-info vocotype_linux.egg-info vocotype_ibus.egg-info

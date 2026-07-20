@@ -49,12 +49,12 @@ if [[ ! "$RIME_SCHEMA" =~ ^[A-Za-z0-9_.-]+$ ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 INSTALL_DIR="$HOME/.local/share/vocotype"
 COMPONENT_DIR="$HOME/.local/share/ibus/component"
 LIBEXEC_DIR="$HOME/.local/libexec"
 SYSTEM_COMPONENT_DIR="/usr/share/ibus/component"
-SYSTEM_DEPS_HELPER="$PROJECT_DIR/scripts/install-system-dependencies.sh"
+SYSTEM_DEPS_HELPER="$PROJECT_DIR/installers/install-system-dependencies.sh"
 DEFAULT_UV_PYTHON="3.12"
 
 escape_sed_replacement() {
@@ -215,7 +215,7 @@ esac
 
 if [[ "$USE_SYSTEM_PYTHON" == 1 ]]; then
     PYTHON=$(detect_system_python) || { echo "系统中没有 Python 3.11/3.12。" >&2; exit 4; }
-    "$PYTHON" "$PROJECT_DIR/scripts/check-python-runtime.py" || {
+    "$PYTHON" "$PROJECT_DIR/installers/check-python-runtime.py" || {
         echo "系统 Python 缺少 VoCoType 运行依赖；请改用用户级 Python。" >&2
         exit 4
     }
@@ -365,7 +365,7 @@ if [[ -f "$PROJECT_DIR/.system-package" ]]; then
 fi
 sed -e "s|VOCOTYPE_EXEC_PATH|$COMPONENT_EXEC_PATH|g" \
     -e "s|VOCOTYPE_VERSION|$VOCOTYPE_VERSION|g" \
-    "$PROJECT_DIR/data/ibus/vocotype.xml.in" > "$TEMP_COMPONENT"
+    "$PROJECT_DIR/ibus/data/vocotype.xml.in" > "$TEMP_COMPONENT"
 
 if [[ "$COMPONENT_MODE" == auto ]]; then
     if [[ "${XDG_CURRENT_DESKTOP:-}" == *GNOME* ]] || [[ -f /etc/debian_version ]] || command -v gnome-shell >/dev/null 2>&1; then

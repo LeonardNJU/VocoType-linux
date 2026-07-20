@@ -28,7 +28,7 @@ def _version() -> str:
 
 def _release_entries() -> list[str]:
     entries: list[str] = []
-    for raw in (ROOT / "packaging/release-files.txt").read_text(encoding="utf-8").splitlines():
+    for raw in (ROOT / "packaging/manifests/runtime-files.txt").read_text(encoding="utf-8").splitlines():
         value = raw.split("#", 1)[0].strip()
         if value:
             entries.append(value)
@@ -46,6 +46,25 @@ def _run(*argv: str, **kwargs) -> subprocess.CompletedProcess[str]:
     )
 
 
+
+def test_repository_layout_groups_tools_by_responsibility():
+    assert not (ROOT / "scripts").exists()
+    assert not (ROOT / "test").exists()
+    for relative in (
+        "ibus/scripts/install.sh",
+        "ibus/scripts/install-gui.sh",
+        "ibus/scripts/uninstall.sh",
+        "fcitx5/scripts/install.sh",
+        "installers/check-python-runtime.py",
+        "packaging/tools/build-release.py",
+        "packaging/tests/smoke-installed-package.sh",
+        "tools/diagnostics/analyze-rime-logs.sh",
+        "tools/benchmarks/slm-pipeline.py",
+        "docs/guides/settings-center.md",
+        "docs/troubleshooting/faq.md",
+    ):
+        assert (ROOT / relative).is_file(), relative
+
 def test_release_manifest_is_safe_complete_and_unique():
     entries = _release_entries()
     assert entries
@@ -57,10 +76,10 @@ def test_release_manifest_is_safe_complete_and_unique():
         "fcitx5/backend/audio_recorder.py",
         "fcitx5/backend/fcitx5_server.py",
         "fcitx5/module",
-        "fcitx5/scripts/install-fcitx5.sh",
-        "scripts/check-python-runtime.py",
-        "scripts/install-ibus-gui.sh",
-        "scripts/install-system-dependencies.sh",
+        "fcitx5/scripts/install.sh",
+        "installers/check-python-runtime.py",
+        "ibus/scripts/install-gui.sh",
+        "installers/install-system-dependencies.sh",
         "data",
         "pyproject.toml",
         "requirements.txt",
@@ -77,7 +96,7 @@ def test_release_manifest_is_safe_complete_and_unique():
 
 
 def test_staging_script_rejects_root_destination():
-    result = _run("bash", "packaging/stage-system-package.sh", "--destdir", "/", "--skip-module-build")
+    result = _run("bash", "packaging/tools/stage-system-package.sh", "--destdir", "/", "--skip-module-build")
     assert result.returncode == 2
     assert "Refusing" in result.stderr
 
@@ -86,7 +105,7 @@ def test_staging_script_builds_complete_noninteractive_tree(tmp_path: Path):
     dest = tmp_path / "root"
     result = _run(
         "bash",
-        "packaging/stage-system-package.sh",
+        "packaging/tools/stage-system-package.sh",
         "--destdir",
         str(dest),
         "--skip-module-build",
@@ -126,11 +145,11 @@ def test_staging_script_builds_complete_noninteractive_tree(tmp_path: Path):
         ".github",
         "packaging",
         "test",
-        "scripts/build-release.py",
-        "scripts/validate-release.py",
-        "scripts/build-deb.sh",
-        "scripts/build-rpm.sh",
-        "scripts/build-arch.sh",
+        "packaging/tools/build-release.py",
+        "packaging/tools/validate-release.py",
+        "packaging/tools/build-deb.sh",
+        "packaging/tools/build-rpm.sh",
+        "packaging/tools/build-arch.sh",
     ):
         assert not (source_root / excluded).exists(), excluded
 
@@ -139,7 +158,7 @@ def test_staging_script_honors_custom_libexec_directory(tmp_path: Path):
     dest = tmp_path / "root"
     result = _run(
         "bash",
-        "packaging/stage-system-package.sh",
+        "packaging/tools/stage-system-package.sh",
         "--destdir",
         str(dest),
         "--libexecdir",
@@ -158,7 +177,7 @@ def test_staging_script_honors_custom_libexec_directory(tmp_path: Path):
 def test_staging_script_rejects_relative_libexec_directory(tmp_path: Path):
     result = _run(
         "bash",
-        "packaging/stage-system-package.sh",
+        "packaging/tools/stage-system-package.sh",
         "--destdir",
         str(tmp_path / "root"),
         "--libexecdir",
@@ -174,7 +193,7 @@ def test_staging_script_honors_multilib_directory(tmp_path: Path):
     build = tmp_path / "build"
     result = _run(
         "bash",
-        "packaging/stage-system-package.sh",
+        "packaging/tools/stage-system-package.sh",
         "--destdir",
         str(dest),
         "--libdir",
@@ -257,7 +276,7 @@ def test_version_is_consistent_across_package_metadata():
 def test_release_builder_rejects_tag_version_mismatch(tmp_path: Path):
     result = _run(
         sys.executable,
-        "scripts/build-release.py",
+        "packaging/tools/build-release.py",
         "--source-only",
         "--output",
         str(tmp_path),
@@ -269,7 +288,7 @@ def test_release_builder_rejects_tag_version_mismatch(tmp_path: Path):
 
 
 def test_release_builder_module_has_stable_hash_metadata_api():
-    spec = importlib.util.spec_from_file_location("vocotype_build_release", ROOT / "scripts/build-release.py")
+    spec = importlib.util.spec_from_file_location("vocotype_build_release", ROOT / "packaging/tools/build-release.py")
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -286,7 +305,7 @@ def test_native_package_recipes_share_one_staging_contract():
     ]
     for recipe in recipes:
         source = recipe.read_text(encoding="utf-8")
-        assert "packaging/stage-system-package.sh" in source
+        assert "packaging/tools/stage-system-package.sh" in source
         assert "pip install" not in source
         assert "download_models" not in source
     control = (ROOT / "packaging/debian/control").read_text(encoding="utf-8")
@@ -309,11 +328,11 @@ def test_debian_maintainer_scripts_are_noninteractive_and_offline():
 
 
 def test_system_package_reuse_paths_are_covered_by_installers():
-    fcitx = (ROOT / "fcitx5/scripts/install-fcitx5.sh").read_text(encoding="utf-8")
+    fcitx = (ROOT / "fcitx5/scripts/install.sh").read_text(encoding="utf-8")
     assert "REUSE_SYSTEM_MODULE" in fcitx
     assert ".system-package" in fcitx
     assert "跳过开发依赖检查" in fcitx
-    ibus = (ROOT / "scripts/install-ibus-gui.sh").read_text(encoding="utf-8")
+    ibus = (ROOT / "ibus/scripts/install-gui.sh").read_text(encoding="utf-8")
     assert "/usr/libexec/vocotype-ibus-engine" in ibus
     assert "/usr/lib/vocotype/vocotype-ibus-engine" in ibus
     assert 'COMPONENT_EXEC_PATH="$packaged_launcher"' in ibus
@@ -405,7 +424,7 @@ def test_appstream_metadata_matches_desktop_and_package_identity():
 
 
 def test_release_builder_refuses_dirty_tree_by_default():
-    source = (ROOT / "scripts/build-release.py").read_text(encoding="utf-8")
+    source = (ROOT / "packaging/tools/build-release.py").read_text(encoding="utf-8")
     assert 'git_output("status", "--porcelain", "--untracked-files=normal")' in source
     assert "--allow-dirty" in source
     assert "refusing to build release assets from a dirty working tree" in source
@@ -438,7 +457,7 @@ def test_release_builder_removes_non_artifact_files_from_python_output(
     tmp_path: Path,
 ):
     spec = importlib.util.spec_from_file_location(
-        "vocotype_build_release_cleanup", ROOT / "scripts/build-release.py"
+        "vocotype_build_release_cleanup", ROOT / "packaging/tools/build-release.py"
     )
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -483,9 +502,9 @@ def test_release_validator_accepts_complete_artifacts_and_rejects_corruption(tmp
             "README.md",
             "MANIFEST.in",
             ".github/workflows/release.yml",
-            "packaging/stage-system-package.sh",
+            "packaging/tools/stage-system-package.sh",
             "fcitx5/module/vocotype_module.cpp",
-            "scripts/install-ibus-gui.sh",
+            "ibus/scripts/install-gui.sh",
             "data/metainfo/io.github.LeonardNJU.VoCoType.metainfo.xml",
         )
     ]
@@ -510,10 +529,10 @@ def test_release_validator_accepts_complete_artifacts_and_rejects_corruption(tmp
             for suffix in (
                 "README.md",
                 "MANIFEST.in",
-                "packaging/stage-system-package.sh",
+                "packaging/tools/stage-system-package.sh",
                 "fcitx5/module/vocotype_module.cpp",
-                "scripts/install-ibus-gui.sh",
-                "test/test_release_packaging.py",
+                "ibus/scripts/install-gui.sh",
+                "tests/test_release_packaging.py",
             )
         ],
     )
@@ -549,7 +568,7 @@ def test_release_validator_accepts_complete_artifacts_and_rejects_corruption(tmp
     )
     result = _run(
         sys.executable,
-        "scripts/validate-release.py",
+        "packaging/tools/validate-release.py",
         "--release-dir",
         str(tmp_path),
         "--expected-version",
@@ -559,7 +578,7 @@ def test_release_validator_accepts_complete_artifacts_and_rejects_corruption(tmp
     )
     assert result.returncode == 0, result.stdout + result.stderr
     wheel.write_bytes(wheel.read_bytes() + b"corrupt")
-    result = _run(sys.executable, "scripts/validate-release.py", "--release-dir", str(tmp_path))
+    result = _run(sys.executable, "packaging/tools/validate-release.py", "--release-dir", str(tmp_path))
     assert result.returncode != 0
     assert "mismatch" in result.stderr
 

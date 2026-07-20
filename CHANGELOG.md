@@ -66,7 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 新增上下文诊断命令：`显示上下文信息` 输出 `[VT-SURR ...]`
 - **IBus surrounding 探针快捷键**：
   - 新增 `Ctrl+Shift+F9` 探针回填
-  - 新增脚本 `scripts/test-surrounding-probe.sh` 用于多场景兼容性测试
+  - 新增脚本 `tools/diagnostics/test-surrounding-probe.sh` 用于多场景兼容性测试
 
 ### Changed
 
@@ -100,8 +100,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **新增 LLM 后处理链路（长句模式）**：
   - `Shift+F9` 新增长句模式后处理（ASR + 标点 + 可选 SLM/LLM 润色）
   - 新增本地一次性加载 worker：按下预热、释放后自动回收
-  - 新增后处理基准脚本：`scripts/benchmark_slm_pipeline.py`
-  - 新增后处理单元测试：`test/test_slm_polisher.py`
+  - 新增后处理基准脚本：`tools/benchmarks/slm-pipeline.py`
+  - 新增后处理单元测试：`tests/test_slm_polisher.py`
 
 ### Changed
 
@@ -387,7 +387,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ```bash
 cd VocoType-linux
-./scripts/install-ibus.sh
+./ibus/scripts/install.sh
 ```
 
 ---

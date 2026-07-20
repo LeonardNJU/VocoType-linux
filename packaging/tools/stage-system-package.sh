@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: packaging/stage-system-package.sh --destdir DIR [options]
+Usage: packaging/tools/stage-system-package.sh --destdir DIR [options]
 
 Options:
   --prefix PREFIX       Installation prefix (default: /usr)
@@ -40,7 +40,7 @@ DESTDIR=$(readlink -m "$DESTDIR")
 LIBEXECDIR=${LIBEXECDIR:-"$PREFIX/libexec"}
 [[ "$LIBEXECDIR" == /* ]] || { echo "--libexecdir must be absolute" >&2; exit 2; }
 
-PROJECT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+PROJECT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 BUILD_DIR=${BUILD_DIR:-"$PROJECT_DIR/build/package-fcitx"}
 VERSION=$(sed -n 's/^__version__ = "\([0-9][0-9.]*\)"/\1/p' "$PROJECT_DIR/vocotype_version.py")
 [[ -n "$VERSION" ]] || { echo "Cannot determine VoCoType version" >&2; exit 1; }
@@ -56,7 +56,7 @@ while IFS= read -r entry; do
   [[ -e "$src" ]] || { echo "Release manifest entry does not exist: $entry" >&2; exit 1; }
   mkdir -p "$source_root/$(dirname "$entry")"
   cp -a "$src" "$source_root/$entry"
-done < "$PROJECT_DIR/packaging/release-files.txt"
+done < "$PROJECT_DIR/packaging/manifests/runtime-files.txt"
 
 find "$source_root" -type d \( -name __pycache__ -o -name .pytest_cache -o -name build -o -name dist \) -prune -exec rm -rf {} + 2>/dev/null || true
 find "$source_root" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
@@ -79,7 +79,7 @@ mkdir -p "$DESTDIR$PREFIX/share/ibus/component"
 sed \
   -e "s|VOCOTYPE_EXEC_PATH|$LIBEXECDIR/vocotype-ibus-engine|g" \
   -e "s|VOCOTYPE_VERSION|$VERSION|g" \
-  "$PROJECT_DIR/data/ibus/vocotype.xml.in" > "$DESTDIR$PREFIX/share/ibus/component/vocotype.xml.tmp"
+  "$PROJECT_DIR/ibus/data/vocotype.xml.in" > "$DESTDIR$PREFIX/share/ibus/component/vocotype.xml.tmp"
 install -Dm644 "$DESTDIR$PREFIX/share/ibus/component/vocotype.xml.tmp" "$DESTDIR$PREFIX/share/ibus/component/vocotype.xml"
 rm -f "$DESTDIR$PREFIX/share/ibus/component/vocotype.xml.tmp"
 

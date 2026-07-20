@@ -74,7 +74,7 @@ include = ["app*", "ibus*", "settings_center*"]
 "share/metainfo" = ["data/metainfo/io.github.LeonardNJU.VoCoType.metainfo.xml"]
 "share/icons/hicolor/192x192/apps" = ["site/icon-192.png"]
 "share/vocotype" = ["data/terms.yaml", "requirements.txt", "uv.lock"]
-"share/vocotype/ibus" = ["data/ibus/vocotype.xml.in"]
+"share/vocotype/ibus" = ["ibus/data/vocotype.xml.in"]
 
 [tool.setuptools.dynamic]
 version = { attr = "vocotype_version.__version__" }

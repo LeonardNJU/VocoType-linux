@@ -16,18 +16,18 @@ SOURCE_REQUIRED = (
     "README.md",
     "MANIFEST.in",
     ".github/workflows/release.yml",
-    "packaging/stage-system-package.sh",
+    "packaging/tools/stage-system-package.sh",
     "fcitx5/module/vocotype_module.cpp",
-    "scripts/install-ibus-gui.sh",
+    "ibus/scripts/install-gui.sh",
     "data/metainfo/io.github.LeonardNJU.VoCoType.metainfo.xml",
 )
 SDIST_REQUIRED = (
     "README.md",
     "MANIFEST.in",
-    "packaging/stage-system-package.sh",
+    "packaging/tools/stage-system-package.sh",
     "fcitx5/module/vocotype_module.cpp",
-    "scripts/install-ibus-gui.sh",
-    "test/test_release_packaging.py",
+    "ibus/scripts/install-gui.sh",
+    "tests/test_release_packaging.py",
 )
 WHEEL_REQUIRED = (
     "app/config.py",

@@ -13,7 +13,7 @@ vocotype-settings
 从源码首次安装时运行：
 
 ```bash
-bash scripts/launch-settings.sh
+bash installers/launch-settings.sh
 ```
 
 通过 DEB、RPM 或 Arch 包安装时，系统包已经提供 Fcitx module、IBus component、桌面入口和安装源码。设置中心会识别 `/usr/share/vocotype/.system-package`，复用这些由包管理器维护的系统文件，只创建或修复用户级 Python 运行时；已有且内容一致的系统 IBus component 不会再次请求管理员授权。

@@ -54,7 +54,7 @@ Fcitx 版本不需要 `pyrime`。用户需要 Rime 时直接安装和使用发�
 ```bash
 git clone https://github.com/LeonardNJU/VocoType-linux.git
 cd VocoType-linux
-bash scripts/launch-settings.sh
+bash installers/launch-settings.sh
 ```
 
 在“概览与安装”点击 **安装 / 修复**。已安装用户可直接从应用菜单打开 **VoCoType 设置**。
@@ -62,7 +62,7 @@ bash scripts/launch-settings.sh
 ## 命令行安装
 
 ```bash
-bash fcitx5/scripts/install-fcitx5.sh
+bash fcitx5/scripts/install.sh
 systemctl --user enable --now vocotype-fcitx5-backend.service
 fcitx5 -r
 ```
@@ -88,7 +88,7 @@ vocotype-settings
 vocotype-doctor
 ```
 
-设置中心可配置 AI endpoint/API Key、编辑术语、预览 ITN、安装/修复、重启服务并生成脱敏支持包。完整说明见 [`docs/SETTINGS_CENTER.md`](../docs/SETTINGS_CENTER.md)。
+设置中心可配置 AI endpoint/API Key、编辑术语、预览 ITN、安装/修复、重启服务并生成脱敏支持包。完整说明见 [`docs/guides/settings-center.md`](../docs/guides/settings-center.md)。
 
 ## Module 配置
 
@@ -155,11 +155,11 @@ Fcitx backend 与 IBus 共用 `~/.config/vocotype/terms.yaml`。默认 ASR 是�
 Contextual Paraformer ONNX，术语可以同时进入原生 hotword 编码器和转录后的
 确定性标准化层。安装器只在没有新旧术语文件时创建模板。
 
-完整格式见 [`docs/TERMS.md`](../docs/TERMS.md)。
+完整格式见 [`docs/guides/terms.md`](../docs/guides/terms.md)。
 
 ## ITN 与数字格式
 
-设置中心可整体开关数字/ITN，并分别控制 `2026/05/11`、`15:20`、`320m` 与 `¥128` 等紧凑书写风格。详见 [`docs/ITN.md`](../docs/ITN.md)。
+设置中心可整体开关数字/ITN，并分别控制 `2026/05/11`、`15:20`、`320m` 与 `¥128` 等紧凑书写风格。详见 [`docs/guides/itn.md`](../docs/guides/itn.md)。
 
 ## AI 润色与实时预览
 
@@ -223,7 +223,7 @@ SLM 默认关闭，在 `~/.config/vocotype/fcitx5-backend.json` 中配置。
 调用失败时不会丢失已识别文字：输入面板保留 ASR 原文，按 `1`、空格或回车提交，
 按 `Escape` 放弃。
 
-完整协议与参数见 [`docs/SLM_STREAMING.md`](../docs/SLM_STREAMING.md)。
+完整协议与参数见 [`docs/guides/slm-streaming.md`](../docs/guides/slm-streaming.md)。
 
 ## 行为边界
 

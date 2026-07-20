@@ -102,8 +102,8 @@ def find_project_root(start: str | os.PathLike[str] | None = None) -> Path | Non
                 continue
             seen.add(path)
             if (
-                (path / "fcitx5/scripts/install-fcitx5.sh").is_file()
-                and (path / "scripts/install-ibus-gui.sh").is_file()
+                (path / "fcitx5/scripts/install.sh").is_file()
+                and (path / "ibus/scripts/install-gui.sh").is_file()
                 and (path / "pyproject.toml").is_file()
             ):
                 return path
@@ -125,7 +125,7 @@ def fcitx_installer_command(project_root: Path, options: InstallOptions | None =
     opts = options or InstallOptions()
     return [
         "bash",
-        str(project_root / "fcitx5/scripts/install-fcitx5.sh"),
+        str(project_root / "fcitx5/scripts/install.sh"),
         *_common_flags(opts),
         "--slm-provider",
         "preserve" if opts.preserve_config else "disabled",
@@ -136,7 +136,7 @@ def ibus_installer_command(project_root: Path, options: InstallOptions | None = 
     opts = options or InstallOptions()
     return [
         "bash",
-        str(project_root / "scripts/install-ibus-gui.sh"),
+        str(project_root / "ibus/scripts/install-gui.sh"),
         *_common_flags(opts),
         "--slm-provider",
         "preserve" if opts.preserve_config else "disabled",

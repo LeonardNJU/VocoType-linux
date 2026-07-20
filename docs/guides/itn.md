@@ -61,7 +61,7 @@ WeTextProcessing 中文 FST ITN
 
 用户名称、作品名、型号或特殊写法应加入 `~/.config/vocotype/terms.yaml` 并保持 `protect: true`。例如 `100米计划` 不会因为启用了路程缩写而变成 `100m计划`。
 
-详见 [`TERMS.md`](TERMS.md) 和 [`SETTINGS_CENTER.md`](SETTINGS_CENTER.md)。
+详见 [`TERMS.md`](terms.md) 和 [`SETTINGS_CENTER.md`](settings-center.md)。
 
 ## 依赖
 

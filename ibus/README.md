@@ -4,13 +4,13 @@ VoCoType 离线语音输入法的 IBus 版本实现。
 
 ## ITN 与数字格式
 
-图形设置中心可以整体开关数字/ITN，并分别选择日期、时间、路程单位和金额的紧凑书写风格。详见 [`docs/ITN.md`](../docs/ITN.md)。
+图形设置中心可以整体开关数字/ITN，并分别选择日期、时间、路程单位和金额的紧凑书写风格。详见 [`docs/guides/itn.md`](../docs/guides/itn.md)。
 
 ## 术语库与原生热词
 
 IBus 与 Fcitx 5 共用 `~/.config/vocotype/terms.yaml`。默认 Contextual Paraformer
 会使用其中的原生 hotword，识别后再执行确定性术语标准化和数字保护。
-详见 [`docs/TERMS.md`](../docs/TERMS.md)。
+详见 [`docs/guides/terms.md`](../docs/guides/terms.md)。
 
 ## 功能特性
 
@@ -43,7 +43,7 @@ IBus 与 Fcitx 5 共用 `~/.config/vocotype/terms.yaml`。默认 Contextual Para
 
 ## 图形安装
 
-从源码目录运行 `bash scripts/launch-settings.sh`，在“概览与安装”选择 **安装 / 修复 IBus**。Python 环境、Rime、component 位置和系统依赖安装均在 GUI 中选择。需要系统权限时会弹出 Polkit 授权框，不会打开终端。
+从源码目录运行 `bash installers/launch-settings.sh`，在“概览与安装”选择 **安装 / 修复 IBus**。Python 环境、Rime、component 位置和系统依赖安装均在 GUI 中选择。需要系统权限时会弹出 Polkit 授权框，不会打开终端。
 
 传统交互脚本仍保留用于兼容和开发排障。
 
@@ -57,7 +57,7 @@ IBus 与 Fcitx 5 共用 `~/.config/vocotype/terms.yaml`。默认 Contextual Para
 cd VocoType-linux
 
 # 安装 IBus 引擎
-./scripts/install-ibus.sh
+./ibus/scripts/install.sh
 
 # 重启 IBus
 ibus restart
@@ -98,7 +98,7 @@ sudo pacman -S librime ibus-rime
 cd VocoType-linux
 
 # 安装 IBus 引擎
-./scripts/install-ibus.sh
+./ibus/scripts/install.sh
 
 # 安装 pyrime（根据脚本提示的虚拟环境路径）
 # 例如：
@@ -144,14 +144,14 @@ ibus restart
 > 提示：安装脚本会把选择的方案记录在 `~/.config/vocotype/rime/user.yaml`，
 > 启动时优先使用该方案。
 
-详见：[RIME_CONFIG_GUIDE.md](../RIME_CONFIG_GUIDE.md)
+详见：[docs/guides/rime.md](../docs/guides/rime.md)
 
 ## 高级配置
 
 ### 重新配置音频设备
 
 ```bash
-.venv/bin/python scripts/setup-audio.py
+.venv/bin/python installers/setup-audio.py
 ```
 
 ### 自定义快捷键
@@ -233,7 +233,7 @@ PTT_KEYVAL = IBus.KEY_F9  # 修改为其他按键
 
 IBus 继续采用最终结果式 UI，不显示逐 token 面板预览；远程 SSE 仍可用于更合理的空闲超时和
 取消固定 token 上限。Fcitx 5 的实时预览协议见
-[`docs/SLM_STREAMING.md`](../docs/SLM_STREAMING.md)。
+[`docs/guides/slm-streaming.md`](../docs/guides/slm-streaming.md)。
 
 ### 语音编辑（Ctrl+F9）详解
 
@@ -267,10 +267,10 @@ IBus 继续采用最终结果式 UI，不显示逐 token 面板预览；远程 S
 
 ### surrounding 探针脚本
 
-仓库提供 `scripts/test-surrounding-probe.sh`，用于快速验证不同应用中的 surrounding 抽取能力：
+仓库提供 `tools/diagnostics/test-surrounding-probe.sh`，用于快速验证不同应用中的 surrounding 抽取能力：
 
 ```bash
-bash scripts/test-surrounding-probe.sh
+bash tools/diagnostics/test-surrounding-probe.sh
 ```
 
 ## 常见问题 (FAQ)
@@ -330,4 +330,4 @@ ibus restart
 **相关文档**:
 - [项目主页](../README.md)
 - [Fcitx 5 版本](../fcitx5/README.md)
-- [Rime 配置指南](../RIME_CONFIG_GUIDE.md)
+- [Rime 配置指南](../docs/guides/rime.md)

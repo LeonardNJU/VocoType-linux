@@ -37,21 +37,21 @@ jobs:
           fi
           args=()
           [[ -n "$expected" ]] && args+=(--expected-version "$expected")
-          python scripts/build-release.py "${args[@]}"
+          python packaging/tools/build-release.py "${args[@]}"
       - name: Check Python metadata
         run: python -m twine check dist/release/python/*
       - name: Validate release artifact contract
-        run: python scripts/validate-release.py
+        run: python packaging/tools/validate-release.py
       - name: Build Debian package
-        run: scripts/build-deb.sh
+        run: packaging/tools/build-deb.sh
       - name: Install and validate Debian package
         run: |
           package=$(find dist/packages -maxdepth 1 -name 'vocotype-linux_*.deb' -print -quit)
           test -n "$package"
           sudo apt-get install -y "$(realpath "$package")"
-          sudo scripts/smoke-installed-package.sh "$(python3 -c 'from vocotype_version import __version__; print(__version__)')"
+          sudo packaging/tests/smoke-installed-package.sh "$(python3 -c 'from vocotype_version import __version__; print(__version__)')"
           sudo apt-get purge -y vocotype-linux
-          sudo scripts/smoke-removed-package.sh
+          sudo packaging/tests/smoke-removed-package.sh
       - uses: actions/upload-artifact@v7
         with:
           name: source-python-deb
@@ -74,15 +74,15 @@ jobs:
       - name: Trust the checked-out repository
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Build RPM
-        run: scripts/build-rpm.sh
+        run: packaging/tools/build-rpm.sh
       - name: Install and validate RPM
         run: |
           package=$(find dist/packages -maxdepth 1 -name 'vocotype-linux-*.x86_64.rpm' ! -name '*debug*' -print -quit)
           test -n "$package"
           dnf install -y "$package"
-          scripts/smoke-installed-package.sh "$(python3 -c 'from vocotype_version import __version__; print(__version__)')"
+          packaging/tests/smoke-installed-package.sh "$(python3 -c 'from vocotype_version import __version__; print(__version__)')"
           dnf remove -y vocotype-linux
-          scripts/smoke-removed-package.sh
+          packaging/tests/smoke-removed-package.sh
       - uses: actions/upload-artifact@v7
         with:
           name: rpm
@@ -103,15 +103,15 @@ jobs:
           useradd -m builder
           chown -R builder:builder "$GITHUB_WORKSPACE"
       - name: Build Arch package
-        run: su builder -c "cd '$GITHUB_WORKSPACE' && scripts/build-arch.sh"
+        run: su builder -c "cd '$GITHUB_WORKSPACE' && packaging/tools/build-arch.sh"
       - name: Install and validate Arch package
         run: |
           package=$(find dist/packages -maxdepth 1 -name 'vocotype-linux-*.pkg.tar.*' ! -name '*debug*' -print -quit)
           test -n "$package"
           pacman -U --noconfirm "$package"
-          scripts/smoke-installed-package.sh "$(python3 -c 'from vocotype_version import __version__; print(__version__)')"
+          packaging/tests/smoke-installed-package.sh "$(python3 -c 'from vocotype_version import __version__; print(__version__)')"
           pacman -Rns --noconfirm vocotype-linux
-          scripts/smoke-removed-package.sh
+          packaging/tests/smoke-removed-package.sh
       - uses: actions/upload-artifact@v7
         with:
           name: arch
