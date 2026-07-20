@@ -88,18 +88,31 @@ PYTHON_MIN_MINOR=11
 PYTHON_MAX_MINOR=12
 DEFAULT_UV_PYTHON="3.12"
 SYSTEM_DEPS_HELPER="$PROJECT_DIR/installers/install-system-dependencies.sh"
+SYSTEM_FCITX_HELPER="$PROJECT_DIR/installers/manage-fcitx-system-integration.sh"
+VOCOTYPE_VERSION=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$PROJECT_DIR/vocotype_version.py")
 REUSE_SYSTEM_MODULE=false
-if [ -f "$PROJECT_DIR/.system-package" ] && [ -f /usr/share/fcitx5/addon/vocotype.conf ]; then
-    for system_module in \
+if [ -f "$PROJECT_DIR/.system-package" ] || [ -f /usr/share/vocotype/.system-package ]; then
+    REUSE_SYSTEM_MODULE=true
+fi
+SYSTEM_FCITX_SOURCE_MARKER=/usr/share/vocotype/.source-fcitx-integration
+
+source_system_fcitx_matches_build() {
+    local built_module="$PROJECT_DIR/fcitx5/module/build/vocotype.so"
+    local built_addon="$PROJECT_DIR/fcitx5/data/vocotype.conf"
+    local installed_module
+    [ -f "$SYSTEM_FCITX_SOURCE_MARKER" ] || return 1
+    [ -f /usr/share/fcitx5/addon/vocotype.conf ] || return 1
+    cmp -s "$built_addon" /usr/share/fcitx5/addon/vocotype.conf || return 1
+    for installed_module in \
         /usr/lib/fcitx5/vocotype.so \
         /usr/lib64/fcitx5/vocotype.so \
         /usr/lib/*/fcitx5/vocotype.so; do
-        if [ -f "$system_module" ]; then
-            REUSE_SYSTEM_MODULE=true
-            break
+        if [ -f "$installed_module" ] && cmp -s "$built_module" "$installed_module"; then
+            return 0
         fi
     done
-fi
+    return 1
+}
 
 # SLM 可选配置（默认关闭）
 ENABLE_SLM=0
@@ -181,6 +194,36 @@ bootstrap_uv() {
     fi
     export PATH="$HOME/.local/bin:$PATH"
     command -v uv >/dev/null 2>&1
+}
+
+install_system_fcitx_integration() {
+    local module="$PROJECT_DIR/fcitx5/module/build/vocotype.so"
+    local addon="$PROJECT_DIR/fcitx5/data/vocotype.conf"
+    if [ ! -x "$SYSTEM_FCITX_HELPER" ]; then
+        echo "错误: 系统 Fcitx integration 辅助程序不存在: $SYSTEM_FCITX_HELPER" >&2
+        return 1
+    fi
+    if source_system_fcitx_matches_build; then
+        echo "✓ 源码安装器管理的系统 addon 已与当前构建一致，无需再次授权"
+        return 0
+    fi
+    if [ "$NON_INTERACTIVE" = true ]; then
+        if ! command -v pkexec >/dev/null 2>&1; then
+            echo "错误: 源码安装 VoCoType（Fcitx 5）需要 Polkit 授权写入系统 addon 目录。" >&2
+            return 1
+        fi
+        echo "AUTH_REQUIRED: 即将弹出管理员授权窗口以安装 VoCoType（Fcitx 5）系统 addon。"
+        pkexec "$(command -v bash)" "$SYSTEM_FCITX_HELPER" install "$module" "$addon" "$VOCOTYPE_VERSION"
+        return
+    fi
+    if command -v pkexec >/dev/null 2>&1 && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+        pkexec "$(command -v bash)" "$SYSTEM_FCITX_HELPER" install "$module" "$addon" "$VOCOTYPE_VERSION"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo "$(command -v bash)" "$SYSTEM_FCITX_HELPER" install "$module" "$addon" "$VOCOTYPE_VERSION"
+    else
+        echo "错误: 需要 pkexec 或 sudo 安装系统级 VoCoType（Fcitx 5）addon。" >&2
+        return 1
+    fi
 }
 
 install_system_dependencies() {
@@ -334,7 +377,7 @@ echo "✓ Fcitx 5 已安装"
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 if [ "$REUSE_SYSTEM_MODULE" = true ]; then
     echo ""
-    echo "[2/8] 系统包已提供 Fcitx 5 编译依赖与 module"
+    echo "[2/8] 原生软件包已提供 Fcitx 5 module"
     echo "✓ 跳过开发依赖检查"
     echo ""
     echo "[3/8] 复用系统 Fcitx 5 全局 Module"
@@ -445,33 +488,23 @@ make -j$(nproc)
 echo "✓ 编译成功"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 4. 安装 C++ 全局 Module（多位置 + 符号链接）
+# 4. 安装系统级 C++ 全局 Module
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
-echo "[4/8] 安装 C++ 全局 Module..."
-make install
-
-# 复制到 lib 目录（某些 Fcitx5 配置可能需要）
-mkdir -p "$HOME/.local/lib/fcitx5"
-cp "$HOME/.local/lib64/fcitx5/vocotype.so" "$HOME/.local/lib/fcitx5/" 2>/dev/null || \
-cp "$PROJECT_DIR/fcitx5/module/build/vocotype.so" "$HOME/.local/lib/fcitx5/"
-
-# 创建 lib 前缀的符号链接（兼容性）
-if [ -d "$HOME/.local/lib64/fcitx5" ]; then
-    ln -sf "$HOME/.local/lib64/fcitx5/vocotype.so" "$HOME/.local/lib64/fcitx5/libvocotype.so"
-fi
-if [ -d "$HOME/.local/lib/fcitx5" ]; then
-    ln -sf "$HOME/.local/lib/fcitx5/vocotype.so" "$HOME/.local/lib/fcitx5/libvocotype.so"
-fi
-
-# 安装 Addon 配置文件
-mkdir -p "$HOME/.local/share/fcitx5/addon"
-cp "$PROJECT_DIR/fcitx5/data/vocotype.conf" "$HOME/.local/share/fcitx5/addon/"
-
-# 清理旧版独立输入法条目；新版作为全局 Module 在所有输入法下生效。
+echo "[4/8] 安装 VoCoType（Fcitx 5）系统 addon..."
+install_system_fcitx_integration || {
+    echo "错误: 系统级 VoCoType（Fcitx 5）addon 安装失败。" >&2
+    exit 1
+}
+# 旧版用户级 module 不会被所有 Fcitx 构建扫描，并可能误导状态检查。
+rm -f \
+    "$HOME/.local/lib/fcitx5/vocotype.so" \
+    "$HOME/.local/lib/fcitx5/libvocotype.so" \
+    "$HOME/.local/lib64/fcitx5/vocotype.so" \
+    "$HOME/.local/lib64/fcitx5/libvocotype.so" \
+    "$HOME/.local/share/fcitx5/addon/vocotype.conf"
 rm -f "$HOME/.local/share/fcitx5/inputmethod/vocotype.conf"
-
-echo "✓ C++ 全局 Module 已安装"
+echo "✓ 系统级 VoCoType（Fcitx 5）addon 已安装"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 5. 清理旧版 addon 路径覆盖
@@ -654,6 +687,8 @@ fi
 
 echo "✓ Python 环境已配置"
 
+download_and_verify_asr_models "$PYTHON" "$INSTALL_DIR" || exit 1
+
 FCITX5_BACKEND_CONFIG="$HOME/.config/vocotype/fcitx5-backend.json"
 if [ "$PRESERVE_CONFIG" = true ] && [ -f "$FCITX5_BACKEND_CONFIG" ]; then
     preserved_slm=$(
@@ -750,16 +785,9 @@ else
 
     if ! "$PYTHON" "$INSTALLED_SETUP_AUDIO_SCRIPT"; then
         echo ""
-        echo "⚠️  音频配置未完成。"
-        echo "请稍后运行以下命令重新配置："
-        echo "  $PYTHON $INSTALLED_SETUP_AUDIO_SCRIPT"
-        echo ""
-        read -p "是否继续安装？ [y/N] " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            echo "安装已取消"
-            exit 1
-        fi
+        echo "错误: 音频设备与识别验收未完成，安装不能标记为成功。" >&2
+        echo "请重新运行安装器，或在设置中心完成麦克风测试。" >&2
+        exit 1
     fi
 fi
 
@@ -840,13 +868,7 @@ INSTALL_DIR="$HOME/.local/share/vocotype-fcitx5"
 PYTHON="VOCOTYPE_PYTHON"
 SERVER_SCRIPT="$INSTALL_DIR/backend/fcitx5_server.py"
 
-# 检查是否已在运行
-if pgrep -f "fcitx5_server.py" > /dev/null; then
-    echo "VoCoType Fcitx5 Backend 已在运行"
-    exit 0
-fi
-
-# 启动服务
+# systemd 负责进程生命周期；重复实例会由 Unix socket 绑定失败明确报错。
 exec "$PYTHON" "$SERVER_SCRIPT" "$@"
 EOF
 sed -i "s|VOCOTYPE_PYTHON|$PYTHON_SED|g" "$HOME/.local/bin/vocotype-fcitx5-backend"
@@ -858,12 +880,14 @@ cat > "$HOME/.config/systemd/user/vocotype-fcitx5-backend.service" << EOF
 [Unit]
 Description=VoCoType Fcitx5 Backend Service
 After=graphical-session.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
 
 [Service]
 Type=simple
 ExecStart=$HOME/.local/bin/vocotype-fcitx5-backend
 # 改进重启策略：任何情况下都重启（包括休眠后被终止）
-Restart=always
+Restart=on-failure
 RestartSec=5s
 Environment="PYTHONIOENCODING=UTF-8"
 
@@ -871,23 +895,35 @@ Environment="PYTHONIOENCODING=UTF-8"
 WantedBy=default.target
 EOF
 
-if command -v systemctl >/dev/null 2>&1; then
-    if ! systemctl --user daemon-reload >/dev/null 2>&1; then
-        if [ "$NON_INTERACTIVE" = true ]; then
-            echo "⚠️  后台服务尚未重载，可在设置中心点击“重启后台服务”重试"
-        else
-            echo "⚠️  systemctl --user daemon-reload 失败，请手动执行"
-        fi
-    fi
+ensure_desktop_user_environment
+if ! command -v systemctl >/dev/null 2>&1; then
+    echo "错误: 未检测到 systemctl，无法启动并验收 VoCoType 后台服务。" >&2
+    exit 1
+fi
+if ! systemctl --user daemon-reload; then
+    echo "错误: systemd 用户服务定义重载失败。" >&2
+    exit 1
+fi
+systemctl --user reset-failed vocotype-fcitx5-backend.service >/dev/null 2>&1 || true
+if ! systemctl --user enable --now vocotype-fcitx5-backend.service; then
+    echo "错误: VoCoType 后台服务启动失败。" >&2
+    exit 1
+fi
+echo "✓ 后台服务已启用并启动"
+
+if [ "$PYTHON" = "$PROJECT_DIR/.venv/bin/python" ]; then
+    echo "⚠️  当前选择的是项目虚拟环境。若重命名或删除仓库目录，需要重新安装或改用用户级环境。"
 fi
 
-echo "✓ 后台服务启动器已创建"
-if [ "$NON_INTERACTIVE" = true ] && command -v systemctl >/dev/null 2>&1; then
-    systemctl --user enable --now vocotype-fcitx5-backend.service >/dev/null 2>&1 || \
-        echo "⚠️  后台服务自动启动失败，可在设置中心重试"
-fi
-if [ "$PYTHON" = "$PROJECT_DIR/.venv/bin/python" ]; then
-    echo "⚠️  当前选择的是项目虚拟环境。若重命名或删除仓库目录，需要重新安装或改用选项 2/3/4。"
+echo ""
+echo "严格验收将重载 Fcitx 5，并确认 VoCoType addon 实际创建成功。"
+echo ""
+echo "执行安装后严格验收..."
+if ! PYTHONPATH="$INSTALL_DIR${PYTHONPATH:+:$PYTHONPATH}" \
+    "$PYTHON" "$PROJECT_DIR/installers/validate-installed-integration.py" \
+    --framework fcitx5 --runtime-root "$INSTALL_DIR" --timeout 120; then
+    echo "错误: VoCoType（Fcitx 5）未达到可运行状态，安装不能标记为成功。" >&2
+    exit 1
 fi
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -895,28 +931,12 @@ fi
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "✅ VoCoType Fcitx 5 安装完成！"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
-if [ "$NON_INTERACTIVE" = true ]; then
-    if command -v fcitx5 >/dev/null 2>&1; then
-        if command -v timeout >/dev/null 2>&1; then
-            timeout 8s env -u FCITX_ADDON_DIRS fcitx5 -r -d >/dev/null 2>&1 || \
-                echo "⚠️  Fcitx 5 暂未重载，可在设置中心点击“重启 Fcitx 5”"
-        else
-            env -u FCITX_ADDON_DIRS fcitx5 -r -d >/dev/null 2>&1 || true
-        fi
-    fi
-    echo "安装器已尝试启动后台服务并重载 Fcitx 5。"
-    echo "若本次会话尚未加载用户 addon 路径，请注销并重新登录一次。"
-    echo "继续使用现有 Rime、拼音、Mozc 等输入法，直接按住 F9 说话。"
+if [ "$SKIP_AUDIO" = true ] || [ -n "$AUDIO_DEVICE" ]; then
+    echo "⚠️ VoCoType（Fcitx 5）程序与运行链路已就绪；麦克风验收尚未完成"
+    echo "请在设置中心选择麦克风并执行“录音 2 秒测试”。"
 else
-    echo "📝 接下来的步骤："
-    echo ""
-    echo "1. 注销并重新登录桌面会话，让 Fcitx 读取用户 addon 路径。"
-    echo "2. 启动后台服务并重启 Fcitx 5。"
-    echo "3. 在附加组件中确认 VoCoType Voice Input 已启用。"
-    echo "4. 继续使用现有输入法，按住 F9 说话。"
+    echo "✅ VoCoType（Fcitx 5）安装与运行验收完成"
 fi
-echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "无需添加独立输入法条目；继续使用现有输入法，按住 F9 说话。"
+echo ""

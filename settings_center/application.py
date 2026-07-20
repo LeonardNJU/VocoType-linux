@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import threading
 from dataclasses import asdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -18,6 +20,7 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 
 from vocotype_version import __version__
+from app.slm_polisher import looks_like_api_key
 
 from .config_service import (
     ensure_terms_template,
@@ -266,12 +269,28 @@ class SettingsWindow(Gtk.ApplicationWindow):
             0,
         )
 
-        self.overview_summary = Gtk.Label(xalign=0)
-        self.overview_summary.set_line_wrap(True)
+        doctor_actions = Gtk.Box(spacing=8)
         doctor_button = Gtk.Button(label="运行快速检查")
         doctor_button.connect("clicked", self._on_run_doctor)
-        card.pack_start(self._row("运行状态", "检查 module、后台服务、IPC、麦克风、配置与 ITN。", doctor_button), False, False, 0)
-        card.pack_start(self._row("当前摘要", control=self.overview_summary), False, False, 0)
+        open_doctor_button = Gtk.Button(label="查看详情")
+        open_doctor_button.connect("clicked", lambda _button: self.stack.set_visible_child_name("doctor"))
+        doctor_actions.pack_start(doctor_button, False, False, 0)
+        doctor_actions.pack_start(open_doctor_button, False, False, 0)
+        self.overview_summary = Gtk.Label(label="尚未运行检查", xalign=0)
+        self.overview_summary.set_line_wrap(True)
+        doctor_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        doctor_panel.pack_start(doctor_actions, False, False, 0)
+        doctor_panel.pack_start(self.overview_summary, False, False, 0)
+        card.pack_start(
+            self._row(
+                "运行状态",
+                "快速检查后仅显示摘要；点击“查看详情”进入诊断页查看逐项结果与修复建议。",
+                doctor_panel,
+            ),
+            False,
+            False,
+            0,
+        )
         content.pack_start(card, False, False, 0)
         GLib.idle_add(self._refresh_install_status)
         return page
@@ -387,9 +406,10 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.slm_endpoint = Gtk.Entry()
         self.slm_model = Gtk.Entry()
         self.slm_api_key_env = Gtk.Entry()
+        self.slm_api_key_env.set_placeholder_text("例如 DEEPSEEK_API_KEY（这里只填变量名）")
         self.slm_api_key = Gtk.Entry()
         self.slm_api_key.set_visibility(False)
-        self.slm_api_key.set_placeholder_text("留空则保留现有凭据")
+        self.slm_api_key.set_placeholder_text("直接粘贴 sk-...；留空则保留现有凭据")
         self.slm_clear_api_key = Gtk.CheckButton(label="清除已保存的直接 API Key")
         self.slm_min_chars = Gtk.SpinButton.new_with_range(0, 2000, 1)
         self.slm_timeout = Gtk.SpinButton.new_with_range(1000, 120000, 1000)
@@ -407,8 +427,8 @@ class SettingsWindow(Gtk.ApplicationWindow):
         card.pack_start(self._row("Provider", control=self.slm_provider), False, False, 0)
         card.pack_start(self._row("API 地址", "可填写服务根地址或 /v1/chat/completions。", self.slm_endpoint), False, False, 0)
         card.pack_start(self._row("模型", control=self.slm_model), False, False, 0)
-        card.pack_start(self._row("API Key 环境变量", "例如 DEEPSEEK_API_KEY；优先于空白直接凭据。", self.slm_api_key_env), False, False, 0)
-        card.pack_start(self._row("更新 API Key", "配置文件权限固定为 0600；留空不修改。", self.slm_api_key), False, False, 0)
+        card.pack_start(self._row("API Key 环境变量名（高级）", "这里只填写 DEEPSEEK_API_KEY 这类变量名，不要粘贴 sk-... 密钥。", self.slm_api_key_env), False, False, 0)
+        card.pack_start(self._row("直接 API Key", "把 sk-... 密钥粘贴在这里；配置文件权限固定为 0600。", self.slm_api_key), False, False, 0)
         card.pack_start(self._row("清除直接凭据", "切换到环境变量凭据时可清除旧值。", self.slm_clear_api_key), False, False, 0)
         card.pack_start(self._row("最少润色字符数", "0 表示不限制。", self.slm_min_chars), False, False, 0)
         card.pack_start(self._row("流式空闲超时（毫秒）", control=self.slm_timeout), False, False, 0)
@@ -505,7 +525,16 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.slm_provider.set_active_id(provider if provider in {"remote", "local_ephemeral"} else "remote")
         self.slm_endpoint.set_text(str(slm.get("endpoint", "")))
         self.slm_model.set_text(str(slm.get("model", "")))
-        self.slm_api_key_env.set_text(str(slm.get("api_key_env", "")))
+        api_key_env = str(slm.get("api_key_env", ""))
+        direct_api_key = str(slm.get("api_key", ""))
+        if not direct_api_key and looks_like_api_key(api_key_env):
+            self.slm_api_key_env.set_text("")
+            self.slm_api_key.set_text(api_key_env)
+            self.slm_test_status.set_text(
+                "⚠️ 检测到密钥曾误填在环境变量名字段；已自动迁移，保存设置后永久修正。"
+            )
+        else:
+            self.slm_api_key_env.set_text(api_key_env)
         self.slm_min_chars.set_value(float(slm.get("min_chars", 8)))
         self.slm_timeout.set_value(float(slm.get("stream_idle_timeout_ms", slm.get("timeout_ms", 20000))))
         self.slm_remote_stream.set_active(_as_bool(slm.get("remote_stream"), True))
@@ -535,13 +564,23 @@ class SettingsWindow(Gtk.ApplicationWindow):
     def _current_slm(self, *, preserve_secret: bool = True) -> dict[str, Any]:
         existing = self.runtime_config.get("slm", {})
         result = dict(existing if isinstance(existing, dict) else {})
+        api_key_env = self.slm_api_key_env.get_text().strip()
+        entered_key = self.slm_api_key.get_text().strip()
+        if looks_like_api_key(api_key_env) and not entered_key:
+            entered_key = api_key_env
+            api_key_env = ""
+        elif api_key_env and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", api_key_env):
+            raise ValueError(
+                "API Key 环境变量名无效。请输入类似 DEEPSEEK_API_KEY 的变量名；"
+                "真正的 sk-... 密钥请填入“直接 API Key”。"
+            )
         result.update(
             {
                 "enabled": self.slm_enabled.get_active(),
                 "provider": self.slm_provider.get_active_id() or "remote",
                 "endpoint": self.slm_endpoint.get_text().strip(),
                 "model": self.slm_model.get_text().strip(),
-                "api_key_env": self.slm_api_key_env.get_text().strip(),
+                "api_key_env": api_key_env,
                 "min_chars": int(self.slm_min_chars.get_value()),
                 "timeout_ms": int(self.slm_timeout.get_value()),
                 "stream_idle_timeout_ms": int(self.slm_timeout.get_value()),
@@ -549,7 +588,6 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 "enable_thinking": self.slm_thinking.get_active(),
             }
         )
-        entered_key = self.slm_api_key.get_text().strip()
         if entered_key:
             result["api_key"] = entered_key
         elif self.slm_clear_api_key.get_active() or not preserve_secret:
@@ -723,15 +761,35 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 samples = np.asarray(frames, dtype=np.float32).reshape(-1)
                 peak = float(np.max(np.abs(samples))) if samples.size else 0.0
                 rms = float(np.sqrt(np.mean(np.square(samples)))) if samples.size else 0.0
+                device_name = self._audio_devices.get(device_id, {}).get(
+                    "name", self.audio_device.get_active_text() or ""
+                )
+                passed = peak >= 0.002
+                save_audio_config(
+                    device_name=str(device_name),
+                    device_id=device_id,
+                    sample_rate=sample_rate,
+                    tested_at=(datetime.now(timezone.utc).isoformat() if passed else None),
+                    tested_device_id=(device_id if passed else None),
+                    test_peak=(peak if passed else None),
+                    test_rms=(rms if passed else None),
+                    preserve_test=False,
+                )
+                self._saved_audio_config = load_audio_config()
                 if peak < 0.002:
-                    message = f"录音完成，但信号很弱：peak={peak:.4f}, RMS={rms:.4f}"
+                    message = f"⚠️ 录音完成，但信号很弱：peak={peak:.4f}, RMS={rms:.4f}；未通过验收"
                 elif peak > 0.98:
-                    message = f"录音完成，但可能削波：peak={peak:.3f}, RMS={rms:.3f}"
+                    message = f"⚠️ 麦克风可用，但可能削波：peak={peak:.3f}, RMS={rms:.3f}；已保存设备"
                 else:
-                    message = f"麦克风正常：peak={peak:.3f}, RMS={rms:.3f}"
+                    message = f"✅ 麦克风验收通过：peak={peak:.3f}, RMS={rms:.3f}；配置已保存"
             except Exception as exc:  # noqa: BLE001
-                message = f"录音测试失败：{exc}"
-            GLib.idle_add(self.audio_status.set_text, message)
+                message = f"❌ 录音测试失败：{exc}"
+            def finish() -> bool:
+                self.audio_status.set_text(message)
+                self._refresh_install_status()
+                return False
+
+            GLib.idle_add(finish)
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -799,11 +857,13 @@ class SettingsWindow(Gtk.ApplicationWindow):
         def work() -> None:
             try:
                 from app.slm_polisher import SLMPolisher
-                output, metrics = SLMPolisher(config).polish("这是一次 VoCoType AI 润色连接测试。", long_mode=True)
+                polisher = SLMPolisher(config)
+                output, metrics = polisher.polish("这是一次 VoCoType AI 润色连接测试。", long_mode=True)
                 if metrics.reason == "ok":
-                    message = f"连接成功：{output}"
+                    prefix = f"{polisher.credential_warning} " if polisher.credential_warning else ""
+                    message = f"✅ {prefix}连接成功：{output}"
                 else:
-                    message = f"连接失败：{metrics.reason}"
+                    message = f"❌ {polisher.format_failure_message(metrics.reason)}"
             except Exception as exc:  # noqa: BLE001
                 message = f"连接失败：{exc}"
             GLib.idle_add(self.slm_test_status.set_text, message)
@@ -908,7 +968,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         scroller.add(text_view)
         content.pack_start(scroller, True, True, 8)
         buffer = text_view.get_buffer()
-        state = {"running": False, "done": False}
+        state = {"running": False, "done": False, "configure_audio": False}
         option_widgets = [python_combo, preserve, install_deps, bootstrap_uv, rime_enabled, rime_schema, component_mode]
 
         def append(line: str) -> None:
@@ -925,11 +985,26 @@ class SettingsWindow(Gtk.ApplicationWindow):
             state["running"] = False
             state["done"] = True
             framework_name = "IBus" if is_ibus else "Fcitx 5"
-            self._last_lifecycle_notice = (
-                f"✅ 最近一次安装 / 修复 VoCoType（{framework_name}）成功"
-                if ok
-                else f"❌ 最近一次安装 / 修复 VoCoType（{framework_name}）失败"
+            audio = load_audio_config()
+            audio_verified = bool(audio.get("tested_at")) and (
+                audio.get("tested_device_id") == audio.get("device_id")
             )
+            if ok and not audio_verified:
+                state["configure_audio"] = True
+                self._last_lifecycle_notice = (
+                    f"⚠️ VoCoType（{framework_name}）程序已安装；仍需完成麦克风验收"
+                )
+                append("⚠️ 程序安装完成，但麦克风尚未通过 2 秒录音验收。")
+                append("点击“继续配置麦克风”，选择输入设备并执行录音测试。")
+                close_button.set_label("继续配置麦克风")
+            else:
+                state["configure_audio"] = False
+                self._last_lifecycle_notice = (
+                    f"✅ 最近一次安装 / 修复 VoCoType（{framework_name}）成功"
+                    if ok
+                    else f"❌ 最近一次安装 / 修复 VoCoType（{framework_name}）失败"
+                )
+                close_button.set_label("关闭")
             close_button.set_sensitive(True)
             start_button.set_sensitive(False)
             self._refresh_install_status()
@@ -966,7 +1041,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
                     options=opts,
                     progress=append,
                 )
-                append("\n✅ 安装/修复完成" if ok else "\n❌ 安装/修复失败")
+                append("\n✅ 程序安装/修复步骤完成" if ok else "\n❌ 安装/修复失败")
                 if not ok and not output:
                     append("没有收到安装后端输出")
                 GLib.idle_add(mark_finished, ok)
@@ -977,7 +1052,12 @@ class SettingsWindow(Gtk.ApplicationWindow):
             if response == Gtk.ResponseType.APPLY:
                 begin()
             elif response == Gtk.ResponseType.CLOSE and not state["running"]:
+                configure_audio = bool(state.get("configure_audio"))
                 dialog.destroy()
+                if configure_audio:
+                    self.stack.set_visible_child_name("recognition")
+                    self.audio_status.set_text("⚠️ 请选择麦克风并点击“录音 2 秒测试”完成安装验收。")
+                    self._on_refresh_audio(None)
 
         def prevent_close(_dialog: Gtk.Dialog, _event: Gdk.Event) -> bool:
             return state["running"]
@@ -1008,7 +1088,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
         content = dialog.get_content_area()
         options_card = self._card()
-        purge_runtime = Gtk.CheckButton(label="同时删除 Python 虚拟环境、模型和运行缓存")
+        purge_runtime = Gtk.CheckButton(label="同时删除该 integration 的 Python 虚拟环境与运行缓存（共享 ASR 模型保留）")
         remove_user_data = Gtk.CheckButton(label="同时删除共享配置、术语和音频设置")
         options_card.pack_start(
             self._row(
@@ -1031,19 +1111,48 @@ class SettingsWindow(Gtk.ApplicationWindow):
             0,
         )
 
-        remove_system_component = Gtk.CheckButton(
-            label="移除旧版安装器写入的系统 IBus component（通过 Polkit 授权）"
-        )
         package_command = native_package_removal_command()
-        if is_ibus:
-            remove_system_component.set_active(package_command is None and polkit_available())
-            remove_system_component.set_sensitive(package_command is None and polkit_available())
-            options_card.pack_start(
-                self._row(
-                    "旧版系统 component",
-                    "原生软件包管理的文件不会由设置中心直接删除。",
-                    remove_system_component,
+        source_fcitx_marker = Path(
+            "/usr/share/vocotype/.source-fcitx-integration"
+        ).is_file()
+        system_ibus_component = Path(
+            "/usr/share/ibus/component/vocotype.xml"
+        ).is_file()
+        if package_command:
+            ownership_note = Gtk.Label(
+                label=(
+                    "ℹ️ /usr 下的 VoCoType 文件由原生软件包管理；"
+                    f"本窗口不会越权删除。请使用：{package_command}"
                 ),
+                xalign=0,
+            )
+            ownership_note.set_line_wrap(True)
+            options_card.pack_start(
+                self._row("系统文件所有权", control=ownership_note),
+                False,
+                False,
+                0,
+            )
+        elif not is_ibus and source_fcitx_marker:
+            ownership_note = Gtk.Label(
+                label="✅ 将通过 Polkit 一并移除源码安装器写入的系统 VoCoType（Fcitx 5）addon。",
+                xalign=0,
+            )
+            ownership_note.set_line_wrap(True)
+            options_card.pack_start(
+                self._row("系统 Fcitx addon", control=ownership_note),
+                False,
+                False,
+                0,
+            )
+        elif is_ibus and system_ibus_component:
+            ownership_note = Gtk.Label(
+                label="✅ 将通过 Polkit 一并移除非软件包管理的系统 VoCoType（IBus）component。",
+                xalign=0,
+            )
+            ownership_note.set_line_wrap(True)
+            options_card.pack_start(
+                self._row("系统 IBus component", control=ownership_note),
                 False,
                 False,
                 0,
@@ -1054,7 +1163,10 @@ class SettingsWindow(Gtk.ApplicationWindow):
             f"检测到 vocotype-linux 原生软件包。本操作只清理用户级 {framework_name} 运行环境；"
             f"如需删除 /usr 下的程序，请使用：{package_command}"
             if package_command
-            else f"将卸载 VoCoType 的用户级 {framework_name} 集成。默认保留 ~/.config/vocotype。"
+            else (
+                f"将完整卸载源码安装的 VoCoType（{framework_name}）。"
+                "默认保留 ~/.config/vocotype 和共享 ASR 模型缓存。"
+            )
         )
         notice = Gtk.Label(label=warning, xalign=0)
         notice.set_line_wrap(True)
@@ -1081,7 +1193,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         content.pack_start(scroller, True, True, 8)
         buffer = text_view.get_buffer()
         state = {"running": False, "pulse_source": 0}
-        option_widgets = [purge_runtime, remove_user_data, remove_system_component]
+        option_widgets = [purge_runtime, remove_user_data]
 
         def pulse_progress() -> bool:
             if not state["running"] or not dialog.get_visible():
@@ -1103,29 +1215,38 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
             GLib.idle_add(update)
 
-        def mark_finished(ok: bool) -> bool:
+        def failure_message(output: str) -> str:
+            if "SYSTEM_FCITX_REMOVE_FAILED" in output:
+                return "系统 VoCoType（Fcitx 5）addon 未能移除；请查看授权与错误日志"
+            if "SYSTEM_COMPONENT_REMOVE_FAILED" in output:
+                return "系统 VoCoType（IBus）component 未能移除；请查看授权与错误日志"
+            if "RESTART_FAILED" in output:
+                return f"VoCoType 文件已清理，但 {framework_name} 重启失败"
+            return "卸载失败或仅完成了部分清理；请查看下方日志"
+
+        def mark_finished(ok: bool, output: str) -> bool:
             state["running"] = False
             pulse_source = int(state["pulse_source"])
             if pulse_source:
                 GLib.source_remove(pulse_source)
                 state["pulse_source"] = 0
             progress_bar.set_fraction(1.0 if ok else 0.0)
-            progress_bar.set_text("✅ 卸载完成" if ok else "⚠️ 卸载未完全完成")
-            progress_label.set_text(
+            progress_bar.set_text("✅ 卸载完成" if ok else "❌ 卸载失败")
+            result_text = (
                 f"✅ VoCoType（{framework_name}）卸载完成"
                 if ok
-                else f"⚠️ VoCoType（{framework_name}）文件已清理，但恢复输入法失败；请查看下方日志"
+                else f"❌ {failure_message(output)}"
             )
+            progress_label.set_text(result_text)
             self._last_lifecycle_notice = (
                 f"✅ 最近一次卸载 VoCoType（{framework_name}）成功"
                 if ok
-                else f"⚠️ 最近一次卸载 VoCoType（{framework_name}）未完全完成"
+                else f"❌ 最近一次卸载 VoCoType（{framework_name}）失败"
             )
             close_button.set_sensitive(True)
             start_button.set_sensitive(False)
             self._refresh_install_status()
-            if ok:
-                close_button.grab_focus()
+            close_button.grab_focus()
             return False
 
         def begin() -> None:
@@ -1145,9 +1266,8 @@ class SettingsWindow(Gtk.ApplicationWindow):
             options = UninstallOptions(
                 purge_runtime=purge_runtime.get_active(),
                 remove_user_data=remove_user_data.get_active(),
-                remove_system_component=(
-                    remove_system_component.get_active() if is_ibus else False
-                ),
+                remove_system_component=(not package_command and is_ibus),
+                remove_system_integration=(not package_command and not is_ibus),
             )
 
             def work() -> None:
@@ -1156,10 +1276,10 @@ class SettingsWindow(Gtk.ApplicationWindow):
                     options=options,
                     progress=append,
                 )
-                append("\n✅ 卸载完成" if ok else "\n⚠️ 文件清理完成，但输入法恢复失败")
+                append("\n✅ 卸载完成" if ok else f"\n❌ {failure_message(output)}")
                 if not ok and not output:
                     append("没有收到卸载后端输出")
-                GLib.idle_add(mark_finished, ok)
+                GLib.idle_add(mark_finished, ok, output)
 
             threading.Thread(target=work, daemon=True).start()
 
@@ -1183,7 +1303,8 @@ class SettingsWindow(Gtk.ApplicationWindow):
         threading.Thread(target=work, daemon=True).start()
 
     def _on_run_doctor(self, _button: Gtk.Button | None = None) -> None:
-        self.doctor_summary_label.set_text("正在检查…")
+        self.doctor_summary_label.set_text("⏳ 正在检查…")
+        self.overview_summary.set_text("⏳ 正在检查…")
 
         def work() -> None:
             checks = run_doctor()
@@ -1191,23 +1312,61 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
         threading.Thread(target=work, daemon=True).start()
 
+    def _populate_doctor_list(self, container: Gtk.Box, checks: list[DoctorCheck]) -> None:
+        for child in container.get_children():
+            container.remove(child)
+        classes = {
+            "pass": "status-pass",
+            "warn": "status-warn",
+            "fail": "status-fail",
+            "info": "status-pass",
+        }
+        icons = {"pass": "✅", "warn": "⚠️", "fail": "❌", "info": "ℹ️"}
+        for item in checks:
+            expander = Gtk.Expander()
+            heading = Gtk.Label(
+                label=f"{icons.get(item.status, '❓')} {item.title}：{item.summary}",
+                xalign=0,
+            )
+            heading.set_line_wrap(True)
+            heading.get_style_context().add_class(classes.get(item.status, "status-warn"))
+            expander.set_label_widget(heading)
+            expander.set_expanded(item.status in {"warn", "fail"})
+
+            details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            details.set_margin_start(24)
+            details.set_margin_end(8)
+            details.set_margin_top(6)
+            details.set_margin_bottom(8)
+            if item.details:
+                detail_label = Gtk.Label(label=item.details, xalign=0)
+                detail_label.set_selectable(True)
+                detail_label.set_line_wrap(True)
+                details.pack_start(detail_label, False, False, 0)
+            if item.repair_hint:
+                hint = Gtk.Label(label=f"建议：{item.repair_hint}", xalign=0)
+                hint.set_selectable(True)
+                hint.set_line_wrap(True)
+                hint.get_style_context().add_class("status-warn")
+                details.pack_start(hint, False, False, 0)
+            if not item.details and not item.repair_hint:
+                details.pack_start(Gtk.Label(label="没有额外信息", xalign=0), False, False, 0)
+            expander.add(details)
+            container.pack_start(expander, False, False, 0)
+        container.show_all()
+
     def _render_doctor(self, checks: list[DoctorCheck]) -> bool:
         self.last_doctor_checks = checks
-        for child in self.doctor_list.get_children():
-            self.doctor_list.remove(child)
-        classes = {"pass": "status-pass", "warn": "status-warn", "fail": "status-fail", "info": "status-pass"}
-        icons = {"pass": "✓", "warn": "!", "fail": "✗", "info": "·"}
-        for item in checks:
-            card = self._card()
-            status = Gtk.Label(label=f"{icons.get(item.status, '?')} {item.summary}", xalign=1)
-            status.get_style_context().add_class(classes.get(item.status, "status-warn"))
-            card.pack_start(self._row(item.title, item.details or item.repair_hint, status), False, False, 0)
-            self.doctor_list.pack_start(card, False, False, 0)
+        self._populate_doctor_list(self.doctor_list, checks)
         summary = doctor_summary(checks)
-        text = f"通过 {summary.get('pass', 0)} · 警告 {summary.get('warn', 0)} · 失败 {summary.get('fail', 0)}"
+        text = (
+            f"✅ 通过 {summary.get('pass', 0)} · "
+            f"ℹ️ 信息 {summary.get('info', 0)} · "
+            f"⚠️ 警告 {summary.get('warn', 0)} · "
+            f"❌ 失败 {summary.get('fail', 0)}"
+        )
         self.doctor_summary_label.set_text(text)
         self.overview_summary.set_text(text)
-        self.doctor_list.show_all()
         return False
 
     def _on_export_bundle(self, _button: Gtk.Button) -> None:

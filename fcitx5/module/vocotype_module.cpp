@@ -18,7 +18,13 @@
 #include <fcitx-utils/event.h>
 #include <fcitx-utils/eventdispatcher.h>
 #include <fcitx-utils/log.h>
+#if __has_include(<fcitx-utils/standardpaths.h>)
+#include <fcitx-utils/standardpaths.h>
+#define VOCOTYPE_HAS_STANDARD_PATHS 1
+#else
 #include <fcitx-utils/standardpath.h>
+#define VOCOTYPE_HAS_STANDARD_PATHS 0
+#endif
 #include <fcitx-utils/utf8.h>
 #include <fcitx/addonfactory.h>
 #include <fcitx/addonmanager.h>
@@ -35,7 +41,11 @@ constexpr uint64_t PTT_RELEASE_DEBOUNCE_US = 50000;
 constexpr uint64_t POLISH_POLL_INTERVAL_US = 100000;
 constexpr uint64_t DUPLICATE_COMMIT_SUPPRESS_US = 250000;
 
+#if VOCOTYPE_HAS_STANDARD_PATHS
+constexpr auto CONFIG_PATH_TYPE = fcitx::StandardPathsType::PkgConfig;
+#else
 constexpr auto CONFIG_PATH_TYPE = fcitx::StandardPath::Type::PkgConfig;
+#endif
 
 constexpr std::array<const char *, 8> RECORDING_ANIMATION_FRAMES = {
     "🟢 正在听 ●     ", "🟢 正在听  ●    ", "🟢 正在听   ●   ",
@@ -160,7 +170,7 @@ VoCoTypeModule::VoCoTypeModule(fcitx::Instance *instance)
         });
     focus_out_handler_ = instance_->watchEvent(
         fcitx::EventType::InputContextFocusOut,
-        fcitx::EventWatcherPhase::ReservedFirst,
+        fcitx::EventWatcherPhase::PostInputMethod,
         [this](fcitx::Event &event) {
             handleFocusOut(static_cast<fcitx::InputContextEvent &>(event));
         });

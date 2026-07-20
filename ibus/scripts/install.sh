@@ -11,6 +11,7 @@ set -e
 # 解析命令行参数
 AUDIO_DEVICE=""
 SAMPLE_RATE="44100"
+AUDIO_VERIFIED=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -730,6 +731,8 @@ if [ "$ENABLE_SLM" = "1" ] && [ "$SLM_PROVIDER" = "local_ephemeral" ] && [ "$SLM
     fi
 fi
 
+download_and_verify_asr_models "$PYTHON" "$PROJECT_DIR" || exit 1
+
 # 2. 音频设备配置
 echo "[2/6] 音频设备配置..."
 
@@ -762,6 +765,7 @@ else
         echo "  $PYTHON $PROJECT_DIR/installers/setup-audio.py"
         exit 1
     fi
+    AUDIO_VERIFIED=true
 fi
 
 echo ""
@@ -979,14 +983,38 @@ else
         "$PROJECT_DIR/ibus/data/vocotype.xml.in" > "$COMPONENT_DIR/vocotype.xml"
 fi
 
+if command -v ibus >/dev/null 2>&1 && [[ -n "${DBUS_SESSION_BUS_ADDRESS:-}${XDG_RUNTIME_DIR:-}" ]]; then
+    echo "刷新 IBus 注册信息..."
+    if command -v timeout >/dev/null 2>&1; then
+        timeout 12s ibus restart >/dev/null 2>&1 || \
+            echo "⚠️ IBus 当前会话未能自动重启；继续验证安装结构。"
+    else
+        ibus restart >/dev/null 2>&1 || \
+            echo "⚠️ IBus 当前会话未能自动重启；继续验证安装结构。"
+    fi
+fi
+
+echo "执行安装后严格验收..."
+if ! PYTHONPATH="$INSTALL_DIR${PYTHONPATH:+:$PYTHONPATH}" \
+    "$PYTHON" "$PROJECT_DIR/installers/validate-installed-integration.py" \
+    --framework ibus --runtime-root "$INSTALL_DIR"; then
+    echo "错误: VoCoType（IBus）未达到完整安装状态。" >&2
+    exit 1
+fi
+
 echo ""
-echo "=== 安装完成 ==="
+if [ "$AUDIO_VERIFIED" = true ]; then
+    echo "=== ✅ VoCoType（IBus）安装与麦克风验收完成 ==="
+else
+    echo "=== ⚠️ VoCoType（IBus）程序与结构已就绪；麦克风验收尚未完成 ==="
+    echo "请在设置中心选择麦克风并执行“录音 2 秒测试”。"
+fi
 echo ""
 
 if [ "$ENABLE_RIME" = "1" ]; then
-    echo "✨ 已安装完整版（语音 + Rime 拼音）"
+    echo "✨ 已安装语音 + Rime 集成"
 else
-    echo "🎤 已安装纯语音版"
+    echo "🎤 已安装纯语音集成"
 fi
 
 echo ""

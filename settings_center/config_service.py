@@ -126,15 +126,49 @@ def load_audio_config() -> dict[str, Any]:
     if not parser.has_section("audio"):
         raise ValueError(f"音频配置缺少 [audio] section: {path}")
     device_id = parser.get("audio", "device_id", fallback="").strip()
-    return {
+    result: dict[str, Any] = {
         "device_name": parser.get("audio", "device_name", fallback="").strip(),
         "device_id": int(device_id) if device_id.isdigit() else None,
         "sample_rate": parser.getint("audio", "sample_rate", fallback=0),
     }
+    tested_at = parser.get("audio", "tested_at", fallback="").strip()
+    tested_device_id = parser.get("audio", "tested_device_id", fallback="").strip()
+    if tested_at:
+        result["tested_at"] = tested_at
+    if tested_device_id.isdigit():
+        result["tested_device_id"] = int(tested_device_id)
+    for key in ("test_peak", "test_rms"):
+        value = parser.get("audio", key, fallback="").strip()
+        if value:
+            try:
+                result[key] = float(value)
+            except ValueError:
+                pass
+    return result
 
 
-def save_audio_config(*, device_name: str, device_id: int, sample_rate: int) -> Path:
+def save_audio_config(
+    *,
+    device_name: str,
+    device_id: int,
+    sample_rate: int,
+    tested_at: str | None = None,
+    tested_device_id: int | None = None,
+    test_peak: float | None = None,
+    test_rms: float | None = None,
+    preserve_test: bool = True,
+) -> Path:
     path = audio_config_path()
+    existing = load_audio_config() if path.exists() and preserve_test else {}
+    if preserve_test and tested_at is None:
+        tested_at = str(existing.get("tested_at") or "") or None
+    if preserve_test and tested_device_id is None and existing.get("tested_device_id") is not None:
+        tested_device_id = int(existing["tested_device_id"])
+    if preserve_test and test_peak is None and existing.get("test_peak") is not None:
+        test_peak = float(existing["test_peak"])
+    if preserve_test and test_rms is None and existing.get("test_rms") is not None:
+        test_rms = float(existing["test_rms"])
+
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     tmp_path = Path(tmp_name)
@@ -145,6 +179,15 @@ def save_audio_config(*, device_name: str, device_id: int, sample_rate: int) -> 
             handle.write(f"device_name = {safe_name}\n")
             handle.write(f"device_id = {int(device_id)}\n")
             handle.write(f"sample_rate = {max(8000, int(sample_rate))}\n")
+            if tested_at:
+                safe_tested_at = " ".join(str(tested_at).splitlines())
+                handle.write(f"tested_at = {safe_tested_at}\n")
+            if tested_device_id is not None:
+                handle.write(f"tested_device_id = {int(tested_device_id)}\n")
+            if test_peak is not None:
+                handle.write(f"test_peak = {float(test_peak):.8f}\n")
+            if test_rms is not None:
+                handle.write(f"test_rms = {float(test_rms):.8f}\n")
             handle.flush()
             os.fsync(handle.fileno())
         os.chmod(tmp_path, 0o600)
@@ -155,7 +198,6 @@ def save_audio_config(*, device_name: str, device_id: int, sample_rate: int) -> 
         except FileNotFoundError:
             pass
     return path
-
 
 def load_fcitx_module_config() -> dict[str, str]:
     path = fcitx_module_config_path()

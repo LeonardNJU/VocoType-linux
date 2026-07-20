@@ -27,7 +27,7 @@ os.environ.setdefault("OMP_NUM_THREADS", "8")  # ONNX 推理并行线程数，�
 os.environ.setdefault("FUNASR_DEVICE", "cpu")
 
 from app.funasr_config import MODEL_REVISION, MODELS
-from app.download_models import get_model_cache_path
+from app.download_models import get_model_cache_path, model_requirements
 from app.logging_config import setup_logging
 from app.term_lexicon import build_native_hotword_string
 from app.text_normalizer import normalize_text
@@ -211,10 +211,14 @@ class FunASRServer:
 
                 logger.info("开始加载ASR ONNX模型: %s", self.model_names["asr"])
                 try:
+                    required_files, required_any_files = model_requirements(
+                        {"name": self.model_names["asr"], "type": "asr"}
+                    )
                     model_dir = get_model_cache_path(
                         self.model_names["asr"],
                         self.model_revision,
-                        required_files=(("model_eb.onnx",) if contextual else ()),
+                        required_files=required_files,
+                        required_any_files=required_any_files,
                     )
                     if contextual:
                         model_dir = _prepare_contextual_onnx_layout(model_dir)
@@ -270,9 +274,14 @@ class FunASRServer:
 
             logger.info("开始加载VAD ONNX模型: %s", self.model_names["vad"])
             try:
+                required_files, required_any_files = model_requirements(
+                    {"name": self.model_names["vad"], "type": "vad"}
+                )
                 model_dir = get_model_cache_path(
                     self.model_names["vad"],
-                    self.model_revision
+                    self.model_revision,
+                    required_files=required_files,
+                    required_any_files=required_any_files,
                 )
             except Exception as e:
                 logger.error("下载 VAD ONNX 模型失败: %s", e)
@@ -318,9 +327,14 @@ class FunASRServer:
 
             logger.info("开始加载标点恢复 ONNX模型: %s", self.model_names["punc"])
             try:
+                required_files, required_any_files = model_requirements(
+                    {"name": self.model_names["punc"], "type": "punc"}
+                )
                 model_dir = get_model_cache_path(
                     self.model_names["punc"],
-                    self.model_revision
+                    self.model_revision,
+                    required_files=required_files,
+                    required_any_files=required_any_files,
                 )
             except Exception as e:
                 logger.error("下载 标点 ONNX 模型失败: %s", e)

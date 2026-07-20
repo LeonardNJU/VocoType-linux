@@ -1,8 +1,46 @@
 #!/usr/bin/env bash
 # Shared, side-effect-free installer helpers used by both integrations.
 
+ensure_desktop_user_environment() {
+    local uid runtime_dir key value
+    uid=$(id -u)
+    runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$uid}"
+    if [ -d "$runtime_dir" ]; then
+        export XDG_RUNTIME_DIR="$runtime_dir"
+    fi
+    if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -S "$runtime_dir/bus" ]; then
+        export DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus"
+    fi
+
+    # systemd user manager normally preserves the desktop display variables,
+    # even when this installer was launched from SSH or an automation shell.
+    if command -v systemctl >/dev/null 2>&1 && [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+        while IFS='=' read -r key value; do
+            case "$key" in
+                DISPLAY|WAYLAND_DISPLAY|XAUTHORITY|XDG_CURRENT_DESKTOP|DESKTOP_SESSION)
+                    [ -n "$value" ] && export "$key=$value"
+                    ;;
+            esac
+        done < <(systemctl --user show-environment 2>/dev/null || true)
+    fi
+}
+
 get_python_version() {
     "$1" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null
+}
+
+download_and_verify_asr_models() {
+    local python_bin="$1"
+    local runtime_root="$2"
+    echo ""
+    echo "下载并校验 VoCoType 必需模型（ASR、VAD、标点）..."
+    echo "网络策略：先使用当前代理；失败时自动改用无代理直连重试。"
+    if ! PYTHONPATH="$runtime_root${PYTHONPATH:+:$PYTHONPATH}" \
+        "$python_bin" -m app.download_models; then
+        echo "错误: 必需模型未全部下载并通过完整性校验，安装不能继续。" >&2
+        return 1
+    fi
+    echo "✓ ASR、VAD、标点模型均完整可用"
 }
 
 write_slm_config_json() {

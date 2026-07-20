@@ -54,19 +54,39 @@ def build_source_archive(output_dir: Path, version: str, treeish: str) -> Path:
     return target
 
 
+def clean_generated_source_metadata() -> None:
+    """Remove build metadata that PEP 517 backends may leave in the checkout."""
+
+    for path in ROOT.glob("*.egg-info"):
+        shutil.rmtree(path, ignore_errors=True)
+    for path in ROOT.rglob("__pycache__"):
+        if any(part in {".git", ".venv", "build", "dist"} for part in path.parts):
+            continue
+        shutil.rmtree(path, ignore_errors=True)
+    for pattern in ("*.pyc", "*.pyo"):
+        for path in ROOT.rglob(pattern):
+            if any(part in {".git", ".venv", "build", "dist"} for part in path.parts):
+                continue
+            path.unlink(missing_ok=True)
+
+
 def build_python_distributions(output_dir: Path) -> list[Path]:
     python_dir = output_dir / "python"
     shutil.rmtree(python_dir, ignore_errors=True)
     python_dir.mkdir(parents=True)
     uv = shutil.which("uv")
-    if uv:
-        run(uv, "build", "--out-dir", str(python_dir), str(ROOT))
-    else:
-        try:
-            import build  # noqa: F401
-        except ImportError as exc:
-            raise RuntimeError("install 'uv' or the Python 'build' package") from exc
-        run(sys.executable, "-m", "build", "--outdir", str(python_dir), str(ROOT))
+    clean_generated_source_metadata()
+    try:
+        if uv:
+            run(uv, "build", "--out-dir", str(python_dir), str(ROOT))
+        else:
+            try:
+                import build  # noqa: F401
+            except ImportError as exc:
+                raise RuntimeError("install 'uv' or the Python 'build' package") from exc
+            run(sys.executable, "-m", "build", "--outdir", str(python_dir), str(ROOT))
+    finally:
+        clean_generated_source_metadata()
     artifacts = sorted(
         path
         for path in python_dir.iterdir()

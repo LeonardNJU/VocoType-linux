@@ -24,3 +24,5 @@ package-arch:
 
 clean:
 	rm -rf build dist *.egg-info vocotype_linux.egg-info vocotype_ibus.egg-info
+	find . -path './.git' -prune -o -path './.venv' -prune -o -type d -name __pycache__ -prune -exec rm -rf {} +
+	find . -type f \( -name '*.pyc' -o -name '*.pyo' \) ! -path './.git/*' ! -path './.venv/*' -delete

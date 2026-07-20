@@ -6,7 +6,8 @@ FRAMEWORK=""
 NON_INTERACTIVE=false
 PURGE_RUNTIME=false
 REMOVE_USER_DATA=false
-REMOVE_SYSTEM_COMPONENT=false
+REMOVE_SYSTEM_COMPONENT=true
+REMOVE_SYSTEM_INTEGRATION=true
 ASSUME_YES=false
 
 usage() {
@@ -18,7 +19,10 @@ Options:
   --yes                      Confirm the requested removal.
   --purge-runtime            Remove the integration runtime, virtualenv, and caches.
   --remove-user-data         Also remove shared configuration under ~/.config/vocotype.
-  --remove-system-component  Remove a legacy unmanaged system IBus component via Polkit.
+  --remove-system-component  Remove an unmanaged system IBus component (default).
+  --keep-system-component    Keep an unmanaged system IBus component.
+  --remove-system-integration Remove source-managed system Fcitx integration (default).
+  --keep-system-integration  Keep source-managed system Fcitx integration.
 USAGE
 }
 
@@ -30,19 +34,19 @@ while [[ $# -gt 0 ]]; do
         --purge-runtime) PURGE_RUNTIME=true; shift ;;
         --remove-user-data) REMOVE_USER_DATA=true; shift ;;
         --remove-system-component) REMOVE_SYSTEM_COMPONENT=true; shift ;;
+        --keep-system-component) REMOVE_SYSTEM_COMPONENT=false; shift ;;
+        --remove-system-integration) REMOVE_SYSTEM_INTEGRATION=true; shift ;;
+        --keep-system-integration) REMOVE_SYSTEM_INTEGRATION=false; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "未知参数: $1" >&2; usage >&2; exit 2 ;;
     esac
 done
 
 case "$FRAMEWORK" in
-    ibus|fcitx5) ;;
+    ibus) REMOVE_SYSTEM_INTEGRATION=false ;;
+    fcitx5) REMOVE_SYSTEM_COMPONENT=false ;;
     *) echo "--framework 必须是 ibus 或 fcitx5" >&2; exit 2 ;;
 esac
-if [[ "$FRAMEWORK" != ibus && "$REMOVE_SYSTEM_COMPONENT" == true ]]; then
-    echo "--remove-system-component 仅适用于 IBus" >&2
-    exit 2
-fi
 if [[ "$NON_INTERACTIVE" == true && "$ASSUME_YES" != true ]]; then
     echo "非交互卸载必须显式传入 --yes" >&2
     exit 2
@@ -53,8 +57,11 @@ XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-"$HOME/.config"}
 VOCOTYPE_CONFIG_DIR="$XDG_CONFIG_HOME/vocotype"
 FCITX_RUNTIME="$HOME/.local/share/vocotype-fcitx5"
 IBUS_RUNTIME="$HOME/.local/share/vocotype"
-SYSTEM_COMPONENT="/usr/share/ibus/component/vocotype.xml"
-NATIVE_MARKERS=("$PROJECT_DIR/.system-package" "/usr/share/vocotype/.system-package")
+SYSTEM_PREFIX=${VOCOTYPE_SYSTEM_PREFIX:-/usr}
+SYSTEM_COMPONENT="$SYSTEM_PREFIX/share/ibus/component/vocotype.xml"
+SYSTEM_FCITX_MARKER="$SYSTEM_PREFIX/share/vocotype/.source-fcitx-integration"
+SYSTEM_FCITX_HELPER="$PROJECT_DIR/installers/manage-fcitx-system-integration.sh"
+NATIVE_MARKERS=("$PROJECT_DIR/.system-package" "$SYSTEM_PREFIX/share/vocotype/.system-package")
 
 native_package_present() {
     local marker
@@ -80,7 +87,8 @@ fcitx_user_present() {
     [[ -f "$FCITX_RUNTIME/backend/fcitx5_server.py" ]] ||
         [[ -f "$HOME/.local/share/fcitx5/addon/vocotype.conf" ]] ||
         [[ -f "$HOME/.local/lib/fcitx5/vocotype.so" ]] ||
-        [[ -f "$HOME/.local/lib64/fcitx5/vocotype.so" ]]
+        [[ -f "$HOME/.local/lib64/fcitx5/vocotype.so" ]] ||
+        [[ -f "$SYSTEM_FCITX_MARKER" ]]
 }
 
 ibus_user_present() {
@@ -146,14 +154,27 @@ remove_ibus() {
         if native_package_present; then
             echo "系统 IBus component 由 vocotype-linux 软件包管理，本操作不会直接删除。"
         elif [[ "$REMOVE_SYSTEM_COMPONENT" == true ]]; then
-            if ! command -v pkexec >/dev/null 2>&1; then
-                echo "未检测到 pkexec，无法移除旧的系统 IBus component。" >&2
+            echo "正在移除源码/旧版安装器写入的系统 IBus component…"
+            if [[ "$SYSTEM_PREFIX" != /usr ]]; then
+                rm -f "$SYSTEM_COMPONENT"
+            else
+                if ! command -v pkexec >/dev/null 2>&1; then
+                    echo "SYSTEM_COMPONENT_REMOVE_FAILED: 未检测到 pkexec，系统 IBus component 未移除。" >&2
+                    return 1
+                fi
+                echo "AUTH_REQUIRED: 即将弹出管理员授权窗口以移除系统 VoCoType（IBus）component。"
+                if ! pkexec "$(command -v rm)" -f "$SYSTEM_COMPONENT"; then
+                    echo "SYSTEM_COMPONENT_REMOVE_FAILED: 管理员授权被取消或系统 component 删除失败：$SYSTEM_COMPONENT" >&2
+                    return 1
+                fi
+            fi
+            if [[ -e "$SYSTEM_COMPONENT" ]]; then
+                echo "SYSTEM_COMPONENT_REMOVE_FAILED: 系统 component 删除后仍然存在：$SYSTEM_COMPONENT" >&2
                 return 1
             fi
-            echo "AUTH_REQUIRED: 即将弹出管理员授权窗口以移除旧的系统 IBus component。"
-            pkexec "$(command -v rm)" -f "$SYSTEM_COMPONENT"
+            echo "✓ 系统 VoCoType（IBus）component 已移除"
         else
-            echo "检测到旧的系统 IBus component，未请求删除：$SYSTEM_COMPONENT"
+            echo "保留系统 IBus component：$SYSTEM_COMPONENT"
         fi
     fi
     if command -v ibus >/dev/null 2>&1 && desktop_session_available; then
@@ -165,7 +186,7 @@ remove_ibus() {
     else
         echo "未检测到可用桌面会话，跳过 IBus 重启。"
     fi
-    echo "VoCoType（IBus）用户级集成已卸载。"
+    echo "VoCoType（IBus）integration 已卸载。"
 }
 
 remove_fcitx() {
@@ -189,6 +210,37 @@ remove_fcitx() {
         "$HOME/.local/bin/vocotype-fcitx5-backend" \
         "$HOME/.local/bin/vocotype-fcitx5-recorder"
 
+    if native_package_present; then
+        echo "系统 Fcitx addon 由 vocotype-linux 软件包管理，本操作不会直接删除。"
+    elif [[ -f "$SYSTEM_FCITX_MARKER" ]]; then
+        if [[ "$REMOVE_SYSTEM_INTEGRATION" == true ]]; then
+            echo "正在移除源码安装器管理的系统 VoCoType（Fcitx 5）addon…"
+            if [[ "$SYSTEM_PREFIX" != /usr ]]; then
+                if ! bash "$SYSTEM_FCITX_HELPER" uninstall; then
+                    echo "SYSTEM_FCITX_REMOVE_FAILED: 测试前缀中的系统 addon 删除失败。" >&2
+                    return 1
+                fi
+            else
+                if ! command -v pkexec >/dev/null 2>&1; then
+                    echo "SYSTEM_FCITX_REMOVE_FAILED: 未检测到 pkexec，系统 Fcitx addon 未移除。" >&2
+                    return 1
+                fi
+                echo "AUTH_REQUIRED: 即将弹出管理员授权窗口以移除系统 VoCoType（Fcitx 5）addon。"
+                if ! pkexec "$(command -v bash)" "$SYSTEM_FCITX_HELPER" uninstall; then
+                    echo "SYSTEM_FCITX_REMOVE_FAILED: 管理员授权被取消或系统 addon 删除失败。" >&2
+                    return 1
+                fi
+            fi
+            if [[ -e "$SYSTEM_FCITX_MARKER" ]]; then
+                echo "SYSTEM_FCITX_REMOVE_FAILED: 删除后 ownership marker 仍然存在：$SYSTEM_FCITX_MARKER" >&2
+                return 1
+            fi
+            echo "✓ 系统 VoCoType（Fcitx 5）addon 已移除"
+        else
+            echo "保留源码安装器管理的系统 Fcitx addon：$SYSTEM_FCITX_MARKER"
+        fi
+    fi
+
     if command -v systemctl >/dev/null 2>&1; then
         echo "正在刷新 VoCoType 用户服务定义…"
         systemctl --user daemon-reload >/dev/null 2>&1 || true
@@ -204,7 +256,7 @@ remove_fcitx() {
     else
         echo "未检测到可用桌面会话，跳过 Fcitx 5 重启。"
     fi
-    echo "VoCoType（Fcitx 5）用户级集成已卸载。"
+    echo "VoCoType（Fcitx 5）integration 已卸载。"
 }
 
 print_plan() {
@@ -223,6 +275,12 @@ print_plan() {
     fi
     if native_package_present; then
         echo "- 检测到原生软件包；/usr 下的文件继续由包管理器管理"
+    elif [[ "$FRAMEWORK" == fcitx5 && -f "$SYSTEM_FCITX_MARKER" ]]; then
+        if [[ "$REMOVE_SYSTEM_INTEGRATION" == true ]]; then
+            echo "- 通过 Polkit 删除源码安装器管理的系统级 Fcitx addon"
+        else
+            echo "- 保留源码安装器管理的系统级 Fcitx addon"
+        fi
     fi
 }
 

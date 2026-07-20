@@ -240,6 +240,8 @@ else
     fi
 fi
 
+download_and_verify_asr_models "$PYTHON" "$PROJECT_DIR" || exit 1
+
 if [[ "$RIME_MODE" == enabled ]]; then
     echo "安装 VoCoType（IBus）的 Rime Python 绑定…"
     if command -v uv >/dev/null 2>&1 && [[ "$USE_SYSTEM_PYTHON" != 1 ]]; then
@@ -390,8 +392,23 @@ else
 fi
 
 if command -v ibus >/dev/null 2>&1 && [[ -n "${DBUS_SESSION_BUS_ADDRESS:-}${XDG_RUNTIME_DIR:-}" ]]; then
-    ibus restart >/dev/null 2>&1 || true
+    echo "刷新 IBus 注册信息…"
+    if command -v timeout >/dev/null 2>&1; then
+        timeout 12s ibus restart >/dev/null 2>&1 || \
+            echo "⚠️ IBus 当前会话未能自动重启；安装结构仍将继续验收。"
+    else
+        ibus restart >/dev/null 2>&1 || \
+            echo "⚠️ IBus 当前会话未能自动重启；安装结构仍将继续验收。"
+    fi
 fi
 
-echo "✅ IBus 安装/修复完成。"
+echo "执行安装后严格验收…"
+if ! PYTHONPATH="$INSTALL_DIR${PYTHONPATH:+:$PYTHONPATH}" \
+    "$PYTHON" "$PROJECT_DIR/installers/validate-installed-integration.py" \
+    --framework ibus --runtime-root "$INSTALL_DIR"; then
+    echo "错误: VoCoType（IBus）未达到完整安装状态。" >&2
+    exit 1
+fi
+
+echo "✅ VoCoType（IBus）安装/修复与结构验收完成。"
 echo "请在桌面输入源设置中添加“VoCoType Voice Input”。"

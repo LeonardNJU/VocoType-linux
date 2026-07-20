@@ -64,6 +64,13 @@ DEFAULT_EDIT_SYSTEM_PROMPT = """你是中文输入框的语音编辑器。
 - 不要解释、不要加前后缀、不要输出 JSON。"""
 
 
+def looks_like_api_key(value: str) -> bool:
+    """Return True when a secret was likely pasted into the env-name field."""
+
+    text = str(value or "").strip()
+    return len(text) >= 20 and text.startswith(("sk-", "ds-"))
+
+
 @dataclass
 class PolisherMetrics:
     """Polisher runtime metrics for logging."""
@@ -153,7 +160,12 @@ class SLMPolisher:
             self.enable_thinking = bool(enable_thinking_cfg)
         self.api_key_env = str(cfg.get("api_key_env", "")).strip()
         self.api_key = str(cfg.get("api_key", "")).strip()
-        if not self.api_key and self.api_key_env:
+        self.credential_warning = ""
+        if not self.api_key and looks_like_api_key(self.api_key_env):
+            self.api_key = self.api_key_env
+            self.api_key_env = ""
+            self.credential_warning = "检测到 API Key 被误填为环境变量名，已按直接密钥使用。"
+        elif not self.api_key and self.api_key_env:
             self.api_key = str(os.environ.get(self.api_key_env, "")).strip()
         self.system_prompt = str(cfg.get("system_prompt", DEFAULT_SYSTEM_PROMPT))
         self.edit_enabled = bool(cfg.get("edit_enabled", True))

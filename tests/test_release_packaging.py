@@ -320,6 +320,27 @@ def test_release_builder_module_has_stable_hash_metadata_api():
     assert callable(module.write_metadata)
 
 
+def test_release_builder_cleans_checkout_metadata(tmp_path: Path):
+    spec = importlib.util.spec_from_file_location(
+        "vocotype_build_release_cleanup",
+        ROOT / "packaging/tools/build-release.py",
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.ROOT = tmp_path
+    egg_info = tmp_path / "vocotype_linux.egg-info"
+    cache = tmp_path / "app/__pycache__"
+    egg_info.mkdir()
+    cache.mkdir(parents=True)
+    (cache / "module.cpython-312.pyc").write_bytes(b"cache")
+
+    module.clean_generated_source_metadata()
+
+    assert not egg_info.exists()
+    assert not cache.exists()
+
+
 def test_native_package_recipes_share_one_staging_contract():
     recipes = [
         ROOT / "packaging/debian/rules",
@@ -353,7 +374,8 @@ def test_debian_maintainer_scripts_are_noninteractive_and_offline():
 def test_system_package_reuse_paths_are_covered_by_installers():
     fcitx = (ROOT / "fcitx5/scripts/install.sh").read_text(encoding="utf-8")
     assert "REUSE_SYSTEM_MODULE" in fcitx
-    assert ".system-package" in fcitx
+    assert "/usr/share/fcitx5/addon/vocotype.conf" in fcitx
+    assert "manage-fcitx-system-integration.sh" in fcitx
     assert "跳过开发依赖检查" in fcitx
     ibus = (ROOT / "ibus/scripts/install-gui.sh").read_text(encoding="utf-8")
     assert "/usr/libexec/vocotype-ibus-engine" in ibus
@@ -661,8 +683,9 @@ def test_fcitx_module_uses_apis_available_since_fcitx_5014():
     assert "#include <fcitx-utils/event.h>" in header
     assert "#include <fcitx-utils/eventdispatcher.h>" in header
     assert "eventloopinterface.h" not in header
+    assert "__has_include(<fcitx-utils/standardpaths.h>)" in source
+    assert "fcitx::StandardPathsType::PkgConfig" in source
     assert "fcitx::StandardPath::Type::PkgConfig" in source
-    assert "fcitx::StandardPathsType::PkgConfig" not in source
     assert "CONFIG_PATH_TYPE" in source
     assert "event_dispatcher_.attach(&instance_->eventLoop())" in source
     assert "instance_->eventDispatcher()" not in source

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import configparser
+import json
 import os
 import shutil
 import subprocess
@@ -9,6 +11,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Literal
+
+from app.download_models import inspect_required_models
 
 ProgressCallback = Callable[[str], None]
 Framework = Literal["fcitx5", "ibus"]
@@ -30,7 +34,8 @@ class InstallOptions:
 class UninstallOptions:
     purge_runtime: bool = False
     remove_user_data: bool = False
-    remove_system_component: bool = False
+    remove_system_component: bool = True
+    remove_system_integration: bool = True
 
 
 @dataclass(frozen=True)
@@ -135,16 +140,93 @@ def _group_present(paths: tuple[Path, ...]) -> bool:
     return any(path.is_file() for path in paths)
 
 
+def _models_verified(home: Path) -> bool:
+    return all(
+        bool(item.get("complete"))
+        for item in inspect_required_models(home=home).values()
+    )
+
+
+def _query_fcitx_addon_loaded() -> bool:
+    busctl = shutil.which("busctl")
+    if busctl is None:
+        return False
+    environment = os.environ.copy()
+    runtime_dir = environment.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    if Path(runtime_dir).is_dir():
+        environment.setdefault("XDG_RUNTIME_DIR", runtime_dir)
+    bus_path = Path(runtime_dir) / "bus"
+    if bus_path.is_socket():
+        environment.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path={bus_path}")
+    if not environment.get("DBUS_SESSION_BUS_ADDRESS"):
+        return False
+    try:
+        result = subprocess.run(
+            [
+                busctl,
+                "--user",
+                "--json=short",
+                "call",
+                "org.fcitx.Fcitx5",
+                "/controller",
+                "org.fcitx.Fcitx.Controller1",
+                "GetAddons",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+            env=environment,
+        )
+        if result.returncode != 0:
+            return False
+        payload = json.loads(result.stdout)
+        rows = payload.get("data", [[]])[0]
+        return any(
+            isinstance(row, list) and row and str(row[0]) == "vocotype"
+            for row in rows
+        )
+    except (
+        OSError,
+        subprocess.SubprocessError,
+        json.JSONDecodeError,
+        AttributeError,
+        IndexError,
+        TypeError,
+    ):
+        return False
+
+
+def _audio_verified(home: Path) -> bool:
+    path = home / ".config/vocotype/audio.conf"
+    if not path.is_file():
+        return False
+    parser = configparser.ConfigParser(interpolation=None)
+    try:
+        parser.read(path, encoding="utf-8")
+        device_id = parser.get("audio", "device_id", fallback="").strip()
+        tested_device_id = parser.get(
+            "audio", "tested_device_id", fallback=""
+        ).strip()
+        tested_at = parser.get("audio", "tested_at", fallback="").strip()
+    except (configparser.Error, OSError, ValueError):
+        return False
+    return bool(tested_at and device_id and tested_device_id == device_id)
+
+
 def integration_status(
     framework: Framework,
     *,
     home: Path | None = None,
     system_prefix: Path = Path("/usr"),
     project_root: Path | None = None,
+    fcitx_socket_path: Path = Path("/tmp/vocotype-fcitx5.sock"),
+    fcitx_addon_loaded: bool | None = None,
 ) -> IntegrationStatus:
     """Classify a framework integration as complete, partial, or absent."""
 
-    paths = installation_paths(home=home, system_prefix=system_prefix)
+    user_home = home or Path.home()
+    paths = installation_paths(home=user_home, system_prefix=system_prefix)
     if framework == "fcitx5":
         groups = {
             "module": paths.fcitx_modules,
@@ -154,7 +236,7 @@ def integration_status(
             "后端代码": paths.fcitx_runtime_entries,
         }
         structural_groups = groups
-        user_launcher = (home or Path.home()) / ".local/bin/vocotype-fcitx5-backend"
+        user_launcher = user_home / ".local/bin/vocotype-fcitx5-backend"
         python_candidates = list(paths.python_runtimes)
         if user_launcher.is_file() and project_root is not None:
             python_candidates.append(project_root / ".venv/bin/python")
@@ -176,6 +258,31 @@ def integration_status(
         present.append("Python 运行环境")
     else:
         missing.append("Python 运行环境")
+
+    if _models_verified(user_home):
+        present.append("必需模型")
+    else:
+        missing.append("必需模型")
+
+    if _audio_verified(user_home):
+        present.append("麦克风验收")
+    else:
+        missing.append("麦克风验收")
+
+    if framework == "fcitx5":
+        if fcitx_socket_path.is_socket():
+            present.append("后端 IPC")
+        else:
+            missing.append("后端 IPC")
+        loaded = (
+            _query_fcitx_addon_loaded()
+            if fcitx_addon_loaded is None
+            else fcitx_addon_loaded
+        )
+        if loaded:
+            present.append("Fcitx addon 已加载")
+        else:
+            missing.append("Fcitx addon 未加载")
 
     any_structural_artifact = any(_group_present(candidates) for candidates in structural_groups.values())
     if not any_structural_artifact:
@@ -265,11 +372,17 @@ def fcitx_uninstaller_command(
     options: UninstallOptions | None = None,
 ) -> list[str]:
     opts = options or UninstallOptions()
-    return [
+    command = [
         "bash",
         str(project_root / "fcitx5/scripts/uninstall-gui.sh"),
         *_uninstall_flags(opts),
     ]
+    command.append(
+        "--remove-system-integration"
+        if opts.remove_system_integration
+        else "--keep-system-integration"
+    )
+    return command
 
 
 def ibus_uninstaller_command(
@@ -282,8 +395,11 @@ def ibus_uninstaller_command(
         str(project_root / "ibus/scripts/uninstall-gui.sh"),
         *_uninstall_flags(opts),
     ]
-    if opts.remove_system_component:
-        command.append("--remove-system-component")
+    command.append(
+        "--remove-system-component"
+        if opts.remove_system_component
+        else "--keep-system-component"
+    )
     return command
 
 

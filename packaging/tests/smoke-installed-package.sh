@@ -20,6 +20,7 @@ for path in \
   /usr/share/vocotype/.system-package \
   /usr/share/vocotype/installers/runtime-common.sh \
   /usr/share/vocotype/installers/uninstall-integration.sh \
+  /usr/share/vocotype/installers/validate-installed-integration.py \
   /usr/share/vocotype/ibus/scripts/install-gui.sh \
   /usr/share/vocotype/ibus/scripts/uninstall-gui.sh \
   /usr/share/vocotype/fcitx5/scripts/install-gui.sh \
@@ -52,6 +53,7 @@ grep -Fq 'PYTHONDONTWRITEBYTECODE=1' "$ibus_exec"
 echo PACKAGE_METADATA_OK
 
 "$(dirname "$0")/smoke-ibus-registry.sh"
+"$(dirname "$0")/smoke-fcitx-addon.sh"
 
 find /usr/share/vocotype -type d -name __pycache__ -prune -exec rm -rf {} +
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/usr/share/vocotype python3 - "$expected_version" "$ibus_exec" <<'PY'

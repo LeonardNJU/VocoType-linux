@@ -18,6 +18,9 @@ def test_module_intercepts_ptt_without_proxying_rime():
         encoding="utf-8"
     )
     assert "EventWatcherPhase::PreInputMethod" in source
+    assert "EventWatcherPhase::PostInputMethod" in source
+    assert "EventWatcherPhase::ReservedFirst" not in source
+    assert "EventWatcherPhase::ReservedLast" not in source
     assert "InputContextKeyEvent" in source
     assert "commitString" in source
     assert "processKey" not in source

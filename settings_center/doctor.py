@@ -21,6 +21,7 @@ from .config_service import (
     load_json_mapping,
     terms_path,
 )
+from app.download_models import inspect_required_models
 from .setup_manager import installation_paths
 
 
@@ -46,13 +47,16 @@ def _check(check_id: str, title: str, fn: Callable[[], DoctorCheck]) -> DoctorCh
 
 
 def _run(argv: list[str], timeout: float = 5.0) -> subprocess.CompletedProcess[str]:
+    environment = os.environ.copy()
+    if argv and Path(argv[0]).name.startswith("fcitx5"):
+        environment.pop("FCITX_ADDON_DIRS", None)
     return subprocess.run(
         argv,
         capture_output=True,
         text=True,
         timeout=timeout,
         check=False,
-        env=os.environ.copy(),
+        env=environment,
     )
 
 
@@ -153,6 +157,37 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
 
     checks.append(_check("dependencies", "Python 依赖", deps_check))
 
+    def models_check() -> DoctorCheck:
+        status = inspect_required_models()
+        incomplete = {
+            name: item
+            for name, item in status.items()
+            if not bool(item.get("complete"))
+        }
+        if not incomplete:
+            details = "\n".join(
+                f"{name}: {item['path']}" for name, item in status.items()
+            )
+            return _pass(
+                "models",
+                "必需模型",
+                "ASR、VAD、标点模型均完整",
+                details,
+            )
+        details = "\n".join(
+            f"{name}: {item['path']}\n  缺少: {', '.join(item['missing'])}"
+            for name, item in incomplete.items()
+        )
+        return _fail(
+            "models",
+            "必需模型",
+            "一个或多个必需模型不完整",
+            details,
+            "重新运行安装 / 修复。下载会先使用当前代理，失败后自动无代理直连重试。",
+        )
+
+    checks.append(_check("models", "必需模型", models_check))
+
     def polkit_check() -> DoctorCheck:
         executable = shutil.which("pkexec")
         if executable:
@@ -212,6 +247,90 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
 
     checks.append(_check("fcitx_module", "Fcitx 全局模块", module_check))
 
+    def fcitx_loaded_check() -> DoctorCheck:
+        if ibus_vocotype_installed and not fcitx_vocotype_installed:
+            return _info("fcitx_loaded", "Fcitx addon 加载", "IBus-only 环境无需检查")
+        if not fcitx_vocotype_installed:
+            return _fail(
+                "fcitx_loaded",
+                "Fcitx addon 加载",
+                "VoCoType module 文件尚未完整安装",
+                repair_hint="先安装 / 修复 VoCoType（Fcitx 5）。",
+            )
+        busctl = shutil.which("busctl")
+        if busctl is None:
+            return _warn(
+                "fcitx_loaded",
+                "Fcitx addon 加载",
+                "未检测到 busctl，无法查询当前 Fcitx 运行实例",
+            )
+        if not os.environ.get("DBUS_SESSION_BUS_ADDRESS") and not os.environ.get(
+            "XDG_RUNTIME_DIR"
+        ):
+            return _warn(
+                "fcitx_loaded",
+                "Fcitx addon 加载",
+                "当前进程不在桌面用户会话中，无法查询 Fcitx D-Bus",
+                repair_hint="从桌面应用菜单运行设置中心后重试。",
+            )
+        result = _run(
+            [
+                busctl,
+                "--user",
+                "--json=short",
+                "call",
+                "org.fcitx.Fcitx5",
+                "/controller",
+                "org.fcitx.Fcitx.Controller1",
+                "GetAddons",
+            ],
+            timeout=10.0,
+        )
+        if result.returncode != 0:
+            details = result.stderr.strip() or result.stdout.strip()
+            return _fail(
+                "fcitx_loaded",
+                "Fcitx addon 加载",
+                "无法连接当前 Fcitx 实例",
+                details,
+                "点击“重启 Fcitx 5”后重试。",
+            )
+        try:
+            payload = json.loads(result.stdout)
+            rows = payload.get("data", [[]])[0]
+            loaded_names = {
+                str(row[0])
+                for row in rows
+                if isinstance(row, list) and row
+            }
+        except (json.JSONDecodeError, AttributeError, IndexError, TypeError) as exc:
+            return _fail(
+                "fcitx_loaded",
+                "Fcitx addon 加载",
+                "无法解析 Fcitx GetAddons 响应",
+                f"{exc}: {result.stdout[:2000]}",
+            )
+        if "vocotype" in loaded_names:
+            return _pass(
+                "fcitx_loaded",
+                "Fcitx addon 加载",
+                "当前 Fcitx 实例已实际创建 VoCoType 全局 addon",
+            )
+        installed = "\n".join(
+            str(path)
+            for path in [*paths.fcitx_modules, *paths.fcitx_addons]
+            if path.is_file()
+        )
+        return _fail(
+            "fcitx_loaded",
+            "Fcitx addon 加载",
+            "文件存在，但当前 Fcitx 实例没有创建 VoCoType addon",
+            installed,
+            "重新运行安装 / 修复并完成 Polkit 更新；然后重启 Fcitx 5。",
+        )
+
+    checks.append(_check("fcitx_loaded", "Fcitx addon 加载", fcitx_loaded_check))
+
     def ibus_check() -> DoctorCheck:
         components = [path for path in paths.ibus_components if path.is_file()]
         launchers = [path for path in paths.ibus_launchers if path.is_file()]
@@ -266,15 +385,71 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
                 "当前进程不在桌面用户会话中，无法连接 systemd user bus",
                 repair_hint="请从桌面应用菜单运行设置中心后重试。",
             )
-        result = _run(["systemctl", "--user", "is-active", "vocotype-fcitx5-backend.service"])
-        state = result.stdout.strip() or result.stderr.strip() or f"exit={result.returncode}"
-        if result.returncode == 0 and state == "active":
-            return _pass("service", "后台服务", "vocotype-fcitx5-backend.service 正在运行")
+        result = _run(
+            [
+                "systemctl",
+                "--user",
+                "show",
+                "vocotype-fcitx5-backend.service",
+                "-p",
+                "ActiveState",
+                "-p",
+                "SubState",
+                "-p",
+                "NRestarts",
+                "-p",
+                "ExecMainStatus",
+                "-p",
+                "MainPID",
+            ]
+        )
+        properties: dict[str, str] = {}
+        for line in result.stdout.splitlines():
+            if "=" in line:
+                key, value = line.split("=", 1)
+                properties[key] = value
+        active = properties.get("ActiveState", "unknown")
+        sub = properties.get("SubState", "unknown")
+        restarts = int(properties.get("NRestarts", "0") or 0)
+        main_pid = properties.get("MainPID", "0")
+        exit_status = properties.get("ExecMainStatus", "unknown")
+        details = (
+            f"ActiveState={active}\n"
+            f"SubState={sub}\n"
+            f"MainPID={main_pid}\n"
+            f"NRestarts={restarts}\n"
+            f"ExecMainStatus={exit_status}"
+        )
+        socket_ready = Path("/tmp/vocotype-fcitx5.sock").is_socket()
+        if active == "active" and sub == "running" and socket_ready:
+            return _pass(
+                "service",
+                "后台服务",
+                "服务进程与 IPC 均已就绪",
+                details,
+            )
+        if sub == "auto-restart" or restarts >= 2:
+            return _fail(
+                "service",
+                "后台服务",
+                "服务正在反复崩溃并自动重启",
+                details,
+                "查看下方 IPC 详情或执行 journalctl --user -u vocotype-fcitx5-backend.service -n 100；常见原因是模型下载/加载失败。",
+            )
+        if active in {"active", "activating"} and not socket_ready:
+            return _warn(
+                "service",
+                "后台服务",
+                "Python 进程已启动，但模型初始化尚未完成，IPC 还未就绪",
+                details,
+                "等待模型初始化完成后重新检查；若长时间不就绪，请查看服务日志。",
+            )
         return _fail(
             "service",
             "后台服务",
-            f"服务状态：{state}",
-            repair_hint="点击“重启后台服务”，或执行 systemctl --user restart vocotype-fcitx5-backend.service。",
+            f"服务未运行：{active}/{sub}",
+            details,
+            "点击“重启后台服务”，或执行 systemctl --user restart vocotype-fcitx5-backend.service。",
         )
 
     checks.append(_check("service", "后台服务", service_check))
@@ -283,8 +458,44 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
         path = "/tmp/vocotype-fcitx5.sock"
         if ibus_vocotype_installed and not fcitx_vocotype_installed:
             return _info("socket", "Fcitx 后端 IPC", "IBus-only 环境无需该 socket")
-        if not Path(path).exists():
-            return _fail("socket", "后端 IPC", "Unix socket 不存在", path, "先启动后台服务。")
+        socket_path = Path(path)
+        if not socket_path.exists():
+            service_details = ""
+            if shutil.which("systemctl") and (
+                os.environ.get("DBUS_SESSION_BUS_ADDRESS") or os.environ.get("XDG_RUNTIME_DIR")
+            ):
+                state = _run(
+                    [
+                        "systemctl",
+                        "--user",
+                        "show",
+                        "vocotype-fcitx5-backend.service",
+                        "-p",
+                        "ActiveState",
+                        "-p",
+                        "SubState",
+                        "-p",
+                        "NRestarts",
+                        "-p",
+                        "ExecMainStatus",
+                    ]
+                )
+                service_details = state.stdout.strip()
+            if "SubState=auto-restart" in service_details:
+                return _fail(
+                    "socket",
+                    "后端 IPC",
+                    "Unix socket 不存在：后台初始化失败并正在重启",
+                    f"{path}\n{service_details}",
+                    "查看 systemd journal 中最早的模型下载或加载错误；单纯显示 active 不代表 IPC 已就绪。",
+                )
+            return _warn(
+                "socket",
+                "后端 IPC",
+                "Unix socket 尚未创建：后台可能仍在加载模型",
+                f"{path}\n{service_details}".strip(),
+                "等待数秒后重试；若服务反复重启，请查看 journalctl --user -u vocotype-fcitx5-backend.service -n 100。",
+            )
         client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         client.settimeout(2.0)
         try:
@@ -381,11 +592,26 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
                     f"configured={configured_name or configured_id}\n{details}",
                     "在“语音识别与 ITN”页面重新选择并测试麦克风。",
                 )
+            tested_at = str(configured.get("tested_at") or "")
+            tested_device_id = configured.get("tested_device_id")
+            if not tested_at or tested_device_id != selected[0]:
+                return _warn(
+                    "microphone",
+                    "麦克风",
+                    f"已选择输入设备，但尚未通过录音验收：{selected[1]}",
+                    details,
+                    "在“语音识别与 ITN”页面点击“录音 2 秒测试”；通过后会自动保存。",
+                )
+            peak = configured.get("test_peak")
+            rms = configured.get("test_rms")
+            metrics = f"最后验收：{tested_at}"
+            if peak is not None and rms is not None:
+                metrics += f"\npeak={float(peak):.4f}, RMS={float(rms):.4f}"
             return _pass(
                 "microphone",
                 "麦克风",
-                f"已配置并检测到输入设备：{selected[1]}",
-                details,
+                f"已通过录音验收：{selected[1]}",
+                f"{metrics}\n{details}",
             )
         return _warn(
             "microphone",

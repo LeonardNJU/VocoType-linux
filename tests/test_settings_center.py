@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import socket
 import subprocess
 import tarfile
 import threading
@@ -145,6 +146,34 @@ def test_audio_config_round_trip(isolated_home: Path):
     }
 
 
+def test_audio_config_records_and_clears_verification(isolated_home: Path):
+    config_service.save_audio_config(
+        device_name="USB Microphone",
+        device_id=7,
+        sample_rate=48000,
+        tested_at="2026-07-21T00:00:00+00:00",
+        tested_device_id=7,
+        test_peak=0.5,
+        test_rms=0.1,
+        preserve_test=False,
+    )
+    loaded = config_service.load_audio_config()
+    assert loaded["tested_device_id"] == 7
+    assert loaded["test_peak"] == pytest.approx(0.5)
+    assert loaded["test_rms"] == pytest.approx(0.1)
+
+    config_service.save_audio_config(
+        device_name="Quiet Microphone",
+        device_id=8,
+        sample_rate=44100,
+        preserve_test=False,
+    )
+    loaded = config_service.load_audio_config()
+    assert loaded["device_id"] == 8
+    assert "tested_at" not in loaded
+    assert "tested_device_id" not in loaded
+
+
 def test_fcitx_module_config_round_trip(isolated_home: Path):
     path = config_service.save_fcitx_module_config(
         {
@@ -173,6 +202,22 @@ def test_slm_api_key_can_come_from_environment(monkeypatch: pytest.MonkeyPatch):
     )
     assert polisher.api_key == "env-secret"
     assert polisher._request_headers()["Authorization"] == "Bearer env-secret"
+
+
+def test_slm_api_key_misfiled_as_environment_name_is_migrated():
+    secret = "sk-12345678901234567890123456789012"
+    polisher = SLMPolisher(
+        {
+            "enabled": True,
+            "provider": "remote",
+            "api_key": "",
+            "api_key_env": secret,
+        }
+    )
+    assert polisher.api_key == secret
+    assert polisher.api_key_env == ""
+    assert "误填" in polisher.credential_warning
+    assert polisher._request_headers()["Authorization"] == f"Bearer {secret}"
 
 
 def test_issue_url_is_prefilled_without_transmitting():
@@ -333,6 +378,7 @@ def _run_uninstaller(
         {
             "HOME": str(home),
             "XDG_CONFIG_HOME": str(home / ".config"),
+            "VOCOTYPE_SYSTEM_PREFIX": str(home / "system"),
             "PATH": f"{fake_bin}:{env['PATH']}",
         }
     )
@@ -441,8 +487,53 @@ def test_fcitx_gui_uninstall_purges_runtime_and_user_integration_only(tmp_path: 
     assert all(not artifact.exists() for artifact in artifacts)
     assert shared_launcher.exists()
     assert user_config.exists()
-    assert "VoCoType（Fcitx 5）用户级集成已卸载" in result.stdout
+    assert "VoCoType（Fcitx 5）integration 已卸载" in result.stdout
 
+
+
+
+def _create_source_fcitx_system_fixture(home: Path) -> tuple[Path, Path, Path]:
+    prefix = home / 'system'
+    module = prefix / 'lib/fcitx5/vocotype.so'
+    addon = prefix / 'share/fcitx5/addon/vocotype.conf'
+    marker = prefix / 'share/vocotype/.source-fcitx-integration'
+    module.parent.mkdir(parents=True, exist_ok=True)
+    addon.parent.mkdir(parents=True, exist_ok=True)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    module.write_bytes(b'module')
+    addon.write_text('[Addon]\nLibrary=vocotype\n', encoding='utf-8')
+    marker.write_text(
+        'managed-by=source-installer\nversion=2.2.3\n'
+        f'module={module}\naddon={addon}\n',
+        encoding='utf-8',
+    )
+    return module, addon, marker
+
+
+def test_fcitx_gui_uninstall_removes_source_system_addon_by_default(tmp_path: Path):
+    home = tmp_path / 'home'
+    module, addon, marker = _create_source_fcitx_system_fixture(home)
+    result = _run_uninstaller('fcitx5/scripts/uninstall-gui.sh', home)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not module.exists()
+    assert not addon.exists()
+    assert not marker.exists()
+    assert '系统 VoCoType（Fcitx 5）addon 已移除' in result.stdout
+
+
+def test_fcitx_gui_uninstall_can_explicitly_keep_source_system_addon(tmp_path: Path):
+    home = tmp_path / 'home'
+    module, addon, marker = _create_source_fcitx_system_fixture(home)
+    result = _run_uninstaller(
+        'fcitx5/scripts/uninstall-gui.sh',
+        home,
+        '--keep-system-integration',
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert module.exists()
+    assert addon.exists()
+    assert marker.exists()
+    assert '保留源码安装器管理的系统 Fcitx addon' in result.stdout
 
 
 def test_last_user_integration_removes_broken_shared_launcher(tmp_path: Path):
@@ -483,43 +574,101 @@ def _touch(path: Path, *, executable: bool = False) -> None:
         path.chmod(0o755)
 
 
-def test_integration_status_distinguishes_absent_partial_and_complete(tmp_path: Path):
+def test_integration_status_distinguishes_absent_partial_and_complete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     home = tmp_path / "home"
     prefix = tmp_path / "usr"
+    monkeypatch.setattr(
+        "settings_center.setup_manager.inspect_required_models",
+        lambda **_kwargs: {
+            name: {"complete": True}
+            for name in ("asr", "vad", "punc")
+        },
+    )
 
-    absent = integration_status("fcitx5", home=home, system_prefix=prefix)
+    absent = integration_status(
+        "fcitx5",
+        home=home,
+        system_prefix=prefix,
+        fcitx_socket_path=tmp_path / "missing.sock",
+        fcitx_addon_loaded=False,
+    )
     assert absent.state == "absent"
     assert "module" in absent.missing
 
     _touch(home / ".local/lib/fcitx5/vocotype.so")
     _touch(home / ".local/share/fcitx5/addon/vocotype.conf")
-    partial = integration_status("fcitx5", home=home, system_prefix=prefix)
+    partial = integration_status(
+        "fcitx5",
+        home=home,
+        system_prefix=prefix,
+        fcitx_socket_path=tmp_path / "missing.sock",
+        fcitx_addon_loaded=False,
+    )
     assert partial.state == "partial"
     assert "module" in partial.present
     assert "后端代码" in partial.missing
     assert "Python 运行环境" in partial.missing
+    assert "麦克风验收" in partial.missing
+    assert "后端 IPC" in partial.missing
 
     _touch(home / ".config/systemd/user/vocotype-fcitx5-backend.service")
     _touch(home / ".local/bin/vocotype-fcitx5-backend", executable=True)
     _touch(home / ".local/share/vocotype-fcitx5/backend/fcitx5_server.py")
     _touch(home / ".local/share/vocotype-fcitx5/.venv/bin/python", executable=True)
-    complete = integration_status("fcitx5", home=home, system_prefix=prefix)
+    audio = home / ".config/vocotype/audio.conf"
+    audio.parent.mkdir(parents=True, exist_ok=True)
+    audio.write_text(
+        "[audio]\ndevice_id = 2\nsample_rate = 48000\n"
+        "tested_at = 2026-07-21T00:00:00+00:00\ntested_device_id = 2\n",
+        encoding="utf-8",
+    )
+    socket_path = tmp_path / "vocotype.sock"
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        server.bind(str(socket_path))
+        complete = integration_status(
+            "fcitx5",
+            home=home,
+            system_prefix=prefix,
+            fcitx_socket_path=socket_path,
+            fcitx_addon_loaded=True,
+        )
+    finally:
+        server.close()
     assert complete.state == "complete"
     assert complete.missing == ()
 
 
-def test_ibus_status_requires_runtime_and_python_environment(tmp_path: Path):
+def test_ibus_status_requires_runtime_and_python_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     home = tmp_path / "home"
     prefix = tmp_path / "usr"
+    monkeypatch.setattr(
+        "settings_center.setup_manager.inspect_required_models",
+        lambda **_kwargs: {
+            name: {"complete": True}
+            for name in ("asr", "vad", "punc")
+        },
+    )
     _touch(home / ".local/libexec/ibus-engine-vocotype", executable=True)
     _touch(home / ".local/share/ibus/component/vocotype.xml")
 
     partial = integration_status("ibus", home=home, system_prefix=prefix)
     assert partial.state == "partial"
-    assert partial.missing == ("引擎代码", "Python 运行环境")
+    assert partial.missing == ("引擎代码", "Python 运行环境", "麦克风验收")
 
     _touch(home / ".local/share/vocotype/ibus/main.py")
     _touch(home / ".local/share/vocotype/.venv/bin/python", executable=True)
+    audio = home / ".config/vocotype/audio.conf"
+    audio.parent.mkdir(parents=True, exist_ok=True)
+    audio.write_text(
+        "[audio]\ndevice_id = 4\nsample_rate = 44100\n"
+        "tested_at = 2026-07-21T00:00:00+00:00\ntested_device_id = 4\n",
+        encoding="utf-8",
+    )
     complete = integration_status("ibus", home=home, system_prefix=prefix)
     assert complete.state == "complete"
 
@@ -599,6 +748,15 @@ def test_settings_application_exposes_both_install_paths():
     assert "InstallOptions" in source
     assert "录音 2 秒测试" in source
     assert "save_audio_config" in source
+    assert "Gtk.Expander()" in source
+    assert "overview_doctor_scroll" not in source
+    assert 'Gtk.Button(label="查看详情")' in source
+    assert "快速检查后仅显示摘要" in source
+    assert "继续配置麦克风" in source
+    assert "麦克风尚未通过 2 秒录音验收" in source
+    assert "API Key 环境变量名（高级）" in source
+    assert "直接 API Key" in source
+    assert "remove_system_integration" in source
 
 
 def test_installers_have_gui_noninteractive_paths_without_terminal_password_prompts():
@@ -606,6 +764,9 @@ def test_installers_have_gui_noninteractive_paths_without_terminal_password_prom
     assert 'mkdir -p "$INSTALL_DIR/scripts" "$INSTALL_DIR/installers"' in script
     assert 'rm -f "$HOME/.config/environment.d/fcitx5-vocotype.conf"' in script
     assert "FCITX_ADDON_DIRS=$HOME" not in script
+    assert "manage-fcitx-system-integration.sh" in script
+    assert "AUTH_REQUIRED: 即将弹出管理员授权窗口以安装 VoCoType（Fcitx 5）系统 addon" in script
+    assert '"$HOME/.local/share/fcitx5/addon/vocotype.conf"' in script
     assert script.index('mkdir -p "$INSTALL_DIR/scripts" "$INSTALL_DIR/installers"') < script.index(
         'cp "$INSTALLER_DIR/setup-audio.py" "$INSTALLED_SETUP_AUDIO_SCRIPT"'
     )
@@ -634,6 +795,46 @@ def test_shared_uninstaller_preserves_user_configuration_by_default():
     assert "用户配置已保留" in script
     assert "fcitx_user_present" in script
     assert "ibus_user_present" in script
+    assert "REMOVE_SYSTEM_INTEGRATION=true" in script
+    assert "--remove-system-integration" in script
+    assert ".source-fcitx-integration" in script
+
+
+def test_source_fcitx_system_helper_tracks_and_removes_owned_files(tmp_path: Path):
+    helper = Path("installers/manage-fcitx-system-integration.sh").resolve()
+    prefix = tmp_path / "usr"
+    module = tmp_path / "vocotype.so"
+    addon = tmp_path / "vocotype.conf"
+    module.write_bytes(b"module")
+    addon.write_text("[Addon]\nLibrary=vocotype\n", encoding="utf-8")
+    env = {
+        **os.environ,
+        "VOCOTYPE_SYSTEM_PREFIX": str(prefix),
+        "VOCOTYPE_SYSTEM_LIBDIR": str(prefix / "lib"),
+    }
+    result = subprocess.run(
+        ["bash", str(helper), "install", str(module), str(addon), "2.2.3"],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (prefix / "lib/fcitx5/vocotype.so").is_file()
+    assert (prefix / "share/fcitx5/addon/vocotype.conf").is_file()
+    marker = prefix / "share/vocotype/.source-fcitx-integration"
+    assert "managed-by=source-installer" in marker.read_text(encoding="utf-8")
+
+    result = subprocess.run(
+        ["bash", str(helper), "uninstall"],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not (prefix / "lib/fcitx5/vocotype.so").exists()
+    assert not marker.exists()
 
 
 def test_ibus_gui_installer_uses_pkexec_and_never_reads_from_a_terminal():
@@ -661,6 +862,70 @@ def test_setup_manager_does_not_launch_terminal_emulators():
     source = Path("settings_center/setup_manager.py").read_text(encoding="utf-8")
     for terminal in ("gnome-terminal", "xdg-terminal-exec", "konsole", "kitty", "xterm"):
         assert terminal not in source
+
+
+
+@pytest.mark.parametrize(
+    ("addon_rows", "expected_status"),
+    [
+        ([['vocotype', 'VoCoType Voice Input', '', 3, True, True]], 'pass'),
+        ([['clipboard', 'Clipboard', '', 3, True, True]], 'fail'),
+    ],
+)
+def test_doctor_uses_live_fcitx_getaddons_for_loaded_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    addon_rows: list[list[object]],
+    expected_status: str,
+):
+    import settings_center.doctor as doctor_module
+
+    module = tmp_path / 'usr/lib/fcitx5/vocotype.so'
+    addon = tmp_path / 'usr/share/fcitx5/addon/vocotype.conf'
+    module.parent.mkdir(parents=True)
+    addon.parent.mkdir(parents=True)
+    module.write_bytes(b'module')
+    addon.write_text('[Addon]\nLibrary=vocotype\n', encoding='utf-8')
+    paths = SimpleNamespace(
+        fcitx_modules=(module,),
+        fcitx_addons=(addon,),
+        fcitx_services=(),
+        ibus_launchers=(),
+        ibus_components=(),
+    )
+    monkeypatch.setattr(doctor_module, 'installation_paths', lambda: paths)
+    monkeypatch.setattr(
+        doctor_module.shutil,
+        'which',
+        lambda command: f'/usr/bin/{command}'
+        if command in {'busctl', 'fcitx5', 'systemctl', 'pkexec'}
+        else None,
+    )
+    monkeypatch.setenv('XDG_RUNTIME_DIR', str(tmp_path / 'runtime'))
+
+    def fake_run(argv: list[str], timeout: float = 5.0):
+        if 'GetAddons' in argv:
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                json.dumps({'type': 'a(sssibb)', 'data': [addon_rows]}),
+                '',
+            )
+        if argv and Path(argv[0]).name == 'systemctl':
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                'ActiveState=inactive\nSubState=dead\nNRestarts=0\n'
+                'ExecMainStatus=0\nMainPID=0\n',
+                '',
+            )
+        return subprocess.CompletedProcess(argv, 1, '', 'not mocked')
+
+    monkeypatch.setattr(doctor_module, '_run', fake_run)
+    check = next(item for item in run_doctor() if item.check_id == 'fcitx_loaded')
+    assert check.status == expected_status
+    if expected_status == 'fail':
+        assert '没有创建 VoCoType addon' in check.summary
 
 
 def test_doctor_reports_polkit_readiness(monkeypatch: pytest.MonkeyPatch):

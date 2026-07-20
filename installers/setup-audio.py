@@ -10,6 +10,7 @@ import sys
 import os
 import threading
 import queue
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +21,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.wave_writer import write_wav
+from settings_center.config_service import save_audio_config
 
 TARGET_SAMPLE_RATE = 16000
 BLOCK_MS = 20
@@ -61,8 +63,8 @@ def display_devices(devices: list[tuple[int, dict]]) -> None:
         print()
 
 
-def select_device(devices: list[tuple[int, dict]]) -> tuple[str, int] | None:
-    """让用户选择设备，返回 (设备名称, 采样率) 或 None 表示退出"""
+def select_device(devices: list[tuple[int, dict]]) -> tuple[int, str, int] | None:
+    """让用户选择设备，返回 (设备 ID, 名称, 采样率)。"""
     while True:
         try:
             choice = input("请输入设备编号 (q=退出): ").strip().lower()
@@ -78,7 +80,7 @@ def select_device(devices: list[tuple[int, dict]]) -> tuple[str, int] | None:
                     sample_rate = int(dev['default_samplerate'])
                     device_name = dev['name']
                     print(f"\n✓ 已选择: [{device_id}] {device_name} ({sample_rate}Hz)")
-                    return device_name, sample_rate
+                    return device_id, device_name, sample_rate
 
             print(f"❌ 设备 {device_id} 不是有效的输入设备，请重新选择")
         except ValueError:
@@ -279,17 +281,30 @@ def test_asr_recognition(audio_data: np.ndarray, sample_rate: int) -> bool:
         return False
 
 
-def save_config(device_name: str, sample_rate: int) -> None:
-    """保存音频配置到文件"""
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+def save_config(
+    device_id: int,
+    device_name: str,
+    sample_rate: int,
+    audio_data: np.ndarray,
+) -> None:
+    """保存已通过录音和 ASR 验收的音频配置。"""
 
-    config_content = f"""[audio]
-device_name = {device_name}
-sample_rate = {sample_rate}
-"""
-
-    CONFIG_FILE.write_text(config_content)
-    print(f"\n✓ 配置已保存到: {CONFIG_FILE}")
+    samples = np.asarray(audio_data, dtype=np.float32).reshape(-1)
+    normalized = samples / 32768.0 if samples.size else samples
+    peak = float(np.max(np.abs(normalized))) if normalized.size else 0.0
+    rms = float(np.sqrt(np.mean(np.square(normalized)))) if normalized.size else 0.0
+    save_audio_config(
+        device_name=device_name,
+        device_id=device_id,
+        sample_rate=sample_rate,
+        tested_at=datetime.now(timezone.utc).isoformat(),
+        tested_device_id=device_id,
+        test_peak=peak,
+        test_rms=rms,
+        preserve_test=False,
+    )
+    print(f"\n✓ 已保存通过验收的音频配置: {CONFIG_FILE}")
+    print(f"  peak={peak:.4f}, RMS={rms:.4f}")
 
 
 def main():
@@ -315,7 +330,7 @@ def main():
             print("\n⚠️  音频配置未完成，退出。")
             sys.exit(1)
 
-        device_name, sample_rate = result
+        device_id, device_name, sample_rate = result
 
         # 录音-播放-ASR测试循环
         while True:
@@ -340,27 +355,21 @@ def main():
                 # 询问下一步操作
                 print("\n选择操作:")
                 print("  1. 重新选择设备")
-                print("  2. 跳过音频配置（稍后手动配置）")
-                print("  3. 退出安装")
-                choice = input("请选择 (1/2/3): ").strip()
+                print("  2. 退出安装")
+                choice = input("请选择 (1/2): ").strip()
 
                 if choice == '2':
-                    print("\n⚠️  跳过音频配置。")
-                    print("请稍后运行 'python installers/setup-audio.py' 重新配置。")
-                    sys.exit(0)  # 跳过但不报错
-                elif choice == '3':
-                    print("\n音频配置未完成，退出。")
+                    print("\n音频验收未完成，安装不能标记为成功。")
                     sys.exit(1)
-                else:
-                    # 重新选择设备
-                    break
+                # 重新选择设备
+                break
 
             # 5. ASR 识别测试
             asr_success = test_asr_recognition(audio_data, sample_rate)
 
             if asr_success:
                 # 6. 保存配置
-                save_config(device_name, sample_rate)
+                save_config(device_id, device_name, sample_rate, audio_data)
 
                 print("\n" + "🎉" * 20)
                 print("  配置完成！音频设备已就绪。")
