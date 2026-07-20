@@ -1,5 +1,9 @@
 # VoCoType Rime 配置说明
 
+> **Fcitx 5 用户注意**：VoCoType 已改为全局 Fcitx 5 Module，不再内嵌 Rime。
+> 请直接配置和使用 `fcitx5-rime`；VoCoType 的 F9/Shift+F9 会自动增强当前输入法。
+> 下文中 VoCoType 自行调用 librime/pyrime 的说明仅适用于 IBus 版本。
+
 ## 配置共享机制
 
 如果您安装了 **VoCoType 完整版**（语音 + Rime 拼音），VoCoType 会直接使用 ibus-rime 的配置目录：

@@ -1,184 +1,138 @@
-# VoCoType Fcitx 5 版本
+# VoCoType Fcitx 5 全局模块
 
-VoCoType 离线语音输入法的 Fcitx 5 版本实现。
+VoCoType 在 Fcitx 5 下以 **全局 Module** 运行，而不是一个独立输入法。
+安装后继续使用你原来的 Rime、拼音、Mozc、键盘布局或其他 Fcitx 5 输入法；
+VoCoType 只拦截配置的 PTT 热键并把语音识别结果直接提交到当前输入框。
 
-## 功能特性
+## 主要能力
 
-- **语音输入** - 默认按住 F9 说话，松开自动识别并输入；`Shift+F9` 为长句模式（支持配置热键）
-- **Rime 拼音** - 完整的 Rime 拼音输入支持
-- **完全离线** - 所有识别在本地完成，零网络依赖
-- **轻量高效** - 纯 CPU 推理，仅需 700MB 内存
-- **快速响应** - 0.1 秒级识别速度
+- `F9`：按住录音，松开执行本地 ASR 并提交。
+- `Shift+F9`：长句模式，识别后可选执行本地或远程 SLM 润色。
+- 在所有 Fcitx 5 输入法下生效，不再代理普通键盘事件。
+- 不依赖 `pyrime`，不创建独立 Rime session，不复制候选词或 preedit。
+- 按下热键时记录原始 `InputContext`；焦点变化后取消或丢弃结果，避免误输到其他窗口。
+- 当前输入法存在未提交的 preedit/candidate 时默认不启动录音，避免破坏正在进行的组合输入。
 
-## 架构设计
+## 架构
 
+```text
+应用输入框
+    ↕
+当前原生输入法（fcitx5-rime / pinyin / mozc / keyboard / ...）
+    ↕
+Fcitx 5 event pipeline
+    └── VoCoType Module
+          ├── 监听 F9 / Shift+F9
+          ├── 启动录音进程
+          ├── 通过 Unix Socket 调用 Python backend
+          └── InputContext::commitString() 提交结果
 ```
-Fcitx 5 Framework
-    ↓ (C++ API)
-C++ Addon (fcitx5/addon/)
-    ├─ 监听 F9/Shift+F9 按键（语音）
-    ├─ 监听其他按键（Rime）
-    └─ 更新 UI
-    ↓ (Unix Socket IPC)
-Python Backend (fcitx5/backend/)
-    ├─ 语音识别（FunASR）
-    └─ Rime 拼音处理（pyrime）
+
+代码位置：
+
+```text
+fcitx5/module/                 Fcitx 5 全局 C++ module
+fcitx5/backend/                Python ASR/SLM backend
+fcitx5/backend/audio_recorder.py
+fcitx5/data/vocotype.conf      Category=Module 的 addon 元数据
 ```
+
+旧的 `fcitx5/addon/` 输入法引擎源码暂时保留用于迁移参考，但安装器不再构建或安装它。
 
 ## 系统要求
 
-### 必需依赖
+- Linux 与 Fcitx 5。
+- Python 3.11 或 3.12。
+- CMake、C++20 编译器、pkg-config。
+- `libfcitx5-dev` / `fcitx5-devel`。
+- `nlohmann-json3-dev` / `json-devel`。
 
-- **Fcitx 5** - 输入法框架
-- **Python 3.11-3.12** - 后端运行环境（onnxruntime 暂不支持 3.13+）
-- **编译工具**:
-  - CMake 3.10+
-  - C++17 编译器
-  - pkg-config
-- **开发库**:
-  - `fcitx5-devel` (或 `libfcitx5-dev`)
-  - `nlohmann-json-devel` (或 `nlohmann-json3-dev`)
+Fcitx 版本不需要 `pyrime`。用户需要 Rime 时直接安装和使用发行版提供的
+`fcitx5-rime`，VoCoType 会在它处于活动状态时照常工作。
 
-### 可选依赖（推荐）
-
-- **pyrime** - Rime 拼音输入支持（完整版）
-- **fcitx5-rime** - 共享 Rime 配置（如果已安装）
-- **rime-ice** - 现代词库和配置方案
-
-## 安装
-
-### 快速安装
+## 自动安装
 
 ```bash
+git clone https://github.com/LeonardNJU/VocoType-linux.git
 cd VocoType-linux
 bash fcitx5/scripts/install-fcitx5.sh
+systemctl --user enable --now vocotype-fcitx5-backend.service
+fcitx5 -r
 ```
 
-安装脚本会自动完成：
-1. 检查 Fcitx 5 和编译依赖
-2. 编译 C++ Addon
-3. 安装 Python 后端
-4. 配置 Python 环境（项目虚拟环境、用户级虚拟环境、系统 Python 或手动指定解释器）
-5. 配置音频设备（可选）
-6. 创建 systemd 服务
+安装脚本会：
 
-安装脚本还会询问是否启用 `Shift+F9` 长句 SLM 润色：
-- 不启用（默认）：不安装/拉取 SLM 模型，`Shift+F9` 不会触发润色
-- 启用：写入 `~/.config/vocotype/fcitx5-backend.json` 的 `slm` 配置，并可选择：
-  - 本地模型（`local_ephemeral`）：按下预热，润色后释放
-  - 远程 API（`remote`）：配置 `model`、`endpoint`、`api_key`
+1. 编译并安装 `vocotype.so` 全局 module。
+2. 安装 addon 元数据到 `~/.local/share/fcitx5/addon/vocotype.conf`。
+3. 删除旧版 `~/.local/share/fcitx5/inputmethod/vocotype.conf` 输入法条目。
+4. 安装 Python 后端和录音启动器。
+5. 创建并启动 systemd 用户服务所需文件。
+6. 配置音频设备和可选 SLM。
 
-### 自定义快捷键
+无需在“输入法列表”中添加 VoCoType。可在 `fcitx5-configtool` 的附加组件页面
+确认 **VoCoType Voice Input** 已启用。
 
-优先使用 Fcitx5 配置面板调整：
+## Module 配置
 
-1. 打开 Fcitx5 配置
-2. 进入输入法列表里的 VoCoType
-3. 点击“配置”
+打开 `fcitx5-configtool`，在附加组件中选择 VoCoType 进行配置。配置保存在：
 
-Fcitx5 会将这些设置持久化到 `~/.config/fcitx5/inputmethod/vocotype.conf`。
-
-- `PTTKey`：按住说话的主键，默认 `F9`
-- `PTTHoldThresholdMs`：可选项，按住超过多少毫秒才开始录音，默认 `0`；小于等于 `0` 时不启用定时器，保持“按下立即录音”
-- `LongModeModifier`：长句模式修饰键，默认 `Shift`，可选 `Shift` / `Ctrl` / `Alt` / `Super`
-- `StripTrailingPeriodOnCommit`：默认关闭；开启后会在提交前移除文本末尾的 `。` 或 `.`
-- `Fn` 通常不会作为独立按键事件上报给 Linux/Fcitx5，因此一般不能直接配置成 `PTTKey`
-- 修改后需要重启 Fcitx5 或重新登录输入法会话
-
-如果你想区分“长按开始录音”和“短按不录音”，就把 `PTTHoldThresholdMs` 调成大于 `0` 的值，例如 `180`。
-
-### 手动安装
-
-#### 1. 编译 C++ Addon
-
-```bash
-cd fcitx5/addon
-mkdir build && cd build
-cmake .. -DCMAKE_INSTALL_PREFIX=$HOME/.local
-make -j$(nproc)
-make install
+```text
+~/.config/fcitx5/conf/vocotype.conf
 ```
 
-#### 2. 安装配置文件
+可用选项：
+
+- `PTTKey`：主热键，默认 `F9`。
+- `PTTHoldThresholdMs`：超过指定时长才开始录音；默认 `0`，即按下立即开始。
+- `LongModeModifier`：长句/润色模式修饰键，默认 `Shift`。
+- `BlockWhenComposing`：当前输入法存在未提交组合时不启动录音，默认开启。
+- `StripTrailingPeriodOnCommit`：提交前移除末尾 `。` 或 `.`，默认关闭。
+
+`Fn` 通常不会作为普通 Fcitx key event 上报，因此一般不能直接作为 PTT 热键。
+
+## 手动构建 module
 
 ```bash
+cmake -S fcitx5/module -B fcitx5/module/build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX="$HOME/.local"
+cmake --build fcitx5/module/build -j"$(nproc)"
+cmake --install fcitx5/module/build
+
 mkdir -p ~/.local/share/fcitx5/addon
-mkdir -p ~/.local/share/fcitx5/inputmethod
 cp fcitx5/data/vocotype.conf ~/.local/share/fcitx5/addon/
-cp fcitx5/data/vocotype.conf.in ~/.local/share/fcitx5/inputmethod/vocotype.conf
+rm -f ~/.local/share/fcitx5/inputmethod/vocotype.conf
+fcitx5 -r
 ```
 
-#### 3. 安装 Python 后端
+## Python backend
 
-```bash
-INSTALL_DIR=$HOME/.local/share/vocotype-fcitx5
-mkdir -p "$INSTALL_DIR"
-mkdir -p "$INSTALL_DIR/scripts"
-cp -r app "$INSTALL_DIR/"
-cp -r fcitx5/backend "$INSTALL_DIR/"
-cp vocotype_version.py "$INSTALL_DIR/"
-cp scripts/setup-audio.py "$INSTALL_DIR/scripts/"
+Backend socket：
 
-# 创建虚拟环境
-python3 -m venv "$INSTALL_DIR/.venv"
-"$INSTALL_DIR/.venv/bin/pip" install -r requirements.txt
-
-# 安装 Rime 依赖
-"$INSTALL_DIR/.venv/bin/pip" install pyrime
+```text
+/tmp/vocotype-fcitx5.sock
 ```
 
-#### 4. 配置音频
+健康检查：
 
 ```bash
-"$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/setup-audio.py"
+echo '{"type":"ping"}' | nc -U /tmp/vocotype-fcitx5.sock
 ```
 
-## 使用方法
-
-### 1. 启动后台服务
-
-**方式 A：手动启动（临时）**
+查看日志：
 
 ```bash
-vocotype-fcitx5-backend &
-```
-
-**方式 B：systemd 自动启动（推荐）**
-
-```bash
-# 启用并启动服务
-systemctl --user enable vocotype-fcitx5-backend.service
-systemctl --user start vocotype-fcitx5-backend.service
-
-# 查看服务状态
-systemctl --user status vocotype-fcitx5-backend.service
-
-# 查看日志
 journalctl --user -u vocotype-fcitx5-backend.service -f
 ```
 
-### 日志（可选）
+Backend 只处理语音和 SLM，不再处理普通键盘事件或 Rime session。
 
-默认只输出到 stderr，不会生成日志文件。需要文件日志时，在
-`~/.config/vocotype/fcitx5-backend.json` 添加：
+## 长句 SLM
 
-```json
-{
-  "logging": {
-    "file": true,
-    "dir": "logs",
-    "level": "INFO"
-  }
-}
-```
+`F9` 只进行 ASR；`Shift+F9` 将 `long_mode=true` 发送给 backend。
+SLM 默认关闭，在 `~/.config/vocotype/fcitx5-backend.json` 中配置。
 
-日志目录默认是 `~/.local/share/vocotype-fcitx5/logs/`。
-
-### 长句模式（Shift+F9）配置
-
-在 `~/.config/vocotype/fcitx5-backend.json` 中配置 `slm`（默认关闭）。
-
-推荐使用本地一次性加载（按下 `Shift+F9` 预加载，润色后立即释放）：
+### 本地按需模型
 
 ```json
 {
@@ -188,8 +142,8 @@ journalctl --user -u vocotype-fcitx5-backend.service -f
     "model": "Qwen/Qwen3.5-0.8B",
     "local_model": "Qwen/Qwen3.5-0.8B",
     "warmup_timeout_ms": 90000,
-    "keepalive_ms": 60000,
     "ready_wait_ms": 2000,
+    "keepalive_ms": 60000,
     "timeout_ms": 12000,
     "min_chars": 8,
     "max_tokens": 96,
@@ -198,12 +152,7 @@ journalctl --user -u vocotype-fcitx5-backend.service -f
 }
 ```
 
-- `F9` 不会触发 SLM，保持低延迟
-- `Shift+F9` 才会触发 SLM
-- `local_ephemeral` 会在每次长句流程结束后释放模型内存
-- 若 SLM 调用失败，会显示错误提示，不提交回退原文
-
-远程 API（OpenAI 兼容）示例：
+### 远程 OpenAI-compatible API
 
 ```json
 {
@@ -211,7 +160,7 @@ journalctl --user -u vocotype-fcitx5-backend.service -f
     "enabled": true,
     "provider": "remote",
     "model": "gpt-4o",
-    "endpoint": "http://<host>:<port>/v1/chat/completions",
+    "endpoint": "https://example.com/v1/chat/completions",
     "api_key": "sk-***",
     "timeout_ms": 20000,
     "min_chars": 8,
@@ -221,229 +170,67 @@ journalctl --user -u vocotype-fcitx5-backend.service -f
 }
 ```
 
-常用参数：
-- `provider`：`local_ephemeral` / `remote`
-- `min_chars`：长句触发阈值（默认 `8`）
-- `max_tokens`：润色输出预算
-- `enable_thinking`：是否允许思考输出（默认 `false`）
-- `retry_without_proxy`：远程请求失败时绕过代理直连重试（默认 `true`）
+SLM 失败时不会静默提交错误结果。若 ASR 原文可用，输入面板会提供原文候选供用户确认提交。
 
-### 2. 重启 Fcitx 5
+## 行为边界
 
-```bash
-fcitx5 -r
-```
+### 正在输入拼音时按 F9
 
-### 3. 添加输入法
+默认 `BlockWhenComposing=true`。当当前输入法已有 preedit 或候选列表时，VoCoType
+会消耗本次 PTT 热键但不开始录音，不会清空 Rime composition。
 
-1. 打开 Fcitx 5 配置工具：
-   ```bash
-   fcitx5-configtool
-   ```
+完成或取消当前组合后再按 F9 即可。可关闭该选项，但不建议这样做。
 
-2. 在"输入法"标签中，点击"添加输入法"
+### 录音中切换窗口
 
-3. 搜索"VoCoType"，添加到当前输入法列表
+VoCoType 在按下 PTT 时保存当前 `InputContext`。若焦点在录音中离开该输入框，录音会被取消；
+若焦点在异步识别期间离开，识别结果会被丢弃，不会提交到新窗口。
 
-4. 切换到 VoCoType 输入法
+### 没有文本输入框时
 
-### 4. 开始使用
-
-- **语音输入**:
-  - 按住 `F9`：极速模式（仅 ASR + 标点）
-  - 按住 `Shift+F9`：长句模式（ASR + 标点 + 可选 SLM 润色）
-- **拼音输入**: 正常打字，使用 Rime 拼音输入
-
-## Rime 配置
-
-VoCoType Fcitx 5 版本使用**独立的 Rime 配置目录**：
-
-```
-~/.local/share/fcitx5/rime/
-```
-
-这意味着：
-- 与 fcitx5-rime 共享配置目录
-- 推荐使用 [rime-ice（雾凇拼音）](https://github.com/iDvel/rime-ice) 获得更好体验
-- 所有 Rime 自定义配置都适用
-- 安装脚本选择的方案会记录在 `~/.config/vocotype/rime/user.yaml`
-
-详见：[RIME_CONFIG_GUIDE.md](../RIME_CONFIG_GUIDE.md)
+Module 的“全局”范围是 Fcitx 5 的输入上下文，不是桌面 compositor 级全局热键。
+桌面、锁屏、游戏或没有活动文本输入框的场景不保证收到 F9。
 
 ## 故障排查
 
-### Backend 无法启动
+### Module 未加载
 
-**问题**: `vocotype-fcitx5-backend` 启动失败
+```bash
+ls ~/.local/lib/fcitx5/vocotype.so ~/.local/share/fcitx5/addon/vocotype.conf
+fcitx5-diagnose | grep -i -A5 vocotype
+```
 
-**解决方案**:
-1. 检查 Python 依赖是否完整安装：
-   ```bash
-   ~/.local/share/vocotype-fcitx5/.venv/bin/python -c "import pyrime; print('OK')"
-   ```
+确认环境变量包含用户 addon 目录，然后重新登录或执行：
 
-2. 查看详细错误日志：
-   ```bash
-   ~/.local/share/vocotype-fcitx5/.venv/bin/python \
-       ~/.local/share/vocotype-fcitx5/backend/fcitx5_server.py --debug
-   ```
+```bash
+export FCITX_ADDON_DIRS="$HOME/.local/lib64/fcitx5:$HOME/.local/lib/fcitx5:/usr/lib64/fcitx5:/usr/lib/x86_64-linux-gnu/fcitx5:/usr/lib/fcitx5"
+fcitx5 -r
+```
 
-### C++ Addon 无法加载
+### 按 F9 无响应
 
-**问题**: Fcitx 5 找不到 VoCoType 插件
+```bash
+systemctl --user status vocotype-fcitx5-backend.service
+journalctl --user -u vocotype-fcitx5-backend.service -b --no-pager | tail -n 200
+```
 
-**解决方案**:
-1. 检查插件是否安装：
-   ```bash
-   ls ~/.local/lib/fcitx5/vocotype.so
-   ls ~/.local/share/fcitx5/addon/vocotype.conf
-   ```
+同时检查当前输入法是否仍有未提交 preedit；默认情况下这会阻止录音启动。
 
-2. 检查 Fcitx 5 日志：
-   ```bash
-   fcitx5 --verbose=10
-   ```
+### Rime 自身无法输入
 
-### 语音识别无响应
-
-**问题**: F9 按键无反应或识别失败
-
-**解决方案**:
-1. 检查 Backend 是否运行：
-   ```bash
-   pgrep -fa fcitx5_server.py
-   ```
-
-2. 测试 IPC 连接：
-   ```bash
-   echo '{"type":"ping"}' | nc -U /tmp/vocotype-fcitx5.sock
-   # 应返回: {"pong":true}
-   ```
-
-3. 重新配置音频设备：
-   ```bash
-   ~/.local/share/vocotype-fcitx5/.venv/bin/python   ~/.local/share/vocotype-fcitx5/scripts/setup-audio.py
-   ```
-
-### Rime 拼音不可用
-
-**问题**: 只有语音输入，没有拼音功能
-
-**解决方案**:
-1. 检查 pyrime 是否安装：
-   ```bash
-   ~/.local/share/vocotype-fcitx5/.venv/bin/python -c "import pyrime"
-   ```
-
-2. 如果未安装，补装 pyrime：
-   ```bash
-  ~/.local/share/vocotype-fcitx5/.venv/bin/pip install pyrime
-   ```
-
-3. 检查 Rime 数据目录：
-   ```bash
-   ls /usr/share/rime-data/
-   ```
-
-## 与 IBus 版本的区别
-
-| 特性 | IBus 版本 | Fcitx 5 版本 |
-|-----|----------|-------------|
-| 输入法框架 | IBus | Fcitx 5 |
-| 实现语言 | 纯 Python | C++ + Python (IPC) |
-| Rime 配置 | `~/.config/ibus/rime/` | `~/.local/share/fcitx5/rime/` |
-| 安装位置 | `~/.local/share/vocotype/` | `~/.local/share/vocotype-fcitx5/` |
-| 后台服务 | 集成在引擎内 | 独立 Python 进程 |
-
-两个版本**可以同时安装**，互不干扰。
+VoCoType module 不处理 Rime 普通按键。请直接按 `fcitx5-rime` 的方式排查和配置。
+停用 VoCoType module 后问题仍存在时，问题不在 VoCoType 的 Rime 兼容层，因为该兼容层已不存在。
 
 ## 卸载
 
 ```bash
-# 停止并禁用服务
-systemctl --user stop vocotype-fcitx5-backend.service
-systemctl --user disable vocotype-fcitx5-backend.service
-
-# 删除文件
+systemctl --user disable --now vocotype-fcitx5-backend.service
 rm -rf ~/.local/share/vocotype-fcitx5
-rm ~/.local/lib/fcitx5/vocotype.so
-rm ~/.local/share/fcitx5/addon/vocotype.conf
-rm ~/.local/share/fcitx5/inputmethod/vocotype.conf
-rm ~/.local/bin/vocotype-fcitx5-backend
-rm ~/.config/systemd/user/vocotype-fcitx5-backend.service
-
-# 重启 Fcitx 5
+rm -f ~/.local/lib/fcitx5/vocotype.so ~/.local/lib/fcitx5/libvocotype.so
+rm -f ~/.local/lib64/fcitx5/vocotype.so ~/.local/lib64/fcitx5/libvocotype.so
+rm -f ~/.local/share/fcitx5/addon/vocotype.conf
+rm -f ~/.config/systemd/user/vocotype-fcitx5-backend.service
+rm -f ~/.local/bin/vocotype-fcitx5-backend ~/.local/bin/vocotype-fcitx5-recorder
+systemctl --user daemon-reload
 fcitx5 -r
 ```
-
-## 技术细节
-
-### 代码复用
-
-IBus 和 Fcitx 5 版本是**并列独立**的实现，共享 VoCoType 核心：
-
-- **语音识别**: 共享 `app/funasr_server.py` 核心引擎
-- **Rime 集成**: 各自独立实现
-  - IBus 版本: `ibus/engine.py` + ibus-rime 配置
-  - Fcitx 5 版本: `fcitx5/backend/rime_handler.py` + fcitx5-rime 配置
-- **音频采集**: 共享录音逻辑
-
-### IPC 协议
-
-C++ Addon 与 Python Backend 通过 Unix Socket 通信，协议格式为 JSON：
-
-**语音识别请求**:
-```json
-{"type": "transcribe", "audio_path": "/tmp/xxx.wav"}
-```
-
-**Rime 按键请求**:
-```json
-{"type": "key_event", "keyval": 97, "mask": 0}
-```
-
-详见：[fcitx5-with-rime-integration.md](../.claude/plans/fcitx5-with-rime-integration.md)
-
-## 开发
-
-### 重新编译 C++ Addon
-
-```bash
-cd fcitx5/addon/build
-make -j$(nproc)
-make install
-fcitx5 -r
-```
-
-### 调试 Python Backend
-
-```bash
-# 前台运行，查看详细日志
-~/.local/share/vocotype-fcitx5/.venv/bin/python \
-    ~/.local/share/vocotype-fcitx5/backend/fcitx5_server.py --debug
-```
-
-### 测试 IPC 通信
-
-```bash
-# Ping 测试
-echo '{"type":"ping"}' | nc -U /tmp/vocotype-fcitx5.sock
-
-# Rime 按键测试（'a' 键）
-echo '{"type":"key_event","keyval":97,"mask":0}' | nc -U /tmp/vocotype-fcitx5.sock
-```
-
-## 许可证
-
-与主项目相同 (GPL)
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
----
-
-**相关文档**:
-- [项目主页](../readme.md)
-- [IBus 版本](../ibus/README.md)
-- [Rime 配置指南](../RIME_CONFIG_GUIDE.md)
