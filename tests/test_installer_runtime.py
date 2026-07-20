@@ -1,5 +1,8 @@
 import importlib.util
 import io
+import json
+import subprocess
+import sys
 from pathlib import Path
 
 
@@ -81,3 +84,44 @@ def test_installer_does_not_offer_obsolete_funasr_onnx_torch_workaround():
 
     assert "funasr_onnx 0.4.1" not in source
     assert "download.pytorch.org/whl/cpu" not in source
+
+
+def test_shared_runtime_helpers_are_sourced_once_and_keep_behavior(tmp_path: Path):
+    library = ROOT / "installers/runtime-common.sh"
+    source = library.read_text(encoding="utf-8")
+    assert source.count("get_python_version()") == 1
+    assert source.count("write_slm_config_json()") == 1
+    for relative in ("ibus/scripts/install.sh", "fcitx5/scripts/install.sh"):
+        installer = (ROOT / relative).read_text(encoding="utf-8")
+        assert 'source "$PROJECT_DIR/installers/runtime-common.sh"' in installer
+        assert "get_python_version()" not in installer
+        assert "write_slm_config_json()" not in installer
+
+    version = subprocess.run(
+        ["bash", "-c", f'source "{library}"; get_python_version "{sys.executable}"'],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert version.returncode == 0, version.stderr
+    assert version.stdout.strip() == f"{sys.version_info.major}.{sys.version_info.minor}"
+
+    config = tmp_path / "runtime.json"
+    command = (
+        f'source "{library}"; '
+        f'write_slm_config_json "{config}" "{sys.executable}" '
+        '1 remote "https://api.example/v1/chat/completions" model local-model "" '
+        '12000 4 256 30000 0 secret'
+    )
+    result = subprocess.run(
+        ["bash", "-c", command],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(config.read_text(encoding="utf-8"))
+    assert payload["slm"]["enabled"] is True
+    assert payload["slm"]["provider"] == "remote"
+    assert payload["slm"]["endpoint"] == "https://api.example/v1/chat/completions"
+    assert payload["slm"]["api_key"] == "secret"
