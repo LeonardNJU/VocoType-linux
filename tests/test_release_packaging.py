@@ -357,6 +357,13 @@ def test_fcitx_module_has_system_recorder_fallback():
 
 
 
+
+def test_uninstall_restarts_are_bounded_for_headless_package_smoke():
+    script = (ROOT / "installers/uninstall-integration.sh").read_text(encoding="utf-8")
+    assert "VOCOTYPE_RESTART_TIMEOUT_SECONDS" in script
+    assert "run_bounded_restart ibus restart" in script
+    assert "run_bounded_restart fcitx5 -r" in script
+
 def test_native_package_smoke_exercises_lifecycle_ownership_boundary():
     smoke = (ROOT / "packaging/tests/smoke-installed-package.sh").read_text(encoding="utf-8")
     assert "/usr/share/vocotype/ibus/scripts/uninstall-gui.sh" in smoke

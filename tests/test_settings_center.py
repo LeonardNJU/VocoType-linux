@@ -291,11 +291,19 @@ def _write_executable(path: Path, content: str = "#!/bin/sh\nexit 0\n") -> None:
     path.chmod(0o755)
 
 
-def _run_uninstaller(script: str, home: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def _run_uninstaller(
+    script: str,
+    home: Path,
+    *args: str,
+    command_overrides: dict[str, str] | None = None,
+    env_overrides: dict[str, str] | None = None,
+    timeout: float = 15,
+) -> subprocess.CompletedProcess[str]:
     fake_bin = home / "bin"
     fake_bin.mkdir(parents=True, exist_ok=True)
+    overrides = command_overrides or {}
     for command in ("systemctl", "fcitx5", "ibus"):
-        _write_executable(fake_bin / command)
+        _write_executable(fake_bin / command, overrides.get(command, "#!/bin/sh\nexit 0\n"))
     env = os.environ.copy()
     env.update(
         {
@@ -304,16 +312,34 @@ def _run_uninstaller(script: str, home: Path, *args: str) -> subprocess.Complete
             "PATH": f"{fake_bin}:{env['PATH']}",
         }
     )
+    if env_overrides:
+        env.update(env_overrides)
     return subprocess.run(
         ["bash", script, *args],
         cwd=Path(__file__).resolve().parents[1],
         env=env,
         text=True,
         capture_output=True,
-        timeout=15,
+        timeout=timeout,
         check=False,
     )
 
+
+
+def test_ibus_restart_is_bounded_in_headless_sessions(tmp_path: Path):
+    home = tmp_path / "home"
+    (home / ".local/share/vocotype/ibus").mkdir(parents=True, exist_ok=True)
+    (home / ".local/share/vocotype/ibus/main.py").write_text("main", encoding="utf-8")
+
+    result = _run_uninstaller(
+        "ibus/scripts/uninstall-gui.sh",
+        home,
+        command_overrides={"ibus": "#!/bin/sh\nsleep 30\n"},
+        env_overrides={"VOCOTYPE_RESTART_TIMEOUT_SECONDS": "1"},
+        timeout=5,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "IBus 用户级集成已卸载" in result.stdout
 
 def test_ibus_gui_uninstall_preserves_runtime_cache_config_and_shared_launcher(tmp_path: Path):
     home = tmp_path / "home"

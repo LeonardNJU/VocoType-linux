@@ -120,6 +120,16 @@ remove_runtime_code() {
     fi
 }
 
+RESTART_TIMEOUT_SECONDS=${VOCOTYPE_RESTART_TIMEOUT_SECONDS:-8}
+
+run_bounded_restart() {
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "${RESTART_TIMEOUT_SECONDS}s" "$@" >/dev/null 2>&1 || true
+    else
+        "$@" >/dev/null 2>&1 &
+    fi
+}
+
 remove_ibus() {
     remove_runtime_code "$IBUS_RUNTIME"
     rm -f "$HOME/.local/share/ibus/component/vocotype.xml"
@@ -140,7 +150,7 @@ remove_ibus() {
         fi
     fi
     if command -v ibus >/dev/null 2>&1; then
-        ibus restart >/dev/null 2>&1 || true
+        run_bounded_restart ibus restart
     fi
     echo "IBus 用户级集成已卸载。"
 }
@@ -167,11 +177,7 @@ remove_fcitx() {
         systemctl --user daemon-reload >/dev/null 2>&1 || true
     fi
     if command -v fcitx5 >/dev/null 2>&1; then
-        if command -v timeout >/dev/null 2>&1; then
-            timeout 8s fcitx5 -r >/dev/null 2>&1 || true
-        else
-            fcitx5 -r >/dev/null 2>&1 &
-        fi
+        run_bounded_restart fcitx5 -r
     fi
     echo "Fcitx 5 用户级集成已卸载。"
 }
