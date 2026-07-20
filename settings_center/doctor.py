@@ -164,6 +164,24 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
 
     checks.append(_check("dependencies", "Python 依赖", deps_check))
 
+    def polkit_check() -> DoctorCheck:
+        executable = shutil.which("pkexec")
+        if executable:
+            return _pass(
+                "polkit",
+                "管理员授权",
+                "已检测到 pkexec；GUI 可请求系统依赖和 component 安装授权",
+                executable,
+            )
+        return _warn(
+            "polkit",
+            "管理员授权",
+            "未检测到 pkexec",
+            repair_hint="安装 Polkit/pkexec；否则只能完成不需要系统权限的用户级步骤。",
+        )
+
+    checks.append(_check("polkit", "管理员授权", polkit_check))
+
     def fcitx_binary_check() -> DoctorCheck:
         executable = shutil.which("fcitx5")
         if executable:
