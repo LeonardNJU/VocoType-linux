@@ -67,7 +67,7 @@ jobs:
     container: fedora:44
     steps:
       - name: Install tools
-        run: dnf install -y git python3.12 rpm-build cmake gcc-c++ pkgconf-pkg-config fcitx5-devel nlohmann-json-devel python3-gobject gtk3 ibus fcitx5 portaudio polkit
+        run: dnf install -y git python3.12 rpm-build cmake gcc-c++ pkgconf-pkg-config fcitx5-devel nlohmann-json-devel systemd-rpm-macros python3-gobject gtk3 ibus fcitx5 portaudio polkit
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
