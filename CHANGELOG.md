@@ -7,17 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Fcitx 5 now installs a true global `Category=Module` addon: `F9` and its modifiers work with the user's existing Rime, Pinyin, Mozc, keyboard, or other Fcitx input method without proxying ordinary key events.
+- Added a shared `~/.config/vocotype/terms.yaml` terminology layer with deterministic canonical replacements, protected spans, live reload, legacy Geequlim dictionary compatibility, and native Contextual Paraformer hotwords.
+- Added mandatory guarded Chinese ITN with `WeTextProcessing==1.2.0`, an expanded numeric regression matrix, and product-specific handling for dates, times, quantities, money, technical strings, idioms, and poems.
+- Added OpenAI-compatible SSE polishing events, Fcitx live previews, asynchronous start/poll/cancel tasks, OpenRouter reasoning/header support, and configurable stream idle timeouts.
+
+### Changed
+
+- The default ASR model is now the official Contextual Paraformer ONNX snapshot; both empty and configured native-hotword inference paths are supported.
+- Fcitx 5 no longer embeds `pyrime`, creates a separate Rime session, or requires users to add VoCoType as an input method.
+- Remote polishing no longer sends a fixed output-token limit by default; `remote_max_tokens` is explicit, while `max_tokens` remains the local-model budget.
+- IBus keeps its final-result UI and `Ctrl+F9` editing workflow, but remote calls can consume SSE internally for idle-timeout and long-output improvements.
+- Python distribution metadata now describes the combined IBus/Fcitx 5 Linux package as `vocotype-linux`.
+- Installation examples consistently use the `VocoType-linux` clone directory.
+
 ### Fixed
 
 - Ubuntu 22.04/24.04 now install a Python 3.12-compatible PyGObject release without requiring the newer `girepository-2.0` toolchain.
 - IBus 1.5.26 no longer fails to import when optional `OSK` and `SYNC_PROCESS_KEY` capability constants are absent.
 - The system-Python installer validates the complete FunASR ONNX runtime before installing the IBus launcher.
-- Remote SLM defaults now allow 20 seconds and 128 output tokens; local ephemeral configs no longer contain a misleading HTTP endpoint.
+- Local ephemeral configs no longer contain a misleading HTTP endpoint.
 
-### Changed
-
-- Python distribution metadata now describes the combined IBus/Fcitx 5 Linux package as `vocotype-linux`.
-- Installation examples consistently use the `VocoType-linux` clone directory.
 
 ## [2.2.3] - 2026-04-06
 

@@ -31,6 +31,10 @@ def test_default_remote_slm_budget_is_not_the_legacy_600ms_24_tokens():
     slm = DEFAULT_CONFIG["slm"]
     assert slm["provider"] == "remote"
     assert slm["timeout_ms"] == 20000
+    assert slm["remote_stream"] is True
+    assert slm["stream_idle_timeout_ms"] == 20000
+    assert slm["transport_timeout_ms"] == 0
+    assert slm["remote_max_tokens"] == 0
     assert slm["max_tokens"] == 128
 
 
@@ -59,3 +63,12 @@ def test_installers_create_shared_terms_template_without_overwriting_legacy_file
         assert 'LEGACY_TERMS_FILE="$TERMS_DIR/user-dictionary.yaml"' in script
         assert 'cp "$PROJECT_DIR/data/terms.yaml" "$TERMS_FILE"' in script
         assert '[ ! -e "$TERMS_FILE" ] && [ ! -e "$LEGACY_TERMS_FILE" ]' in script
+
+
+def test_installers_write_remote_streaming_defaults():
+    for path in INSTALLERS:
+        script = path.read_text(encoding="utf-8")
+        assert 'slm["remote_stream"] = True' in script
+        assert 'slm["stream_idle_timeout_ms"] = timeout_ms' in script
+        assert 'slm.setdefault("remote_max_tokens", 0)' in script
+        assert 'slm.setdefault("extra_headers", {})' in script

@@ -40,6 +40,28 @@ FCITX_CONFIGURATION(
         fcitx::Key(FcitxKey_Shift_L),
         fcitx::KeyConstrain({fcitx::KeyConstrainFlag::AllowModifierLess,
                              fcitx::KeyConstrainFlag::AllowModifierOnly})};
+    fcitx::Option<bool> polishByDefault{
+        this,
+        "PolishByDefault",
+        "普通录音默认启用 AI 润色",
+        false};
+    fcitx::Option<int, fcitx::IntConstrain> polishMinChars{
+        this,
+        "PolishMinChars",
+        "AI 润色最少字数",
+        8,
+        fcitx::IntConstrain(1, 2000)};
+    fcitx::Option<int, fcitx::IntConstrain> polishTimeoutMs{
+        this,
+        "PolishTimeoutMs",
+        "AI 流式输出空闲超时（毫秒）",
+        20000,
+        fcitx::IntConstrain(1000, 120000)};
+    fcitx::Option<bool> enableThinking{
+        this,
+        "EnableThinking",
+        "允许模型 thinking / reasoning",
+        false};
     fcitx::Option<bool> blockWhenComposing{
         this,
         "BlockWhenComposing",
@@ -75,6 +97,18 @@ private:
     void handleFocusOut(fcitx::InputContextEvent &event);
     bool hasActiveComposition(fcitx::InputContext *ic) const;
 
+    bool polishModeForStates(fcitx::KeyStates states) const;
+    void startPolishPolling(fcitx::InputContext *ic, const std::string &task_id);
+    void schedulePolishPoll(
+        fcitx::TrackableObjectReference<fcitx::InputContext> ic_ref);
+    void handlePolishPollResult(fcitx::InputContext *ic,
+                                const PolishPollResult &result);
+    void showPolishProgress(fcitx::InputContext *ic,
+                            const std::string &status,
+                            const std::string &preview,
+                            const std::string &original_text);
+    void cancelActivePolishTask();
+
     void armPendingRecordingStart(fcitx::InputContext *ic, bool long_mode);
     void cancelPendingRecordingStart();
     void armPendingRecordingStop();
@@ -109,6 +143,10 @@ private:
     fcitx::KeyStates long_mode_modifier_ = fcitx::KeyState::Shift;
     std::string ptt_key_name_ = "F9";
     int ptt_hold_threshold_ms_ = 0;
+    bool polish_by_default_ = false;
+    int polish_min_chars_ = 8;
+    int polish_timeout_ms_ = 20000;
+    bool enable_thinking_ = false;
     bool block_when_composing_ = true;
     bool strip_trailing_period_on_commit_ = false;
 
@@ -127,8 +165,15 @@ private:
     std::unique_ptr<fcitx::EventSourceTime> ptt_hold_timer_;
     std::unique_ptr<fcitx::EventSourceTime> ptt_release_timer_;
     std::unique_ptr<fcitx::EventSourceTime> recording_animation_timer_;
+    std::unique_ptr<fcitx::EventSourceTime> polish_poll_timer_;
     size_t recording_animation_frame_index_ = 0;
     PanelAnimationKind panel_animation_kind_ = PanelAnimationKind::None;
+
+    bool polish_poll_in_flight_ = false;
+    std::string active_polish_task_id_;
+    std::string active_polish_preview_;
+    std::string active_polish_original_;
+    int active_polish_after_seq_ = 0;
 
     std::string pending_fallback_text_;
     fcitx::InputContext *last_committed_ic_ = nullptr;

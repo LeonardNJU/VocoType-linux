@@ -40,6 +40,35 @@ struct TranscribeResult {
     std::string original_text;
 };
 
+struct TranscribeStartResult {
+    bool success = false;
+    std::string task_id;
+    std::string status;
+    std::string error;
+};
+
+struct PolishEvent {
+    int seq = 0;
+    std::string kind;
+    std::string text;
+    std::string preview;
+    std::string reason;
+};
+
+struct PolishPollResult {
+    bool success = false;
+    std::string task_id;
+    std::string status;
+    std::string phase;
+    std::string error;
+    std::string reason;
+    std::string preview;
+    std::string final_text;
+    std::string original_text;
+    int last_seq = 0;
+    std::vector<PolishEvent> events;
+};
+
 /**
  * IPC 客户端
  *
@@ -67,19 +96,18 @@ public:
      */
     TranscribeResult transcribeAudio(const std::string& audio_path, bool long_mode = false);
 
-    /**
-     * 预加载 SLM（长句模式按下时调用）
-     *
-     * @return 是否请求成功
-     */
     bool prewarmSlm();
-
-    /**
-     * 释放 SLM 资源（长句流程结束后调用）
-     *
-     * @return 是否请求成功
-     */
     bool releaseSlm();
+
+    TranscribeStartResult startTranscription(const std::string& audio_path,
+                                             bool polish_enabled = false,
+                                             int polish_min_chars = 0,
+                                             int polish_timeout_ms = 0,
+                                             bool enable_thinking = false);
+
+    PolishPollResult pollPolishTask(const std::string& task_id, int after_seq);
+
+    bool cancelPolishTask(const std::string& task_id);
 
     /**
      * 处理 Rime 按键

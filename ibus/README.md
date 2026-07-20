@@ -69,7 +69,7 @@ ibus restart
   - 本地模型（`local_ephemeral`）：按下预热，润色后释放
   - 远程 API（`remote`）：配置 `model`、`endpoint`、`api_key`
 
-> **模型下载**：首次运行时，程序会自动下载约 500MB 的模型文件。
+> **模型下载**：首次运行时，程序会自动下载约 1GB 的模型文件。
 
 ### 完整版（语音 + Rime 拼音）
 
@@ -186,37 +186,48 @@ PTT_KEYVAL = IBus.KEY_F9  # 修改为其他按键
 
 - `F9` 不会触发 SLM，保持低延迟
 - `Shift+F9` 才会触发 SLM
-- `local_ephemeral` 会在每次长句流程结束后释放模型内存
+- `local_ephemeral` 会在长句完成后按 `keepalive_ms` 保活并最终释放模型内存
 - 若 SLM 调用失败，会显示错误提示，不提交回退原文
 
-远程 API（OpenAI 兼容）示例：
+远程 API（OpenAI-compatible）示例：
 
 ```json
 {
   "slm": {
     "enabled": true,
     "provider": "remote",
-    "model": "gpt-4o",
-    "endpoint": "http://<host>:<port>/v1/chat/completions",
+    "model": "gpt-4o-mini",
+    "endpoint": "https://example.com/v1/chat/completions",
     "api_key": "sk-***",
-    "timeout_ms": 20000,
+    "remote_stream": true,
+    "stream_idle_timeout_ms": 20000,
+    "transport_timeout_ms": 0,
+    "remote_max_tokens": 0,
     "min_chars": 8,
-    "max_tokens": 128,
+    "enable_thinking": false,
     "edit_enabled": true,
     "edit_max_tokens": 256,
-    "retry_without_proxy": true
+    "retry_without_proxy": true,
+    "extra_headers": {},
+    "extra_body": {}
   }
 }
 ```
 
 常用参数：
-- `provider`：`local_ephemeral` / `remote`
-- `min_chars`：长句触发阈值（默认 `8`）
-- `max_tokens`：润色输出预算
-- `enable_thinking`：是否允许思考输出（默认 `false`）
-- `retry_without_proxy`：远程请求失败时绕过代理直连重试（默认 `true`）
-- `edit_enabled`：是否启用 `Ctrl+F9` 语音编辑（默认 `true`）
-- `edit_max_tokens`：编辑模式输出预算（默认 `256`）
+
+- `provider`：`local_ephemeral` / `remote`。
+- `min_chars`：长句触发阈值，默认 `8`。
+- `max_tokens`：本地模型生成预算。
+- `remote_max_tokens`：远程输出上限；默认 `0`，不发送固定限制。
+- `stream_idle_timeout_ms`：远程流式事件空闲超时。
+- `enable_thinking`：是否允许模型 reasoning；最终提交会过滤 thinking。
+- `retry_without_proxy`：代理请求失败时尝试直连。
+- `edit_enabled` / `edit_max_tokens`：`Ctrl+F9` 编辑链路配置。
+
+IBus 继续采用最终结果式 UI，不显示逐 token 面板预览；远程 SSE 仍可用于更合理的空闲超时和
+取消固定 token 上限。Fcitx 5 的实时预览协议见
+[`docs/SLM_STREAMING.md`](../docs/SLM_STREAMING.md)。
 
 ### 语音编辑（Ctrl+F9）详解
 

@@ -16,7 +16,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Iterator, Optional, Tuple
 
 
 logger = logging.getLogger(__name__)
@@ -162,6 +162,22 @@ class SLMPolisher:
             int(cfg.get("edit_max_tokens", max(256, self.max_tokens))),
         )
         self.retry_without_proxy = bool(cfg.get("retry_without_proxy", True))
+        self.remote_stream = bool(cfg.get("remote_stream", True))
+        self.stream_idle_timeout_ms = max(
+            1000,
+            int(cfg.get("stream_idle_timeout_ms", self.timeout_ms)),
+        )
+        self.transport_timeout_ms = max(
+            0,
+            int(cfg.get("transport_timeout_ms", 0)),
+        )
+        self.remote_max_tokens = max(0, int(cfg.get("remote_max_tokens", 0) or 0))
+        extra_body = cfg.get("extra_body", {})
+        self.extra_body = dict(extra_body) if isinstance(extra_body, dict) else {}
+        extra_headers = cfg.get("extra_headers", cfg.get("headers", {}))
+        self.extra_headers = (
+            dict(extra_headers) if isinstance(extra_headers, dict) else {}
+        )
 
         # Local ephemeral worker options.
         self.local_model = str(cfg.get("local_model", self.model)).strip()
@@ -187,10 +203,17 @@ class SLMPolisher:
         self._worker_ready = False
         self._release_timer: Optional[threading.Timer] = None
 
-    def should_polish(self, text: str, *, long_mode: bool) -> bool:
+    def should_polish(
+        self,
+        text: str,
+        *,
+        long_mode: bool,
+        min_chars: int | None = None,
+    ) -> bool:
         if not self.enabled or not long_mode:
             return False
-        return len(text.strip()) >= self.min_chars
+        threshold = self.min_chars if min_chars is None else max(1, int(min_chars))
+        return len(text.strip()) >= threshold
 
     def prewarm(self, *, long_mode: bool) -> None:
         """Best-effort prewarm for local_ephemeral provider.
@@ -210,6 +233,74 @@ class SLMPolisher:
         """Release local worker to free memory."""
         if self.provider == self.PROVIDER_LOCAL_EPHEMERAL:
             self._schedule_or_shutdown_local_worker()
+
+    def stream_polish(
+        self,
+        text: str,
+        *,
+        long_mode: bool,
+        min_chars: int | None = None,
+        enable_thinking: bool | None = None,
+    ) -> Iterator[Dict[str, Any]]:
+        """Yield normalized status/delta/final/error events.
+
+        Remote providers use OpenAI-compatible SSE when enabled. Local
+        ephemeral providers keep their current final-result protocol while
+        still exposing the same event contract to callers.
+        """
+
+        original = text or ""
+        if not self.enabled:
+            yield {"kind": "final", "text": original, "reason": "disabled"}
+            return
+        if not long_mode:
+            yield {"kind": "final", "text": original, "reason": "not_long_mode"}
+            return
+
+        stripped = original.strip()
+        threshold = self.min_chars if min_chars is None else max(1, int(min_chars))
+        if len(stripped) < threshold:
+            self.release()
+            yield {"kind": "final", "text": original, "reason": "too_short"}
+            return
+
+        start = time.perf_counter()
+        with self._global_request_lock:
+            if self.provider == self.PROVIDER_REMOTE and self.remote_stream:
+                yield from self._stream_remote(
+                    original,
+                    stripped,
+                    start,
+                    enable_thinking=enable_thinking,
+                )
+                return
+
+            yield {"kind": "status", "text": "正在调用大模型..."}
+            old_enable_thinking = self.enable_thinking
+            try:
+                if enable_thinking is not None:
+                    self.enable_thinking = bool(enable_thinking)
+                if self.provider == self.PROVIDER_LOCAL_EPHEMERAL:
+                    polished, metrics = self._polish_local(original, stripped, start)
+                else:
+                    polished, metrics = self._polish_remote(original, stripped, start)
+            finally:
+                self.enable_thinking = old_enable_thinking
+
+        if self.is_failure_reason(metrics.reason):
+            yield {
+                "kind": "error",
+                "reason": metrics.reason,
+                "message": self.format_failure_message(metrics.reason),
+                "latency_ms": metrics.latency_ms,
+            }
+            return
+        yield {
+            "kind": "final",
+            "text": polished,
+            "reason": metrics.reason,
+            "latency_ms": metrics.latency_ms,
+        }
 
     def polish(self, text: str, *, long_mode: bool) -> Tuple[str, PolisherMetrics]:
         """Return polished text; fallback to original text on any failure."""
@@ -232,6 +323,13 @@ class SLMPolisher:
         with self._global_request_lock:
             if self.provider == self.PROVIDER_LOCAL_EPHEMERAL:
                 return self._polish_local(original, stripped, start)
+            if self.remote_stream:
+                return self._polish_remote_streaming_final(
+                    original,
+                    stripped,
+                    start,
+                    enable_thinking=self.enable_thinking,
+                )
             return self._polish_remote(original, stripped, start)
 
     def edit_with_instruction(
@@ -268,17 +366,28 @@ class SLMPolisher:
         with self._global_request_lock:
             old_system_prompt = self.system_prompt
             old_max_tokens = self.max_tokens
+            old_remote_max_tokens = self.remote_max_tokens
             old_enable_thinking = self.enable_thinking
             try:
                 self.system_prompt = self.edit_system_prompt
                 self.max_tokens = self.edit_max_tokens
+                # Preserve the pre-streaming edit budget for remote editing.
+                self.remote_max_tokens = self.edit_max_tokens
                 self.enable_thinking = False
                 if self.provider == self.PROVIDER_LOCAL_EPHEMERAL:
                     return self._polish_local(original, request_text, start)
+                if self.remote_stream:
+                    return self._polish_remote_streaming_final(
+                        original,
+                        request_text,
+                        start,
+                        enable_thinking=False,
+                    )
                 return self._polish_remote(original, request_text, start)
             finally:
                 self.system_prompt = old_system_prompt
                 self.max_tokens = old_max_tokens
+                self.remote_max_tokens = old_remote_max_tokens
                 self.enable_thinking = old_enable_thinking
 
     @classmethod
@@ -301,6 +410,8 @@ class SLMPolisher:
             return "SLM 调用失败：请求超时"
         if normalized == "request_error":
             return "SLM 调用失败：请求错误"
+        if normalized == "idle_timeout":
+            return "SLM 调用失败：长时间未收到模型输出"
         if normalized == "bad_json":
             return "SLM 调用失败：响应解析失败"
         if normalized == "remote_error":
@@ -345,6 +456,370 @@ class SLMPolisher:
             "请直接输出编辑后的完整输入框文本。"
         )
 
+    def _build_remote_payload(
+        self,
+        stripped: str,
+        *,
+        stream: bool,
+        enable_thinking: bool | None = None,
+        max_tokens: int | None = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": f"原文：{stripped}\n输出："},
+            ],
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "stream": stream,
+        }
+        token_limit = self.remote_max_tokens if max_tokens is None else max(0, int(max_tokens))
+        if token_limit > 0:
+            payload["max_tokens"] = token_limit
+        extra_body = self._request_extra_body(enable_thinking=enable_thinking)
+        payload.update(extra_body)
+        return payload
+
+    def _request_headers(self) -> Dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        for key, value in self.extra_headers.items():
+            key_text = str(key).strip()
+            value_text = str(value).strip()
+            if key_text and value_text:
+                headers[key_text] = value_text
+        if "openrouter.ai" in self.endpoint.lower():
+            headers.setdefault(
+                "HTTP-Referer",
+                "https://github.com/LeonardNJU/VocoType-linux",
+            )
+            headers.setdefault("X-Title", "VoCoType Linux")
+        return headers
+
+    def _request_extra_body(
+        self,
+        *,
+        enable_thinking: bool | None = None,
+    ) -> Dict[str, Any]:
+        extra_body = dict(self.extra_body)
+        thinking_enabled = (
+            self.enable_thinking if enable_thinking is None else bool(enable_thinking)
+        )
+        if "openrouter.ai" in self.endpoint.lower():
+            if thinking_enabled:
+                extra_body.setdefault("reasoning", {"enabled": True})
+            else:
+                extra_body.setdefault(
+                    "reasoning",
+                    {"effort": "none", "exclude": True},
+                )
+                extra_body.setdefault("include_reasoning", False)
+        return extra_body
+
+    def _polish_remote_streaming_final(
+        self,
+        original: str,
+        stripped: str,
+        start: float,
+        *,
+        enable_thinking: bool | None,
+    ) -> Tuple[str, PolisherMetrics]:
+        """Consume remote SSE while exposing only the final result to callers."""
+
+        for event in self._stream_remote(
+            original,
+            stripped,
+            start,
+            enable_thinking=enable_thinking,
+        ):
+            kind = str(event.get("kind", ""))
+            if kind == "final":
+                polished = str(event.get("text", "")).strip()
+                reason = str(event.get("reason", "ok"))
+                latency_ms = float(
+                    event.get(
+                        "latency_ms",
+                        (time.perf_counter() - start) * 1000.0,
+                    )
+                )
+                return polished, PolisherMetrics(
+                    used=True,
+                    applied=(polished != original),
+                    latency_ms=latency_ms,
+                    reason=reason,
+                )
+            if kind == "error":
+                return self._fallback(
+                    original,
+                    start,
+                    str(event.get("reason", "request_error")),
+                )
+        return self._fallback(original, start, "empty_content")
+
+    def _stream_remote(
+        self,
+        original: str,
+        stripped: str,
+        start: float,
+        *,
+        enable_thinking: bool | None,
+    ) -> Iterator[Dict[str, Any]]:
+        yield {"kind": "status", "text": "正在调用大模型..."}
+        emitted_visible = ""
+        full_content = ""
+        saw_event = False
+
+        for bypass_proxy in (False, True):
+            if bypass_proxy and (not self.retry_without_proxy or saw_event):
+                break
+            try:
+                payload = self._build_remote_payload(
+                    stripped,
+                    stream=True,
+                    enable_thinking=enable_thinking,
+                )
+                request = urllib.request.Request(
+                    self.endpoint,
+                    data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                    headers=self._request_headers(),
+                    method="POST",
+                )
+                timeout_ms = (
+                    self.transport_timeout_ms
+                    if self.transport_timeout_ms > 0
+                    else self.stream_idle_timeout_ms
+                )
+                timeout_s = max(0.05, timeout_ms / 1000.0)
+                with self._open_remote_request(
+                    request,
+                    timeout_s,
+                    bypass_proxy=bypass_proxy,
+                ) as response:
+                    for event_payload in self._iter_sse_payloads(response):
+                        saw_event = True
+                        remote_error = self._extract_remote_error(event_payload)
+                        if remote_error:
+                            code, message = remote_error
+                            logger.warning(
+                                "SLM 远端流式服务返回错误 code=%s: %s",
+                                code,
+                                message,
+                            )
+                            yield {
+                                "kind": "error",
+                                "reason": "remote_error",
+                                "message": self.format_failure_message("remote_error"),
+                            }
+                            return
+
+                        delta = self._extract_stream_delta(event_payload)
+                        if not delta:
+                            yield {"kind": "heartbeat"}
+                            continue
+                        full_content += delta
+                        visible = self._stream_visible_content(full_content)
+                        if not visible or visible == emitted_visible:
+                            yield {"kind": "heartbeat"}
+                            continue
+                        delta_visible = (
+                            visible[len(emitted_visible) :]
+                            if visible.startswith(emitted_visible)
+                            else visible
+                        )
+                        emitted_visible = visible
+                        yield {
+                            "kind": "delta",
+                            "text": delta_visible,
+                            "preview": visible,
+                        }
+                break
+            except TimeoutError:
+                yield {
+                    "kind": "error",
+                    "reason": "idle_timeout",
+                    "message": self.format_failure_message("idle_timeout"),
+                }
+                return
+            except urllib.error.HTTPError as exc:
+                code = str(getattr(exc, "code", "http_error"))
+                message = str(exc)
+                try:
+                    body = exc.read().decode("utf-8", errors="replace")
+                    parsed = json.loads(body) if body.strip() else {}
+                    remote_error = self._extract_remote_error(parsed)
+                    if remote_error:
+                        code, message = remote_error
+                except Exception:  # noqa: BLE001 - retain HTTP status fallback.
+                    pass
+                logger.warning(
+                    "SLM 远端流式 HTTP 错误 code=%s: %s",
+                    code,
+                    message,
+                )
+                yield {
+                    "kind": "error",
+                    "reason": "remote_error",
+                    "message": self.format_failure_message("remote_error"),
+                }
+                return
+            except urllib.error.URLError as exc:
+                is_timeout = isinstance(exc.reason, TimeoutError)
+                if is_timeout:
+                    yield {
+                        "kind": "error",
+                        "reason": "idle_timeout",
+                        "message": self.format_failure_message("idle_timeout"),
+                    }
+                    return
+                if bypass_proxy or not self.retry_without_proxy or saw_event:
+                    logger.warning("SLM 流式请求失败: %s", exc)
+                    yield {
+                        "kind": "error",
+                        "reason": "request_error",
+                        "message": self.format_failure_message("request_error"),
+                    }
+                    return
+                logger.info("SLM 流式代理请求失败，尝试直连: %s", exc)
+            except json.JSONDecodeError as exc:
+                logger.warning("SLM 流式响应 JSON 解析失败: %s", exc)
+                yield {
+                    "kind": "error",
+                    "reason": "bad_json",
+                    "message": self.format_failure_message("bad_json"),
+                }
+                return
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("SLM 流式请求异常: %s", exc)
+                yield {
+                    "kind": "error",
+                    "reason": "exception",
+                    "message": self.format_failure_message("exception"),
+                }
+                return
+
+        polished = self._strip_thinking_content(full_content).strip()
+        if not polished:
+            reason = "thinking_only" if full_content.strip() else "empty_content"
+            yield {
+                "kind": "error",
+                "reason": reason,
+                "message": self.format_failure_message(reason),
+                "latency_ms": (time.perf_counter() - start) * 1000.0,
+            }
+            return
+        yield {
+            "kind": "final",
+            "text": polished,
+            "reason": "ok",
+            "latency_ms": (time.perf_counter() - start) * 1000.0,
+        }
+
+    @classmethod
+    def _iter_sse_payloads(cls, response: Any) -> Iterator[Dict[str, Any]]:
+        """Parse OpenAI-compatible SSE or a single JSON response."""
+
+        content_type = ""
+        headers = getattr(response, "headers", None)
+        if headers is not None:
+            try:
+                content_type = str(headers.get("Content-Type", ""))
+            except Exception:  # noqa: BLE001
+                content_type = ""
+
+        if (
+            (content_type and "text/event-stream" not in content_type.lower())
+            or not hasattr(response, "readline")
+        ):
+            body = response.read().decode("utf-8")
+            if body.strip():
+                yield json.loads(body)
+            return
+
+        data_lines: list[str] = []
+        while True:
+            raw_line = response.readline()
+            if not raw_line:
+                if data_lines:
+                    payload_text = "\n".join(data_lines).strip()
+                    if payload_text and payload_text != "[DONE]":
+                        yield json.loads(payload_text)
+                return
+            line = (
+                raw_line.decode("utf-8", errors="replace")
+                if isinstance(raw_line, (bytes, bytearray))
+                else str(raw_line)
+            ).rstrip("\r\n")
+            if not line:
+                if not data_lines:
+                    continue
+                payload_text = "\n".join(data_lines).strip()
+                data_lines.clear()
+                if not payload_text:
+                    continue
+                if payload_text == "[DONE]":
+                    return
+                yield json.loads(payload_text)
+                continue
+            if line.startswith(":"):
+                yield {"_heartbeat": True}
+                continue
+            if line.startswith("data:"):
+                data_lines.append(line[5:].lstrip())
+
+    @classmethod
+    def _extract_stream_delta(cls, payload: Dict[str, Any]) -> str:
+        choices = payload.get("choices")
+        if isinstance(choices, list) and choices:
+            first = choices[0] if isinstance(choices[0], dict) else {}
+            for container in (
+                first.get("delta"),
+                first.get("message"),
+                first,
+            ):
+                if not isinstance(container, dict):
+                    continue
+                content = cls._coerce_remote_text(container.get("content"))
+                if content:
+                    return content
+                text = cls._coerce_remote_text(container.get("text"))
+                if text:
+                    return text
+        return cls._coerce_remote_text(payload.get("content")) or cls._coerce_remote_text(
+            payload.get("text")
+        )
+
+    @staticmethod
+    def _coerce_remote_text(value: Any) -> str:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, list):
+            parts: list[str] = []
+            for item in value:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict):
+                    text = item.get("text", "")
+                    if isinstance(text, dict):
+                        text = text.get("value", "")
+                    if isinstance(text, str):
+                        parts.append(text)
+            return "".join(parts)
+        return ""
+
+    @classmethod
+    def _stream_visible_content(cls, content: str) -> str:
+        text = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
+        if "<think>" in text:
+            text = text.split("<think>", 1)[0]
+        marker_matches = list(cls._FINAL_ANSWER_MARKER_RE.finditer(text))
+        if marker_matches:
+            return text[marker_matches[-1].end() :].strip()
+        if cls._THINKING_PREFIX_RE.match(text):
+            return ""
+        return text.strip()
+
     def _polish_remote(
         self,
         original: str,
@@ -352,21 +827,13 @@ class SLMPolisher:
         start: float,
     ) -> Tuple[str, PolisherMetrics]:
         try:
-            payload = {
-                "model": self.model,
-                "messages": [
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": f"原文：{stripped}\n输出："},
-                ],
-                "max_tokens": self.max_tokens,
-                "temperature": self.temperature,
-                "top_p": self.top_p,
-                "stream": False,
-            }
+            payload = self._build_remote_payload(
+                stripped,
+                stream=False,
+                max_tokens=self.remote_max_tokens,
+            )
             data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-            headers = {"Content-Type": "application/json"}
-            if self.api_key:
-                headers["Authorization"] = f"Bearer {self.api_key}"
+            headers = self._request_headers()
 
             request = urllib.request.Request(
                 self.endpoint,
