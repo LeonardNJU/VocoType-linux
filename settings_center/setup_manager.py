@@ -24,6 +24,69 @@ class InstallOptions:
     component_mode: str = "auto"
 
 
+@dataclass(frozen=True)
+class InstallationPaths:
+    fcitx_modules: tuple[Path, ...]
+    fcitx_addons: tuple[Path, ...]
+    fcitx_services: tuple[Path, ...]
+    ibus_launchers: tuple[Path, ...]
+    ibus_components: tuple[Path, ...]
+
+
+def _unique_paths(paths: list[Path]) -> tuple[Path, ...]:
+    return tuple(dict.fromkeys(paths))
+
+
+def installation_paths(
+    *,
+    home: Path | None = None,
+    system_prefix: Path = Path("/usr"),
+) -> InstallationPaths:
+    """Return user and native-package integration paths in priority order."""
+
+    user_home = home or Path.home()
+    system_lib = system_prefix / "lib"
+    system_modules = [
+        system_lib / "fcitx5/vocotype.so",
+        system_prefix / "lib64/fcitx5/vocotype.so",
+        *sorted(system_lib.glob("*/fcitx5/vocotype.so")),
+    ]
+    return InstallationPaths(
+        fcitx_modules=_unique_paths(
+            [
+                user_home / ".local/lib/fcitx5/vocotype.so",
+                user_home / ".local/lib64/fcitx5/vocotype.so",
+                *system_modules,
+            ]
+        ),
+        fcitx_addons=_unique_paths(
+            [
+                user_home / ".local/share/fcitx5/addon/vocotype.conf",
+                system_prefix / "share/fcitx5/addon/vocotype.conf",
+            ]
+        ),
+        fcitx_services=_unique_paths(
+            [
+                user_home / ".config/systemd/user/vocotype-fcitx5-backend.service",
+                system_lib / "systemd/user/vocotype-fcitx5-backend.service",
+            ]
+        ),
+        ibus_launchers=_unique_paths(
+            [
+                user_home / ".local/libexec/ibus-engine-vocotype",
+                system_prefix / "libexec/vocotype-ibus-engine",
+                system_prefix / "lib/vocotype/vocotype-ibus-engine",
+            ]
+        ),
+        ibus_components=_unique_paths(
+            [
+                user_home / ".local/share/ibus/component/vocotype.xml",
+                system_prefix / "share/ibus/component/vocotype.xml",
+            ]
+        ),
+    )
+
+
 def find_project_root(start: str | os.PathLike[str] | None = None) -> Path | None:
     candidates: list[Path] = []
     if start:

@@ -1,0 +1,23 @@
+# Maintainer: Leonard Li <leo@lsamc.website>
+pkgname=vocotype-linux
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc="Offline voice input for IBus and Fcitx 5"
+arch=('x86_64')
+url="https://github.com/LeonardNJU/VocoType-linux"
+license=('GPL-3.0-or-later')
+depends=('python>=3.11' 'python-gobject' 'python-yaml' 'gtk3' 'ibus' 'fcitx5' 'portaudio' 'polkit')
+makedepends=('cmake' 'gcc' 'pkgconf' 'nlohmann-json')
+optdepends=('curl: bootstrap the recommended user Python runtime')
+source=("VocoType-linux-${pkgver}.tar.gz")
+sha256sums=('@SOURCE_SHA256@')
+
+package() {
+  cd "VocoType-linux-${pkgver}"
+  ./packaging/stage-system-package.sh \
+    --destdir "$pkgdir" \
+    --prefix /usr \
+    --libdir lib \
+    --libexecdir /usr/lib/vocotype \
+    --build-dir "$srcdir/fcitx-build"
+}

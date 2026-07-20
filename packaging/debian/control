@@ -1,0 +1,18 @@
+Source: vocotype-linux
+Section: utils
+Priority: optional
+Maintainer: Leonard Li <leo@lsamc.website>
+Build-Depends: debhelper-compat (= 13), cmake, g++, pkg-config, libfcitx5core-dev, nlohmann-json3-dev, python3
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://github.com/LeonardNJU/VocoType-linux
+
+Package: vocotype-linux
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, python3 (>= 3.10), python3-gi, python3-yaml, gir1.2-gtk-3.0, ibus, fcitx5, libportaudio2, pkexec | policykit-1
+Recommends: curl, python3-venv, libnotify-bin
+Description: offline voice input for IBus and Fcitx 5
+ VoCoType provides push-to-talk offline speech input, terminology handling,
+ inverse text normalization, and optional AI polishing for Linux desktops.
+ The package installs the desktop integration and opens a graphical setup
+ workflow to create the per-user Python runtime and download models.

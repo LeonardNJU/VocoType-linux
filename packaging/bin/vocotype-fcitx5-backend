@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="${VOCOTYPE_SYSTEM_ROOT:-/usr/share/vocotype}"
+export VOCOTYPE_PROJECT_DIR="$ROOT"
+export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONDONTWRITEBYTECODE=1
+
+for python in \
+  "$HOME/.local/share/vocotype-fcitx5/.venv/bin/python" \
+  "$HOME/.local/share/vocotype/.venv/bin/python"; do
+  [[ -x "$python" ]] || continue
+  exec "$python" "$ROOT/fcitx5/backend/fcitx5_server.py" "$@"
+done
+
+echo "VoCoType user runtime is not configured. Open VoCoType Settings and run Fcitx 5 installation/repair." >&2
+exit 78

@@ -1,0 +1,11 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: VoCoType Linux
+Source: https://github.com/LeonardNJU/VocoType-linux
+
+Files: *
+Copyright: 2025-2026 VoCoType contributors
+License: GPL-3+
+
+License: GPL-3+
+ On Debian systems, the complete text of the GNU General Public License
+ version 3 can be found in /usr/share/common-licenses/GPL-3.

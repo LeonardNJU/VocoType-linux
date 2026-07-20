@@ -1,0 +1,21 @@
+#!/usr/bin/make -f
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DEB_CXXFLAGS_MAINT_APPEND = -Wall -Wextra -Wpedantic
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+
+override_dh_auto_build:
+
+override_dh_auto_install:
+	./packaging/stage-system-package.sh \
+		--destdir "$(CURDIR)/debian/vocotype-linux" \
+		--prefix /usr \
+		--libdir "lib/$$(dpkg-architecture -qDEB_HOST_MULTIARCH)" \
+		--build-dir "$(CURDIR)/build/debian-fcitx"
+
+override_dh_auto_test:
+	python3 -m compileall -q app settings_center ibus fcitx5/backend

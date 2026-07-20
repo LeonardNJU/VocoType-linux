@@ -21,6 +21,7 @@ from .config_service import (
     load_json_mapping,
     terms_path,
 )
+from .setup_manager import installation_paths
 
 
 @dataclass(frozen=True)
@@ -92,30 +93,18 @@ def _fail(
 
 def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
     checks: list[DoctorCheck] = []
-    fcitx_module_candidates = [
-        Path.home() / ".local/lib/fcitx5/vocotype.so",
-        Path.home() / ".local/lib64/fcitx5/vocotype.so",
-    ]
-    fcitx_addon_path = Path.home() / ".local/share/fcitx5/addon/vocotype.conf"
-    fcitx_service_path = (
-        Path.home() / ".config/systemd/user/vocotype-fcitx5-backend.service"
-    )
-    ibus_engine_path = Path.home() / ".local/libexec/ibus-engine-vocotype"
-    ibus_component_paths = [
-        Path.home() / ".local/share/ibus/component/vocotype.xml",
-        Path("/usr/share/ibus/component/vocotype.xml"),
-    ]
+    paths = installation_paths()
     fcitx_vocotype_installed = bool(
-        fcitx_addon_path.exists()
-        and any(path.exists() for path in fcitx_module_candidates)
+        any(path.is_file() for path in paths.fcitx_addons)
+        and any(path.is_file() for path in paths.fcitx_modules)
     )
     ibus_vocotype_installed = bool(
-        ibus_engine_path.exists()
-        and any(path.exists() for path in ibus_component_paths)
+        any(path.is_file() for path in paths.ibus_launchers)
+        and any(path.is_file() for path in paths.ibus_components)
     )
     fcitx_installed = bool(
         shutil.which("fcitx5")
-        or fcitx_service_path.exists()
+        or any(path.is_file() for path in paths.fcitx_services)
         or fcitx_vocotype_installed
     )
     ibus_installed = bool(
@@ -198,13 +187,14 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
     checks.append(_check("fcitx", "Fcitx 5", fcitx_binary_check))
 
     def module_check() -> DoctorCheck:
-        existing = [path for path in fcitx_module_candidates if path.is_file()]
-        if existing and fcitx_addon_path.is_file():
+        existing = [path for path in paths.fcitx_modules if path.is_file()]
+        addons = [path for path in paths.fcitx_addons if path.is_file()]
+        if existing and addons:
             return _pass(
                 "fcitx_module",
                 "Fcitx 全局模块",
                 "模块和 addon 元数据已安装",
-                "\n".join(str(path) for path in [*existing, fcitx_addon_path]),
+                "\n".join(str(path) for path in [*existing, *addons]),
             )
         if ibus_vocotype_installed and not fcitx_vocotype_installed:
             return _info(
@@ -216,20 +206,21 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
             "fcitx_module",
             "Fcitx 全局模块",
             "全局模块安装不完整",
-            f"module={existing or 'missing'}\naddon={fcitx_addon_path if fcitx_addon_path.exists() else 'missing'}",
+            f"module={existing or 'missing'}\naddon={addons or 'missing'}",
             "在设置中心点击“安装/修复 Fcitx 5”。",
         )
 
     checks.append(_check("fcitx_module", "Fcitx 全局模块", module_check))
 
     def ibus_check() -> DoctorCheck:
-        components = [path for path in ibus_component_paths if path.is_file()]
-        if ibus_engine_path.is_file() and components:
+        components = [path for path in paths.ibus_components if path.is_file()]
+        launchers = [path for path in paths.ibus_launchers if path.is_file()]
+        if launchers and components:
             return _pass(
                 "ibus_engine",
                 "IBus 引擎",
                 "IBus launcher 和 component 已安装",
-                "\n".join(str(path) for path in [ibus_engine_path, *components]),
+                "\n".join(str(path) for path in [*launchers, *components]),
             )
         if fcitx_vocotype_installed and not ibus_vocotype_installed:
             return _info("ibus_engine", "IBus 引擎", "Fcitx-only 环境未安装 IBus 引擎")
@@ -238,7 +229,7 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
                 "ibus_engine",
                 "IBus 引擎",
                 "IBus 安装不完整",
-                f"launcher={ibus_engine_path if ibus_engine_path.exists() else 'missing'}\ncomponent={components or 'missing'}",
+                f"launcher={launchers or 'missing'}\ncomponent={components or 'missing'}",
                 "从设置中心启动 IBus 安装器完成修复。",
             )
         return _info("ibus_engine", "IBus 引擎", "未检测到 IBus 环境")

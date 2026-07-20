@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added reproducible source archives, Python wheel/sdist builds, a shared native-package staging contract, and DEB/RPM/Arch build recipes.
+- Added Python 3.11/3.12 CI, package-layout and launcher behavior tests, real Fcitx multiarch staging tests, and tag-driven GitHub Release publishing with checksums and a machine-readable manifest.
 - Fcitx 5 and IBus now share a fully graphical install/repair workflow. All choices and logs stay in the settings window; missing system packages and system-level IBus component registration use desktop Polkit authorization dialogs through `pkexec`, with no terminal password prompt.
 - Fcitx 5 now installs a true global `Category=Module` addon: `F9` and its modifiers work with the user's existing Rime, Pinyin, Mozc, keyboard, or other Fcitx input method without proxying ordinary key events.
 - Added a shared `~/.config/vocotype/terms.yaml` terminology layer with deterministic canonical replacements, protected spans, live reload, legacy Geequlim dictionary compatibility, and native Contextual Paraformer hotwords.
@@ -18,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Native packages install system integration without running pip, downloading models, writing user configuration, or prompting during the package-manager transaction; the graphical settings center performs per-user runtime setup afterward.
+- The Fcitx module version now follows `vocotype_version.py`, and packaged installations reuse the system module/component instead of recompiling or requesting duplicate Polkit authorization.
 - The default ASR model is now the official Contextual Paraformer ONNX snapshot; both empty and configured native-hotword inference paths are supported.
 - Fcitx 5 no longer embeds `pyrime`, creates a separate Rime session, or requires users to add VoCoType as an input method.
 - Remote polishing no longer sends a fixed output-token limit by default; `remote_max_tokens` is explicit, while `max_tokens` remains the local-model budget.

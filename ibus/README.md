@@ -328,6 +328,6 @@ ibus restart
 ---
 
 **相关文档**:
-- [项目主页](../readme.md)
+- [项目主页](../README.md)
 - [Fcitx 5 版本](../fcitx5/README.md)
 - [Rime 配置指南](../RIME_CONFIG_GUIDE.md)

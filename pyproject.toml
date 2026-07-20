@@ -1,14 +1,25 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "vocotype-linux"
 dynamic = ["version"]
 description = "Offline VoCoType voice input method for Linux with IBus and Fcitx 5 support"
-readme = { file = "readme.md", content-type = "text/markdown" }
+keywords = ["voice input", "dictation", "IBus", "Fcitx5", "FunASR"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: X11 Applications :: GTK",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11,<3.13"
-license = { file = "LICENSE" }
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
 authors = [
   { name = "VoCoType" }
 ]
@@ -41,7 +52,10 @@ slm = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/LeonardNJU/VocoType-linux"
+Homepage = "https://vocotype-linux.lsamc.website"
+Repository = "https://github.com/LeonardNJU/VocoType-linux"
+Issues = "https://github.com/LeonardNJU/VocoType-linux/issues"
+Changelog = "https://github.com/LeonardNJU/VocoType-linux/blob/master/CHANGELOG.md"
 
 [project.scripts]
 vocotype-ibus = "ibus.main:main"
@@ -57,7 +71,10 @@ include = ["app*", "ibus*", "settings_center*"]
 
 [tool.setuptools.data-files]
 "share/applications" = ["data/applications/io.github.LeonardNJU.VoCoType.Settings.desktop"]
+"share/metainfo" = ["data/metainfo/io.github.LeonardNJU.VoCoType.metainfo.xml"]
 "share/icons/hicolor/192x192/apps" = ["site/icon-192.png"]
+"share/vocotype" = ["data/terms.yaml", "requirements.txt", "uv.lock"]
+"share/vocotype/ibus" = ["data/ibus/vocotype.xml.in"]
 
 [tool.setuptools.dynamic]
 version = { attr = "vocotype_version.__version__" }

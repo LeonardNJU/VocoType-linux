@@ -1,0 +1,33 @@
+# Runtime/setup source tree installed by native distro packages.
+# Keep this smaller than the complete Git source archive: package recipes,
+# tests, CI workflows, and release builders are intentionally excluded.
+app
+settings_center
+ibus
+fcitx5/README.md
+fcitx5/backend/audio_recorder.py
+fcitx5/backend/fcitx5_server.py
+fcitx5/data/vocotype.conf
+fcitx5/module
+fcitx5/addon/ipc_client.cpp
+fcitx5/addon/ipc_client.h
+fcitx5/scripts/install-fcitx5.sh
+scripts/check-python-runtime.py
+scripts/install-ibus-gui.sh
+scripts/install-ibus.sh
+scripts/install-system-dependencies.sh
+scripts/launch-settings.sh
+scripts/setup-audio.py
+scripts/uninstall-ibus.sh
+data
+site/icon-192.png
+pyproject.toml
+requirements.txt
+uv.lock
+vocotype_version.py
+LICENSE
+THIRD_PARTY_NOTICES.md
+CHANGELOG.md
+README.md
+docs
+RIME_CONFIG_GUIDE.md

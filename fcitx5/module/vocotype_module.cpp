@@ -35,6 +35,12 @@ constexpr uint64_t PTT_RELEASE_DEBOUNCE_US = 50000;
 constexpr uint64_t POLISH_POLL_INTERVAL_US = 100000;
 constexpr uint64_t DUPLICATE_COMMIT_SUPPRESS_US = 250000;
 
+#ifdef VOCOTYPE_FCITX_LEGACY_STANDARD_PATH
+constexpr auto CONFIG_PATH_TYPE = fcitx::StandardPath::Type::PkgConfig;
+#else
+constexpr auto CONFIG_PATH_TYPE = fcitx::StandardPathsType::PkgConfig;
+#endif
+
 constexpr std::array<const char *, 8> RECORDING_ANIMATION_FRAMES = {
     "🟢 正在听 ●     ", "🟢 正在听  ●    ", "🟢 正在听   ●   ",
     "🟢 正在听    ●  ", "⚫ 正在听     ● ", "⚫ 正在听    ●  ",
@@ -133,11 +139,19 @@ namespace vocotype {
 VoCoTypeModule::VoCoTypeModule(fcitx::Instance *instance)
     : instance_(instance),
       ipc_client_(std::make_unique<IPCClient>("/tmp/vocotype-fcitx5.sock")) {
+    event_dispatcher_.attach(&instance_->eventLoop());
     if (const char *home = std::getenv("HOME")) {
-        recorder_launcher_path_ =
+        const std::string user_launcher =
             std::string(home) + "/.local/bin/vocotype-fcitx5-recorder";
+        if (access(user_launcher.c_str(), X_OK) == 0) {
+            recorder_launcher_path_ = user_launcher;
+        }
     } else {
         FCITX_ERROR() << "HOME environment variable not set";
+    }
+    if (recorder_launcher_path_.empty() &&
+        access("/usr/bin/vocotype-fcitx5-recorder", X_OK) == 0) {
+        recorder_launcher_path_ = "/usr/bin/vocotype-fcitx5-recorder";
     }
 
     reloadConfig();
@@ -174,16 +188,17 @@ VoCoTypeModule::~VoCoTypeModule() {
             std::remove(audio_path.c_str());
         }
     }
+    event_dispatcher_.detach();
 }
 
 void VoCoTypeModule::reloadConfig() {
-    fcitx::readAsIni(config_, fcitx::StandardPathsType::PkgConfig,
+    fcitx::readAsIni(config_, CONFIG_PATH_TYPE,
                      FCITX_CONFIG_PATH);
     applyConfig();
 }
 
 void VoCoTypeModule::save() {
-    if (!fcitx::safeSaveAsIni(config_, fcitx::StandardPathsType::PkgConfig,
+    if (!fcitx::safeSaveAsIni(config_, CONFIG_PATH_TYPE,
                               FCITX_CONFIG_PATH)) {
         FCITX_WARN() << "Failed to save VoCoType module config";
     }
@@ -518,7 +533,7 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
                 }
             }
 
-            instance_->eventDispatcher().scheduleWithContext(
+            scheduleWithContext(
                 ic_ref, [this, ic_ref, start_result]() {
                     auto *ic_ptr = ic_ref.get();
                     if (!ic_ptr || !ic_ptr->hasFocus()) {
@@ -551,7 +566,7 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
             std::remove(audio_path.c_str());
         }
 
-        instance_->eventDispatcher().scheduleWithContext(
+        scheduleWithContext(
             ic_ref, [this, ic_ref, result]() {
                 auto *ic_ptr = ic_ref.get();
                 if (!ic_ptr || !ic_ptr->hasFocus()) {
@@ -614,7 +629,7 @@ void VoCoTypeModule::schedulePolishPoll(
             std::thread([this, ic_ref, task_id, after_seq]() {
                 const PolishPollResult result =
                     ipc_client_->pollPolishTask(task_id, after_seq);
-                instance_->eventDispatcher().scheduleWithContext(
+                scheduleWithContext(
                     ic_ref, [this, ic_ref, task_id, result]() {
                         polish_poll_in_flight_ = false;
                         auto *ic_ptr = ic_ref.get();
@@ -906,7 +921,7 @@ bool VoCoTypeModule::pasteTextForClient(fcitx::InputContext *ic,
             if (pasteTextToX11Client(text)) {
                 return;
             }
-            instance_->eventDispatcher().scheduleWithContext(
+            scheduleWithContext(
                 ic_ref, [this, ic_ref, text]() {
                     auto *ic_ptr = ic_ref.get();
                     if (ic_ptr && ic_ptr->hasFocus()) {
@@ -936,7 +951,7 @@ void VoCoTypeModule::commitText(fcitx::InputContext *ic,
                                         : text;
     const uint64_t now = fcitx::now(CLOCK_MONOTONIC);
     const std::string program = ic->program();
-    const std::string frontend(ic->frontendName());
+    const std::string frontend = ic->frontend() ? ic->frontend() : "";
     if (last_committed_ic_ == ic && last_committed_text_ == commit_text &&
         last_committed_program_ == program &&
         last_committed_frontend_ == frontend && now >= last_commit_time_us_ &&
@@ -946,13 +961,7 @@ void VoCoTypeModule::commitText(fcitx::InputContext *ic,
 
     if (!pasteTextForClient(ic, commit_text)) {
         clearOwnedUI(ic);
-        if (ic->capabilityFlags() &
-            fcitx::CapabilityFlag::CommitStringWithCursor) {
-            ic->commitStringWithCursor(commit_text,
-                                       fcitx::utf8::length(commit_text));
-        } else {
-            ic->commitString(commit_text);
-        }
+        ic->commitString(commit_text);
     }
 
     last_committed_ic_ = ic;

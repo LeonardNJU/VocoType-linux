@@ -354,7 +354,16 @@ PY
 )
 TEMP_COMPONENT=$(mktemp "${XDG_RUNTIME_DIR:-/tmp}/vocotype-ibus-component.XXXXXX.xml")
 trap 'rm -f "$TEMP_COMPONENT"' EXIT
-sed -e "s|VOCOTYPE_EXEC_PATH|$LIBEXEC_DIR/ibus-engine-vocotype|g" \
+COMPONENT_EXEC_PATH="$LIBEXEC_DIR/ibus-engine-vocotype"
+if [[ -f "$PROJECT_DIR/.system-package" ]]; then
+    for packaged_launcher in         /usr/libexec/vocotype-ibus-engine         /usr/lib/vocotype/vocotype-ibus-engine; do
+        if [[ -x "$packaged_launcher" ]]; then
+            COMPONENT_EXEC_PATH="$packaged_launcher"
+            break
+        fi
+    done
+fi
+sed -e "s|VOCOTYPE_EXEC_PATH|$COMPONENT_EXEC_PATH|g" \
     -e "s|VOCOTYPE_VERSION|$VOCOTYPE_VERSION|g" \
     "$PROJECT_DIR/data/ibus/vocotype.xml.in" > "$TEMP_COMPONENT"
 
@@ -367,10 +376,14 @@ if [[ "$COMPONENT_MODE" == auto ]]; then
 fi
 
 if [[ "$COMPONENT_MODE" == system ]]; then
-    command -v pkexec >/dev/null 2>&1 || { echo "需要 pkexec 安装系统 IBus component。" >&2; exit 6; }
-    INSTALL_BIN=$(command -v install)
-    echo "AUTH_REQUIRED: 即将弹出管理员授权窗口以注册 IBus 输入法。"
-    pkexec "$INSTALL_BIN" -D -m 0644 "$TEMP_COMPONENT" "$SYSTEM_COMPONENT_DIR/vocotype.xml"
+    if [[ -f "$SYSTEM_COMPONENT_DIR/vocotype.xml" ]] && cmp -s "$TEMP_COMPONENT" "$SYSTEM_COMPONENT_DIR/vocotype.xml"; then
+        echo "✓ 系统 IBus component 已由软件包注册"
+    else
+        command -v pkexec >/dev/null 2>&1 || { echo "需要 pkexec 安装系统 IBus component。" >&2; exit 6; }
+        INSTALL_BIN=$(command -v install)
+        echo "AUTH_REQUIRED: 即将弹出管理员授权窗口以注册 IBus 输入法。"
+        pkexec "$INSTALL_BIN" -D -m 0644 "$TEMP_COMPONENT" "$SYSTEM_COMPONENT_DIR/vocotype.xml"
+    fi
     rm -f "$COMPONENT_DIR/vocotype.xml"
 else
     install -D -m 0644 "$TEMP_COMPONENT" "$COMPONENT_DIR/vocotype.xml"

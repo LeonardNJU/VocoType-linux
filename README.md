@@ -38,6 +38,22 @@ https://github.com/user-attachments/assets/94772920-0f9e-4dff-8da5-c9026eb23256
 
 ## 快速开始
 
+### 发行包安装
+
+GitHub Release 提供完整源码包、Python wheel/sdist，以及 DEB、RPM、Arch 包。原生系统包会预装 Fcitx 全局 module、IBus component、应用菜单入口和用户服务定义；安装事务不会运行 `pip`、下载模型或写入用户配置。安装完成后从应用菜单打开 **VoCoType 设置**，再在 GUI 中选择 Fcitx 5 或 IBus，创建独立的用户级 Python 3.12 环境并完成模型与麦克风配置。
+
+本地构建发行资产：
+
+```bash
+make test
+make release
+make package-deb    # Debian / Ubuntu 构建机
+make package-rpm    # Fedora / RPM 构建机
+make package-arch   # Arch 构建机
+```
+
+详见：[打包与分发](packaging/README.md)。
+
 ### 图形安装与设置（推荐）
 
 ```bash

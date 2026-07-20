@@ -35,6 +35,7 @@ from .setup_manager import (
     InstallOptions,
     find_project_root,
     install_or_repair,
+    installation_paths,
     polkit_available,
     restart_backend,
     restart_fcitx,
@@ -550,17 +551,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
             return
 
         def reload_services() -> None:
-            fcitx_module_present = any(
-                path.exists()
-                for path in (
-                    Path.home() / ".local/lib/fcitx5/vocotype.so",
-                    Path.home() / ".local/lib64/fcitx5/vocotype.so",
-                )
-            )
-            backend_service_present = (
-                Path.home()
-                / ".config/systemd/user/vocotype-fcitx5-backend.service"
-            ).exists()
+            paths = installation_paths()
+            fcitx_module_present = any(path.is_file() for path in paths.fcitx_modules)
+            backend_service_present = any(path.is_file() for path in paths.fcitx_services)
             if backend_service_present:
                 backend_ok, backend_message = restart_backend()
             else:
@@ -772,23 +765,14 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
     def _refresh_install_status(self) -> bool:
         root = find_project_root()
-        module_candidates = [
-            Path.home() / ".local/lib/fcitx5/vocotype.so",
-            Path.home() / ".local/lib64/fcitx5/vocotype.so",
-        ]
-        addon = Path.home() / ".local/share/fcitx5/addon/vocotype.conf"
-        ibus_launcher = Path.home() / ".local/libexec/ibus-engine-vocotype"
-        ibus_components = [
-            Path.home() / ".local/share/ibus/component/vocotype.xml",
-            Path("/usr/share/ibus/component/vocotype.xml"),
-        ]
+        paths = installation_paths()
         lines = [
             f"源码目录：{root or '未发现'}",
             f"Polkit 授权：{'可用' if polkit_available() else '未检测到 pkexec'}",
-            f"Fcitx module：{'已安装' if any(path.exists() for path in module_candidates) else '未安装'}",
-            f"Fcitx addon：{'已安装' if addon.exists() else '未安装'}",
-            f"IBus launcher：{'已安装' if ibus_launcher.exists() else '未安装'}",
-            f"IBus component：{'已安装' if any(path.exists() for path in ibus_components) else '未安装'}",
+            f"Fcitx module：{'已安装' if any(path.is_file() for path in paths.fcitx_modules) else '未安装'}",
+            f"Fcitx addon：{'已安装' if any(path.is_file() for path in paths.fcitx_addons) else '未安装'}",
+            f"IBus launcher：{'已安装' if any(path.is_file() for path in paths.ibus_launchers) else '未安装'}",
+            f"IBus component：{'已安装' if any(path.is_file() for path in paths.ibus_components) else '未安装'}",
         ]
         self.install_status.set_text("\n".join(lines))
         return False

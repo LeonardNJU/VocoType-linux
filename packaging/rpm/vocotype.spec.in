@@ -1,0 +1,65 @@
+Name:           vocotype-linux
+Version:        @VERSION@
+Release:        1%{?dist}
+Summary:        Offline voice input for IBus and Fcitx 5
+License:        GPL-3.0-or-later
+URL:            https://github.com/LeonardNJU/VocoType-linux
+Source0:        VocoType-linux-%{version}.tar.gz
+
+BuildRequires:  cmake
+BuildRequires:  gcc-c++
+BuildRequires:  pkgconfig
+BuildRequires:  fcitx5-devel
+BuildRequires:  nlohmann-json-devel
+BuildRequires:  python3
+BuildRequires:  systemd-rpm-macros
+Requires:       python3 >= 3.11
+Requires:       python3-gobject
+Requires:       python3-pyyaml
+Requires:       gtk3
+Requires:       ibus
+Requires:       fcitx5
+Requires:       portaudio
+Requires:       polkit
+Recommends:     curl
+
+%description
+VoCoType provides push-to-talk offline speech input, terminology handling,
+inverse text normalization, and optional AI polishing. The package installs
+system desktop integration; per-user Python dependencies and models are
+configured from the graphical settings application.
+
+%prep
+%autosetup -n VocoType-linux-%{version}
+
+%build
+:
+
+%install
+./packaging/stage-system-package.sh \
+  --destdir "%{buildroot}" \
+  --prefix /usr \
+  --libdir "%{_lib}" \
+  --libexecdir "%{_libexecdir}" \
+  --build-dir "%{_builddir}/vocotype-fcitx-build"
+
+%files
+%license %{_datadir}/licenses/vocotype-linux/LICENSE
+%doc %{_datadir}/doc/vocotype-linux/README.md
+%doc %{_datadir}/doc/vocotype-linux/CHANGELOG.md
+%{_bindir}/vocotype-settings
+%{_bindir}/vocotype-fcitx5-backend
+%{_bindir}/vocotype-fcitx5-recorder
+%{_libexecdir}/vocotype-ibus-engine
+%{_libdir}/fcitx5/vocotype.so
+%{_datadir}/fcitx5/addon/vocotype.conf
+%{_datadir}/ibus/component/vocotype.xml
+%{_datadir}/applications/io.github.LeonardNJU.VoCoType.Settings.desktop
+%{_datadir}/metainfo/io.github.LeonardNJU.VoCoType.metainfo.xml
+%{_datadir}/icons/hicolor/192x192/apps/vocotype.png
+%{_datadir}/vocotype/
+%{_userunitdir}/vocotype-fcitx5-backend.service
+
+%changelog
+* Mon Jul 20 2026 Leonard Li <leo@lsamc.website> - @VERSION@-1
+- Add system integration package with graphical per-user setup

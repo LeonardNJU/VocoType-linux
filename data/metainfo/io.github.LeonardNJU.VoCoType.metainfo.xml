@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.LeonardNJU.VoCoType</id>
+  <name>VoCoType</name>
+  <name xml:lang="zh-CN">VoCoType</name>
+  <summary>Offline voice input for IBus and Fcitx 5</summary>
+  <summary xml:lang="zh-CN">适用于 IBus 与 Fcitx 5 的离线语音输入法</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <description>
+    <p>VoCoType provides push-to-talk offline speech input, terminology handling, inverse text normalization, and optional AI polishing for Linux desktops.</p>
+    <p xml:lang="zh-CN">VoCoType 提供按键说话、本地语音识别、术语库、数字与文本规范化，以及可选的 AI 润色。</p>
+  </description>
+  <launchable type="desktop-id">io.github.LeonardNJU.VoCoType.Settings.desktop</launchable>
+  <provides>
+    <binary>vocotype-settings</binary>
+  </provides>
+  <url type="homepage">https://vocotype-linux.lsamc.website</url>
+  <url type="bugtracker">https://github.com/LeonardNJU/VocoType-linux/issues</url>
+  <url type="vcs-browser">https://github.com/LeonardNJU/VocoType-linux</url>
+  <developer id="io.github.leonardnju">
+    <name>VoCoType contributors</name>
+  </developer>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="2.2.3" date="2026-04-06" />
+  </releases>
+</component>

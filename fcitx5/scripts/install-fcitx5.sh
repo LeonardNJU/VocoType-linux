@@ -87,6 +87,18 @@ PYTHON_MIN_MINOR=11
 PYTHON_MAX_MINOR=12
 DEFAULT_UV_PYTHON="3.12"
 SYSTEM_DEPS_HELPER="$PROJECT_DIR/scripts/install-system-dependencies.sh"
+REUSE_SYSTEM_MODULE=false
+if [ -f "$PROJECT_DIR/.system-package" ] && [ -f /usr/share/fcitx5/addon/vocotype.conf ]; then
+    for system_module in \
+        /usr/lib/fcitx5/vocotype.so \
+        /usr/lib64/fcitx5/vocotype.so \
+        /usr/lib/*/fcitx5/vocotype.so; do
+        if [ -f "$system_module" ]; then
+            REUSE_SYSTEM_MODULE=true
+            break
+        fi
+    done
+fi
 
 # SLM 可选配置（默认关闭）
 ENABLE_SLM=0
@@ -410,6 +422,23 @@ fi
 echo "✓ Fcitx 5 已安装"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 2-5. Fcitx module preparation
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+if [ "$REUSE_SYSTEM_MODULE" = true ]; then
+    echo ""
+    echo "[2/8] 系统包已提供 Fcitx 5 编译依赖与 module"
+    echo "✓ 跳过开发依赖检查"
+    echo ""
+    echo "[3/8] 复用系统 Fcitx 5 全局 Module"
+    echo "✓ 无需重新编译"
+    echo ""
+    echo "[4/8] 系统 Module 与 addon 元数据已安装"
+    echo "✓ 保留系统包管理的文件"
+    echo ""
+    echo "[5/8] 使用系统标准 addon 路径"
+    echo "✓ 无需写入用户 FCITX_ADDON_DIRS"
+else
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 2. 检查编译依赖
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
@@ -545,6 +574,8 @@ FCITX_ADDON_DIRS=$HOME/.local/lib64/fcitx5:$HOME/.local/lib/fcitx5:/usr/lib64/fc
 EOF
 echo "✓ 环境变量已配置"
 echo "  注意: 需要重新登录或设置环境变量才能生效"
+
+fi
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 6. 安装 Python 后端

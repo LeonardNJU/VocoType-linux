@@ -17,3 +17,10 @@ cc-gen-doc
 CLAUDE.md
 cc-gen-doc
 cc-gen-script
+
+*.egg-info/
+*.deb
+*.rpm
+*.pkg.tar.*
+*.changes
+*.buildinfo

@@ -16,6 +16,8 @@ vocotype-settings
 bash scripts/launch-settings.sh
 ```
 
+通过 DEB、RPM 或 Arch 包安装时，系统包已经提供 Fcitx module、IBus component、桌面入口和安装源码。设置中心会识别 `/usr/share/vocotype/.system-package`，复用这些由包管理器维护的系统文件，只创建或修复用户级 Python 运行时；已有且内容一致的系统 IBus component 不会再次请求管理员授权。
+
 Fcitx 5 与 IBus 的“安装 / 修复”都使用窗口内非交互后端：选项、下载进度、编译输出和错误均显示在设置中心。缺少系统依赖或需要把 IBus component 注册到 `/usr/share/ibus/component` 时，设置中心调用 `pkexec`，由桌面 Polkit 代理弹出密码、指纹或其他管理员授权框。VoCoType 不读取或保存管理员凭据，也不会打开终端。
 
 ## 页面

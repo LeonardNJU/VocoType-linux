@@ -1,5 +1,15 @@
 cmake_minimum_required(VERSION 3.10)
-project(fcitx5-vocotype-module VERSION 2.3.0)
+
+if(NOT DEFINED VOCOTYPE_VERSION)
+    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../../vocotype_version.py"
+         _vocotype_version_line REGEX "^__version__ =")
+    string(REGEX MATCH "[0-9]+\\.[0-9]+\\.[0-9]+"
+           VOCOTYPE_VERSION "${_vocotype_version_line}")
+endif()
+if(NOT VOCOTYPE_VERSION)
+    message(FATAL_ERROR "Unable to determine VoCoType version")
+endif()
+project(fcitx5-vocotype-module VERSION ${VOCOTYPE_VERSION})
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,6 +27,9 @@ add_library(vocotype MODULE
 )
 target_include_directories(vocotype PRIVATE ../addon)
 target_link_libraries(vocotype Fcitx5::Core)
+if(Fcitx5Core_VERSION VERSION_LESS "5.1.0")
+    target_compile_definitions(vocotype PRIVATE VOCOTYPE_FCITX_LEGACY_STANDARD_PATH=1)
+endif()
 if(nlohmann_json_FOUND)
     target_link_libraries(vocotype nlohmann_json::nlohmann_json)
 else()

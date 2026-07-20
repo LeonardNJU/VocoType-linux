@@ -7,7 +7,8 @@
 #include <sys/types.h>
 
 #include <fcitx-config/option.h>
-#include <fcitx-utils/eventloopinterface.h>
+#include <fcitx-utils/event.h>
+#include <fcitx-utils/eventdispatcher.h>
 #include <fcitx-utils/key.h>
 #include <fcitx/addoninstance.h>
 #include <fcitx/event.h>
@@ -132,7 +133,22 @@ private:
     void commitText(fcitx::InputContext *ic, const std::string &text,
                     bool strip_trailing_period = false);
 
+    template <typename T>
+    void scheduleWithContext(fcitx::TrackableObjectReference<T> context,
+                             std::function<void()> functor) {
+        if (!context.isValid()) {
+            return;
+        }
+        event_dispatcher_.schedule(
+            [context = std::move(context), functor = std::move(functor)]() mutable {
+                if (context.isValid()) {
+                    functor();
+                }
+            });
+    }
+
     fcitx::Instance *instance_;
+    fcitx::EventDispatcher event_dispatcher_;
     std::unique_ptr<IPCClient> ipc_client_;
     VoCoTypeModuleConfig config_;
     std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> key_handler_;

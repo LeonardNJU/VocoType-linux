@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="${VOCOTYPE_SYSTEM_ROOT:-/usr/share/vocotype}"
+export VOCOTYPE_PROJECT_DIR="$ROOT"
+export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONDONTWRITEBYTECODE=1
+
+candidates=(
+  "$HOME/.local/share/vocotype/.venv/bin/python"
+  "$HOME/.local/share/vocotype-fcitx5/.venv/bin/python"
+  python3.12
+  python3.11
+  python3
+)
+for candidate in "${candidates[@]}"; do
+  if [[ "$candidate" == */* ]]; then
+    [[ -x "$candidate" ]] || continue
+  else
+    command -v "$candidate" >/dev/null 2>&1 || continue
+  fi
+  exec "$candidate" -m settings_center.application "$@"
+done
+
+echo "VoCoType requires Python 3.11 or 3.12. Open the package manager and install Python, then retry." >&2
+exit 127
