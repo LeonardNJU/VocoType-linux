@@ -225,6 +225,49 @@ def test_polisher_bad_json_fallback(monkeypatch):
     assert metrics.reason == "bad_json"
 
 
+
+def test_polisher_remote_structured_error_is_not_misreported_as_empty(monkeypatch):
+    polisher = SLMPolisher(
+        {
+            "enabled": True,
+            "min_chars": 1,
+            "endpoint": "https://openrouter.example/api/v1/chat/completions",
+        }
+    )
+
+    monkeypatch.setattr(
+        slm_polisher.urllib.request,
+        "urlopen",
+        lambda *args, **kwargs: _FakeResponse(
+            {"error": {"code": 402, "message": "Insufficient credits"}}
+        ),
+    )
+
+    out, metrics = polisher.polish("原始文本", long_mode=True)
+    assert out == "原始文本"
+    assert metrics.used is True
+    assert metrics.reason == "remote_error"
+
+
+def test_extract_content_accepts_text_parts_and_choice_text():
+    assert SLMPolisher._extract_content(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": [
+                            {"type": "text", "text": "润色后"},
+                            {"type": "text", "text": {"value": "的文本。"}},
+                        ]
+                    }
+                }
+            ]
+        }
+    ) == "润色后的文本。"
+    assert SLMPolisher._extract_content(
+        {"choices": [{"text": "兼容旧式 completion。"}]}
+    ) == "兼容旧式 completion。"
+
 def test_polisher_local_retry_without_thinking(monkeypatch):
     polisher = SLMPolisher(
         {
@@ -272,6 +315,7 @@ def test_is_failure_reason():
 
 def test_format_failure_message():
     assert SLMPolisher.format_failure_message("timeout") == "SLM 调用失败：请求超时"
+    assert SLMPolisher.format_failure_message("remote_error") == "SLM 调用失败：远端服务返回错误（请查看日志）"
     assert SLMPolisher.format_failure_message("load_failed:No module named 'torch'") == "SLM 调用失败：模型加载失败"
 
 

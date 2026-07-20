@@ -303,6 +303,8 @@ class SLMPolisher:
             return "SLM 调用失败：请求错误"
         if normalized == "bad_json":
             return "SLM 调用失败：响应解析失败"
+        if normalized == "remote_error":
+            return "SLM 调用失败：远端服务返回错误（请查看日志）"
         if normalized == "empty_content":
             return "SLM 调用失败：返回内容为空"
         if normalized == "blank_content":
@@ -377,6 +379,12 @@ class SLMPolisher:
                 body = response.read().decode("utf-8")
 
             parsed = json.loads(body)
+            remote_error = self._extract_remote_error(parsed)
+            if remote_error:
+                code, message = remote_error
+                logger.warning("SLM 远端服务返回错误 code=%s: %s", code, message)
+                return self._fallback(original, start, "remote_error")
+
             content = self._extract_content(parsed)
             if not content:
                 return self._fallback(
@@ -420,6 +428,16 @@ class SLMPolisher:
                     ) as response:
                         body = response.read().decode("utf-8")
                     parsed = json.loads(body)
+                    remote_error = self._extract_remote_error(parsed)
+                    if remote_error:
+                        code, message = remote_error
+                        logger.warning(
+                            "SLM 远端服务直连重试返回错误 code=%s: %s",
+                            code,
+                            message,
+                        )
+                        return self._fallback(original, start, "remote_error")
+
                     content = self._extract_content(parsed)
                     if not content:
                         return self._fallback(original, start, "empty_content")
@@ -756,14 +774,47 @@ class SLMPolisher:
         )
 
     @staticmethod
+    def _extract_remote_error(payload: Dict[str, Any]) -> tuple[str, str] | None:
+        """Extract an OpenAI-compatible structured error from a JSON body."""
+        error = payload.get("error")
+        if isinstance(error, dict):
+            code = str(error.get("code", payload.get("error_type", "unknown")))
+            message = str(error.get("message", "remote provider error"))
+            return code, message
+        if isinstance(error, str) and error.strip():
+            return str(payload.get("error_type", "unknown")), error.strip()
+        return None
+
+    @staticmethod
     def _extract_content(payload: Dict[str, Any]) -> str:
         choices = payload.get("choices")
         if isinstance(choices, list) and choices:
             first = choices[0] or {}
             message = first.get("message", {})
-            content = message.get("content", "")
+            content = message.get("content", "") if isinstance(message, dict) else ""
             if isinstance(content, str):
-                return SLMPolisher._strip_thinking_content(content)
+                extracted = SLMPolisher._strip_thinking_content(content)
+                if extracted:
+                    return extracted
+            if isinstance(content, list):
+                text_parts = []
+                for part in content:
+                    if isinstance(part, str):
+                        text_parts.append(part)
+                        continue
+                    if not isinstance(part, dict):
+                        continue
+                    text = part.get("text", "")
+                    if isinstance(text, dict):
+                        text = text.get("value", "")
+                    if isinstance(text, str):
+                        text_parts.append(text)
+                if text_parts:
+                    return SLMPolisher._strip_thinking_content("".join(text_parts))
+
+            choice_text = first.get("text", "") if isinstance(first, dict) else ""
+            if isinstance(choice_text, str):
+                return SLMPolisher._strip_thinking_content(choice_text)
 
         output_text = payload.get("output_text")
         if isinstance(output_text, str):
