@@ -41,3 +41,8 @@ def test_installer_builds_module_and_removes_legacy_input_method():
     assert 'rm -f "$HOME/.local/share/fcitx5/inputmethod/vocotype.conf"' in installer
     assert "uv pip install pyrime" not in installer
     assert '"$PYTHON" -m pip install pyrime' not in installer
+
+def test_dead_fcitx_rime_handler_is_removed():
+    source = (ROOT / "fcitx5" / "backend" / "fcitx5_server.py").read_text(encoding="utf-8")
+    assert "rime_handler" not in source
+    assert not (ROOT / "fcitx5" / "backend" / "rime_handler.py").exists()
