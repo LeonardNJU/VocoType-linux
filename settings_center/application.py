@@ -60,23 +60,51 @@ protect:
 """
 
 CSS = b"""
-window { background: #f6f7f9; }
-headerbar { background: #ffffff; border-bottom: 1px solid #dfe3e8; }
-.sidebar { background: #eef0f3; border-right: 1px solid #d9dde3; padding: 12px; }
+window {
+  background-color: @theme_bg_color;
+  color: @theme_fg_color;
+}
+headerbar {
+  background-color: @theme_bg_color;
+  color: @theme_fg_color;
+  border-bottom: 1px solid alpha(@theme_fg_color, 0.16);
+}
+.sidebar {
+  background-color: shade(@theme_bg_color, 0.96);
+  color: @theme_fg_color;
+  border-right: 1px solid alpha(@theme_fg_color, 0.16);
+  padding: 12px;
+}
 .page { padding: 28px 34px; }
-.page-title { font-size: 24px; font-weight: 700; color: #20242a; }
-.page-subtitle { font-size: 14px; color: #6f7782; margin-bottom: 14px; }
-.card { background: #ffffff; border: 1px solid #dfe3e8; border-radius: 12px; padding: 4px; }
-.card-row { padding: 12px 14px; border-bottom: 1px solid #eceff2; }
+.page-title { font-size: 24px; font-weight: 700; color: @theme_fg_color; }
+.page-subtitle { font-size: 14px; color: alpha(@theme_fg_color, 0.68); margin-bottom: 14px; }
+.card {
+  background-color: @theme_base_color;
+  color: @theme_text_color;
+  border: 1px solid alpha(@theme_fg_color, 0.16);
+  border-radius: 12px;
+  padding: 4px;
+}
+.card-row { padding: 12px 14px; border-bottom: 1px solid alpha(@theme_fg_color, 0.10); }
 .card-row:last-child { border-bottom: 0; }
-.row-title { font-size: 15px; font-weight: 600; color: #252a31; }
-.row-subtitle { font-size: 12px; color: #7a828d; }
+.row-title { font-size: 15px; font-weight: 600; color: @theme_text_color; }
+.row-subtitle { font-size: 12px; color: alpha(@theme_text_color, 0.68); }
 .status-pass { color: #168b46; font-weight: 600; }
 .status-warn { color: #a66a00; font-weight: 600; }
 .status-fail { color: #bf2c2c; font-weight: 600; }
 .monospace { font-family: monospace; }
-.preview { background: #f2f5f8; border-radius: 8px; padding: 12px; }
-.accent { background: #2f7de1; color: white; border-radius: 8px; padding: 8px 15px; }
+.preview {
+  background-color: shade(@theme_base_color, 0.96);
+  color: @theme_text_color;
+  border-radius: 8px;
+  padding: 12px;
+}
+.accent {
+  background-color: @theme_selected_bg_color;
+  color: @theme_selected_fg_color;
+  border-radius: 8px;
+  padding: 8px 15px;
+}
 """
 
 

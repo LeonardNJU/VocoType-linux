@@ -41,6 +41,27 @@ def isolated_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     return home
 
 
+def test_settings_css_uses_gtk_theme_colors():
+    from settings_center.application import CSS, Gtk
+
+    css = CSS.decode("utf-8")
+    for semantic_color in (
+        "@theme_bg_color",
+        "@theme_fg_color",
+        "@theme_base_color",
+        "@theme_text_color",
+        "@theme_selected_bg_color",
+        "@theme_selected_fg_color",
+    ):
+        assert semantic_color in css
+
+    for hardcoded_surface in ("#f6f7f9", "#ffffff", "#eef0f3", "#f2f5f8"):
+        assert hardcoded_surface not in css.lower()
+
+    provider = Gtk.CssProvider()
+    provider.load_from_data(CSS)
+
+
 def test_normalization_master_switch_and_independent_styles():
     source = "二零二六年五月十一号下午三点二十分跑了三百二十米花了一百二十八元"
     assert normalize_text(source) == "2026/05/11 15:20跑了320m花了¥128"
