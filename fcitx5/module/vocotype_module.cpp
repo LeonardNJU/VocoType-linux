@@ -35,11 +35,7 @@ constexpr uint64_t PTT_RELEASE_DEBOUNCE_US = 50000;
 constexpr uint64_t POLISH_POLL_INTERVAL_US = 100000;
 constexpr uint64_t DUPLICATE_COMMIT_SUPPRESS_US = 250000;
 
-#ifdef VOCOTYPE_FCITX_LEGACY_STANDARD_PATH
 constexpr auto CONFIG_PATH_TYPE = fcitx::StandardPath::Type::PkgConfig;
-#else
-constexpr auto CONFIG_PATH_TYPE = fcitx::StandardPathsType::PkgConfig;
-#endif
 
 constexpr std::array<const char *, 8> RECORDING_ANIMATION_FRAMES = {
     "🟢 正在听 ●     ", "🟢 正在听  ●    ", "🟢 正在听   ●   ",

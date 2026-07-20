@@ -6,6 +6,7 @@ for path in \
   /usr/bin/vocotype-fcitx5-backend \
   /usr/bin/vocotype-fcitx5-recorder \
   /usr/libexec/vocotype-ibus-engine \
+  /usr/lib/vocotype/vocotype-ibus-engine \
   /usr/share/ibus/component/vocotype.xml \
   /usr/share/vocotype/.system-package; do
   test ! -e "$path"

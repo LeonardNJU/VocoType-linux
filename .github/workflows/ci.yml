@@ -24,7 +24,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libportaudio2 portaudio19-dev libcairo2-dev libgirepository1.0-dev gir1.2-gtk-3.0 pkg-config
+          sudo apt-get install -y libportaudio2 portaudio19-dev libcairo2-dev libgirepository1.0-dev gir1.2-gtk-3.0 pkg-config cmake g++ libfcitx5core-dev nlohmann-json3-dev
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
@@ -81,7 +81,7 @@ jobs:
         run: |
           package=$(find dist/packages -maxdepth 1 -name 'vocotype-linux_*.deb' -print -quit)
           test -n "$package"
-          sudo apt-get install -y "$package"
+          sudo apt-get install -y "$(realpath "$package")"
           sudo scripts/smoke-installed-package.sh "$(python3 -c 'from vocotype_version import __version__; print(__version__)')"
           sudo apt-get purge -y vocotype-linux
           sudo scripts/smoke-removed-package.sh
@@ -103,6 +103,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+      - name: Trust the checked-out repository
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Build RPM
         run: scripts/build-rpm.sh
       - name: Install and validate RPM

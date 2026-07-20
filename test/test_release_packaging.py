@@ -571,11 +571,8 @@ def test_fcitx_module_uses_apis_available_since_fcitx_5014():
     assert "#include <fcitx-utils/event.h>" in header
     assert "#include <fcitx-utils/eventdispatcher.h>" in header
     assert "eventloopinterface.h" not in header
-    cmake = (ROOT / "fcitx5/module/CMakeLists.txt").read_text(encoding="utf-8")
-    assert 'Fcitx5Core_VERSION VERSION_LESS "5.1.0"' in cmake
-    assert "VOCOTYPE_FCITX_LEGACY_STANDARD_PATH" in cmake
     assert "fcitx::StandardPath::Type::PkgConfig" in source
-    assert "fcitx::StandardPathsType::PkgConfig" in source
+    assert "fcitx::StandardPathsType::PkgConfig" not in source
     assert "CONFIG_PATH_TYPE" in source
     assert "event_dispatcher_.attach(&instance_->eventLoop())" in source
     assert "instance_->eventDispatcher()" not in source
