@@ -157,6 +157,10 @@ class VoCoTypeEngine(IBus.Engine):
 
         # 运行配置（用于长句模式）
         self._runtime_config = load_ibus_config()
+        self._asr_options = dict(self._runtime_config.get("asr", {}))
+        self._asr_options["normalization"] = dict(
+            self._runtime_config.get("normalization", {})
+        )
         self._slm_polisher = SLMPolisher(self._runtime_config.get("slm", {}))
         logger.info("IBus SLM 长句润色: enabled=%s", self._slm_polisher.enabled)
 
@@ -899,10 +903,31 @@ class VoCoTypeEngine(IBus.Engine):
             "",
         )
 
+    def _reload_runtime_config(self) -> None:
+        """Reload GUI-managed runtime settings before a new recording."""
+
+        latest = load_ibus_config()
+        if latest == self._runtime_config:
+            return
+        previous_polisher = self._slm_polisher
+        self._runtime_config = latest
+        self._asr_options = dict(latest.get("asr", {}))
+        self._asr_options["normalization"] = dict(
+            latest.get("normalization", {})
+        )
+        self._slm_polisher = SLMPolisher(latest.get("slm", {}))
+        previous_polisher.release()
+        logger.info(
+            "IBus 运行配置已重新加载: slm_enabled=%s normalization_enabled=%s",
+            self._slm_polisher.enabled,
+            self._asr_options["normalization"].get("enabled", True),
+        )
+
     def _start_voice_edit_recording(self):
         """Ctrl+F9: 开始语音编辑（先验证 surrounding 能力）"""
         if self._is_recording:
             return
+        self._reload_runtime_config()
 
         if not self._is_engine_active():
             self._show_nonintrusive_error("当前输入法未激活，已取消编辑")
@@ -1686,6 +1711,7 @@ class VoCoTypeEngine(IBus.Engine):
         """开始录音"""
         if self._is_recording:
             return
+        self._reload_runtime_config()
 
         try:
             import sounddevice as sd
@@ -1902,7 +1928,7 @@ class VoCoTypeEngine(IBus.Engine):
                     asr_start = time.perf_counter()
                     result = asr_server.transcribe_audio(
                         temp_path,
-                        options=self._runtime_config.get("asr"),
+                        options=self._asr_options,
                     )
                     asr_ms = (time.perf_counter() - asr_start) * 1000.0
 

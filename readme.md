@@ -17,6 +17,7 @@
 - **轻量化设计** - 仅需 700MB 内存，纯 CPU 推理，无需显卡
 - **0.1 秒级响应** - 感受所言即所得的畅快体验
 - **Fcitx 全局模块** - 在原有 Rime、拼音、Mozc 等任意 Fcitx 5 输入法中直接使用 F9，无需切换到 VoCoType
+- **图形设置中心** - 安装/修复、ITN 风格、用户词典、AI endpoint、Doctor、支持包和反馈统一管理
 
 ## Demo
 https://github.com/user-attachments/assets/94772920-0f9e-4dff-8da5-c9026eb23256
@@ -37,41 +38,42 @@ https://github.com/user-attachments/assets/94772920-0f9e-4dff-8da5-c9026eb23256
 
 ## 快速开始
 
-### IBus 版本
+### 图形安装与设置（推荐）
 
 ```bash
 git clone https://github.com/LeonardNJU/VocoType-linux.git
 cd VocoType-linux
+bash scripts/launch-settings.sh
+```
+
+在 **概览与安装** 页面选择 Fcitx 5 或 IBus。Fcitx 5 使用窗口内非交互安装；IBus 在可能需要 `sudo` 注册 component 时打开可见终端。安装后可在 GUI 中选择/测试麦克风，并使用 ITN 预览、用户词典、AI endpoint、Doctor、日志打包和反馈入口。
+
+安装完成后可从应用菜单打开 **VoCoType 设置**，或运行：
+
+```bash
+vocotype-settings
+```
+
+### 命令行安装（高级/无桌面环境）
+
+IBus：
+
+```bash
 ./scripts/install-ibus.sh
 ibus restart
 ```
 
-安装脚本会询问是否启用 `Shift+F9` 长句 SLM 润色：
-- 不启用（默认）：不安装/拉取 SLM 模型，`Shift+F9` 不会触发润色
-- 启用：可选择
-  - 本地模型（`local_ephemeral`）：按下预热，润色后释放
-  - 远程 API（`remote`）：交互配置 `model`、`endpoint`、`api_key`
-
-详细安装说明：[ibus/README.md](ibus/README.md)
-
-### Fcitx 5 版本
+Fcitx 5：
 
 ```bash
-git clone https://github.com/LeonardNJU/VocoType-linux.git
-cd VocoType-linux
 bash fcitx5/scripts/install-fcitx5.sh
+systemctl --user enable --now vocotype-fcitx5-backend.service
 fcitx5 -r
 ```
 
-安装脚本会询问是否启用 `Shift+F9` 长句 SLM 润色：
-- 不启用（默认）：不安装/拉取 SLM 模型，`Shift+F9` 不会触发润色
-- 启用：可选择
-  - 本地模型（`local_ephemeral`）：按下预热，润色后释放
-  - 远程 API（`remote`）：交互配置 `model`、`endpoint`、`api_key`
+Fcitx 版本安装为全局 Module，无需在输入法列表中添加 VoCoType；继续使用原来的 Rime、拼音或其他输入法即可。
 
-Fcitx 版本安装为全局 Module，无需在输入法列表中添加 VoCoType；继续使用原来的 Rime、拼音或其他输入法即可。安装脚本还会询问 Python 环境：项目虚拟环境、用户级虚拟环境、系统 Python 或手动指定解释器。若安装后希望删除当前仓库，请选择用户级虚拟环境或系统 Python。
-
-详细安装说明：[fcitx5/README.md](fcitx5/README.md)
+详细说明：[图形设置中心](docs/SETTINGS_CENTER.md)、[IBus 安装](ibus/README.md)、[Fcitx 5 安装](fcitx5/README.md)。
 
 ---
 
@@ -85,13 +87,20 @@ ASR 后的确定性 alias → canonical 替换，并保护标准词不被 ITN/�
 
 ---
 
-## 强制 ITN 与数字格式
+## 可配置 ITN 与书写风格
 
-每次中文转写都会运行 WeTextProcessing FST ITN，没有关闭开关。VoCoType 会先应用
-产品级数字规则，再保护术语、固定表达和已确定的格式，只接受语义安全的数字替换，
-避免把中文日期改成斜杠、把“米”改成 `m` 或把中文时间改成 `p.m.`。
+默认启用数字与 WeTextProcessing FST ITN，并采用紧凑书写风格：
 
-详见：[强制 ITN 与数字格式策略](docs/ITN.md)。
+```text
+二零二六年五月十一号 → 2026/05/11
+下午三点二十分       → 15:20
+三百二十米           → 320m
+一百二十八元         → ¥128
+```
+
+设置中心可以整体关闭数字/ITN，也可以分别关闭日期、时间、路程单位和金额符号转换。术语 canonicalization 始终保留，`protect: true` 的词条不会被紧凑格式改写。
+
+详见：[ITN 与数字格式策略](docs/ITN.md)。
 
 ---
 
@@ -327,7 +336,8 @@ python scripts/benchmark_slm_pipeline.py ./samples \
 - [IBus 版本安装指南](ibus/README.md)
 - [Fcitx 5 版本安装指南](fcitx5/README.md)
 - [术语库与原生热词](docs/TERMS.md)
-- [强制 ITN 与数字格式策略](docs/ITN.md)
+- [ITN 与数字格式策略](docs/ITN.md)
+- [图形设置中心、Doctor 与反馈](docs/SETTINGS_CENTER.md)
 - [流式 AI 润色](docs/SLM_STREAMING.md)
 - [Rime 拼音配置指南](RIME_CONFIG_GUIDE.md)（主要面向 IBus；Fcitx 版本直接使用现有 fcitx5-rime）
 

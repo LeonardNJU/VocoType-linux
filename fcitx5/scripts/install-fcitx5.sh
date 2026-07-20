@@ -2,9 +2,15 @@
 # VoCoType Fcitx 5 安装脚本
 #
 # 用法: install-fcitx5.sh [--device <id>] [--sample-rate <rate>] [--skip-audio]
+#                            [--non-interactive] [--python-choice user|project|system]
+#                            [--slm-provider preserve|disabled|remote|local]
 #   --device <id>      指定音频设备ID，跳过交互式配置
 #   --sample-rate <rate>  指定采样率（默认44100）
 #   --skip-audio       跳过音频配置
+#   --non-interactive  供图形设置中心调用，不读取终端输入
+#   --preserve-config  保留已有 SLM/运行配置
+#   --python-choice    非交互环境选择；默认 user
+#   --slm-provider     非交互 SLM 选择；默认 preserve
 #
 # 历史问题修复记录：
 # 1. FCITX_ADDON_DIRS 环境变量 - Fcitx5 默认不搜索 ~/.local/lib64/fcitx5
@@ -19,6 +25,10 @@ set -e
 SKIP_AUDIO=false
 AUDIO_DEVICE=""
 SAMPLE_RATE="44100"
+NON_INTERACTIVE=false
+PRESERVE_CONFIG=false
+PY_CHOICE_OVERRIDE="user"
+SLM_PROVIDER_OVERRIDE="preserve"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -32,6 +42,22 @@ while [[ $# -gt 0 ]]; do
             ;;
         --sample-rate)
             SAMPLE_RATE="$2"
+            shift 2
+            ;;
+        --non-interactive)
+            NON_INTERACTIVE=true
+            shift
+            ;;
+        --preserve-config)
+            PRESERVE_CONFIG=true
+            shift
+            ;;
+        --python-choice)
+            PY_CHOICE_OVERRIDE="$2"
+            shift 2
+            ;;
+        --slm-provider)
+            SLM_PROVIDER_OVERRIDE="$2"
             shift 2
             ;;
         *)
@@ -232,12 +258,36 @@ echo "=== VoCoType Fcitx 5 语音输入法安装 ==="
 echo "项目目录: $PROJECT_DIR"
 echo ""
 
-echo "是否启用长句 SLM 润色（Shift+F9）？"
-echo "  [1] 不启用（默认）- 不安装 SLM 模型，保持最低资源占用"
-echo "  [2] 启用 - 配置 SLM 润色"
-echo ""
-read -r -p "请输入选项 (默认 1): " SLM_CHOICE
-case "$SLM_CHOICE" in
+if [ "$NON_INTERACTIVE" = true ]; then
+    case "$SLM_PROVIDER_OVERRIDE" in
+        preserve)
+            echo "非交互安装：保留已有 SLM 配置"
+            ;;
+        disabled)
+            ENABLE_SLM=0
+            ;;
+        remote)
+            ENABLE_SLM=1
+            SLM_PROVIDER="remote"
+            SLM_TIMEOUT_MS=20000
+            ;;
+        local|local_ephemeral)
+            ENABLE_SLM=1
+            SLM_PROVIDER="local_ephemeral"
+            SLM_INSTALL_LOCAL_DEPS=1
+            ;;
+        *)
+            echo "错误: 未知 --slm-provider: $SLM_PROVIDER_OVERRIDE"
+            exit 1
+            ;;
+    esac
+else
+    echo "是否启用长句 SLM 润色（Shift+F9）？"
+    echo "  [1] 不启用（默认）- 不安装 SLM 模型，保持最低资源占用"
+    echo "  [2] 启用 - 配置 SLM 润色"
+    echo ""
+    read -r -p "请输入选项 (默认 1): " SLM_CHOICE
+    case "$SLM_CHOICE" in
     2)
         ENABLE_SLM=1
         echo ""
@@ -290,7 +340,8 @@ case "$SLM_CHOICE" in
         echo ""
         echo "已禁用 SLM 润色（Shift+F9 不会触发润色）。"
         ;;
-esac
+    esac
+fi
 echo ""
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -446,6 +497,7 @@ mkdir -p "$INSTALL_DIR/scripts"
 
 # 复制文件
 cp -r "$PROJECT_DIR/app" "$INSTALL_DIR/"
+cp -r "$PROJECT_DIR/settings_center" "$INSTALL_DIR/"
 cp -r "$PROJECT_DIR/fcitx5/backend" "$INSTALL_DIR/"
 cp "$PROJECT_DIR/vocotype_version.py" "$INSTALL_DIR/"
 cp "$SCRIPT_DIR/setup-audio.py" "$INSTALLED_SETUP_AUDIO_SCRIPT"
@@ -472,12 +524,25 @@ echo "✓ Python 后端已安装"
 echo ""
 echo "[7/8] 配置 Python 环境..."
 
-echo "请选择 Python 环境："
-echo "  [1] 使用项目虚拟环境（开发用，依赖当前仓库）: $PROJECT_DIR/.venv"
-echo "  [2] 使用用户级虚拟环境（默认，删除工作区后仍可用）: $INSTALL_DIR/.venv"
-echo "  [3] 使用系统 Python（省空间，需自行安装依赖）"
-echo "  [4] 手动指定 Python 解释器（如 conda 环境）"
-read -r -p "请输入选项 (默认 2): " PY_CHOICE
+if [ "$NON_INTERACTIVE" = true ]; then
+    case "$PY_CHOICE_OVERRIDE" in
+        project) PY_CHOICE=1 ;;
+        user|"") PY_CHOICE=2 ;;
+        system) PY_CHOICE=3 ;;
+        *)
+            echo "错误: 未知 --python-choice: $PY_CHOICE_OVERRIDE"
+            exit 1
+            ;;
+    esac
+    echo "非交互安装：Python 环境 = $PY_CHOICE_OVERRIDE"
+else
+    echo "请选择 Python 环境："
+    echo "  [1] 使用项目虚拟环境（开发用，依赖当前仓库）: $PROJECT_DIR/.venv"
+    echo "  [2] 使用用户级虚拟环境（默认，删除工作区后仍可用）: $INSTALL_DIR/.venv"
+    echo "  [3] 使用系统 Python（省空间，需自行安装依赖）"
+    echo "  [4] 手动指定 Python 解释器（如 conda 环境）"
+    read -r -p "请输入选项 (默认 2): " PY_CHOICE
+fi
 
 USE_SYSTEM_PYTHON=0
 CUSTOM_PYTHON_CMD=""
@@ -592,6 +657,32 @@ fi
 
 echo "✓ Python 环境已配置"
 
+FCITX5_BACKEND_CONFIG="$HOME/.config/vocotype/fcitx5-backend.json"
+if [ "$PRESERVE_CONFIG" = true ] && [ -f "$FCITX5_BACKEND_CONFIG" ]; then
+    preserved_slm=$(
+        "$PYTHON" - "$FCITX5_BACKEND_CONFIG" << 'PY'
+import json
+import sys
+
+try:
+    with open(sys.argv[1], "r", encoding="utf-8") as handle:
+        config = json.load(handle)
+    slm = config.get("slm", {}) if isinstance(config, dict) else {}
+    enabled = 1 if bool(slm.get("enabled", False)) else 0
+    provider = str(slm.get("provider", "local_ephemeral"))
+except Exception:
+    enabled = 0
+    provider = "local_ephemeral"
+print(f"{enabled}	{provider}")
+PY
+    )
+    IFS=$'	' read -r ENABLE_SLM SLM_PROVIDER <<< "$preserved_slm"
+    if [ "$ENABLE_SLM" = "1" ] && [ "$SLM_PROVIDER" = "local_ephemeral" ]; then
+        SLM_INSTALL_LOCAL_DEPS=1
+        echo "检测到已有本地 SLM 配置，将验证/修复本地模型依赖"
+    fi
+fi
+
 if [ "$ENABLE_SLM" = "1" ] && [ "$SLM_PROVIDER" = "local_ephemeral" ] && [ "$SLM_INSTALL_LOCAL_DEPS" = "1" ]; then
     echo ""
     echo "安装本地 SLM 依赖（torch/transformers/sentencepiece/socksio）..."
@@ -610,23 +701,26 @@ fi
 
 echo ""
 echo "[可选] 写入 SLM 配置..."
-FCITX5_BACKEND_CONFIG="$HOME/.config/vocotype/fcitx5-backend.json"
-write_slm_config_json \
-    "$FCITX5_BACKEND_CONFIG" \
-    "$PYTHON" \
-    "$ENABLE_SLM" \
-    "$SLM_PROVIDER" \
-    "$SLM_ENDPOINT" \
-    "$SLM_MODEL" \
-    "$SLM_LOCAL_MODEL" \
-    "$SLM_LOCAL_PYTHON" \
-    "$SLM_TIMEOUT_MS" \
-    "$SLM_MIN_CHARS" \
-    "$SLM_MAX_TOKENS" \
-    "$SLM_WARMUP_TIMEOUT_MS" \
-    "$SLM_ENABLE_THINKING" \
-    "$SLM_API_KEY"
-echo "✓ 已写入配置: $FCITX5_BACKEND_CONFIG"
+if [ "$PRESERVE_CONFIG" = true ] && [ -f "$FCITX5_BACKEND_CONFIG" ]; then
+    echo "✓ 已保留现有配置: $FCITX5_BACKEND_CONFIG"
+else
+    write_slm_config_json \
+        "$FCITX5_BACKEND_CONFIG" \
+        "$PYTHON" \
+        "$ENABLE_SLM" \
+        "$SLM_PROVIDER" \
+        "$SLM_ENDPOINT" \
+        "$SLM_MODEL" \
+        "$SLM_LOCAL_MODEL" \
+        "$SLM_LOCAL_PYTHON" \
+        "$SLM_TIMEOUT_MS" \
+        "$SLM_MIN_CHARS" \
+        "$SLM_MAX_TOKENS" \
+        "$SLM_WARMUP_TIMEOUT_MS" \
+        "$SLM_ENABLE_THINKING" \
+        "$SLM_API_KEY"
+    echo "✓ 已写入配置: $FCITX5_BACKEND_CONFIG"
+fi
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 8. 音频设备配置和 ASR 验收
@@ -673,6 +767,56 @@ else
         fi
     fi
 fi
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 安装图形设置中心入口
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+echo ""
+echo "安装图形设置中心..."
+mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications" "$HOME/.local/share/icons/hicolor/192x192/apps"
+PYTHON_SED=$(escape_sed_replacement "$PYTHON")
+cat > "$HOME/.local/bin/vocotype-settings" << 'EOF'
+#!/bin/bash
+PREFERRED_INSTALL_DIR="VOCOTYPE_INSTALL_DIR"
+PREFERRED_PYTHON="VOCOTYPE_PYTHON"
+export VOCOTYPE_PROJECT_DIR="VOCOTYPE_PROJECT_DIR_VALUE"
+
+run_settings() {
+    local install_dir="$1"
+    local python_bin="$2"
+    shift 2
+    [ -f "$install_dir/settings_center/application.py" ] || return 1
+    if [[ "$python_bin" == */* ]]; then
+        [ -x "$python_bin" ] || return 1
+    else
+        command -v "$python_bin" >/dev/null 2>&1 || return 1
+    fi
+    export PYTHONPATH="$install_dir${PYTHONPATH:+:$PYTHONPATH}"
+    exec "$python_bin" -m settings_center.application "$@"
+}
+
+run_settings "$PREFERRED_INSTALL_DIR" "$PREFERRED_PYTHON" "$@"
+run_settings "$HOME/.local/share/vocotype-fcitx5" "$HOME/.local/share/vocotype-fcitx5/.venv/bin/python" "$@"
+run_settings "$HOME/.local/share/vocotype" "$HOME/.local/share/vocotype/.venv/bin/python" "$@"
+
+echo "VoCoType 设置中心运行时不存在，请重新安装或修复。" >&2
+exit 1
+EOF
+sed -i "s|VOCOTYPE_PYTHON|$PYTHON_SED|g" "$HOME/.local/bin/vocotype-settings"
+INSTALL_DIR_SED=$(escape_sed_replacement "$INSTALL_DIR")
+sed -i "s|VOCOTYPE_INSTALL_DIR|$INSTALL_DIR_SED|g" "$HOME/.local/bin/vocotype-settings"
+PROJECT_DIR_SED=$(escape_sed_replacement "$PROJECT_DIR")
+sed -i "s|VOCOTYPE_PROJECT_DIR_VALUE|$PROJECT_DIR_SED|g" "$HOME/.local/bin/vocotype-settings"
+chmod +x "$HOME/.local/bin/vocotype-settings"
+sed "s|Exec=vocotype-settings|Exec=$HOME/.local/bin/vocotype-settings|" \
+    "$PROJECT_DIR/data/applications/io.github.LeonardNJU.VoCoType.Settings.desktop" > \
+    "$HOME/.local/share/applications/io.github.LeonardNJU.VoCoType.Settings.desktop"
+cp "$PROJECT_DIR/site/icon-192.png" \
+   "$HOME/.local/share/icons/hicolor/192x192/apps/vocotype.png"
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "$HOME/.local/share/applications" >/dev/null 2>&1 || true
+fi
+echo "✓ 设置中心已安装，可运行: vocotype-settings"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 创建后台服务启动器
@@ -738,6 +882,10 @@ if command -v systemctl >/dev/null 2>&1; then
 fi
 
 echo "✓ 后台服务启动器已创建"
+if [ "$NON_INTERACTIVE" = true ] && command -v systemctl >/dev/null 2>&1; then
+    systemctl --user enable --now vocotype-fcitx5-backend.service >/dev/null 2>&1 || \
+        echo "⚠️  后台服务自动启动失败，可在设置中心重试"
+fi
 if [ "$PYTHON" = "$PROJECT_DIR/.venv/bin/python" ]; then
     echo "⚠️  当前选择的是项目虚拟环境。若重命名或删除仓库目录，需要重新安装或改用选项 2/3/4。"
 fi

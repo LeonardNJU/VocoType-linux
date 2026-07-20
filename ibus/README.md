@@ -2,11 +2,9 @@
 
 VoCoType 离线语音输入法的 IBus 版本实现。
 
-## 强制 ITN 与数字格式
+## ITN 与数字格式
 
-中文转写始终经过受保护的 WeTextProcessing FST ITN，没有关闭开关。产品规则负责中文输入法
-的日期、时间、金额和单位风格，FST 补齐剩余安全数字场景。详见
-[`docs/ITN.md`](../docs/ITN.md)。
+图形设置中心可以整体开关数字/ITN，并分别选择日期、时间、路程单位和金额的紧凑书写风格。详见 [`docs/ITN.md`](../docs/ITN.md)。
 
 ## 术语库与原生热词
 
@@ -44,6 +42,8 @@ IBus 与 Fcitx 5 共用 `~/.config/vocotype/terms.yaml`。默认 Contextual Para
 | **完整版** | F9 语音 + Shift+F9 长句 + Rime 拼音 | 一个输入法同时支持语音和拼音 |
 
 ## 安装
+
+图形设置中心会随 IBus 安装器一同安装。安装后运行 `vocotype-settings` 可管理 IBus 与 Fcitx 共用配置、Doctor 和反馈。
 
 ### 纯语音版（推荐新手）
 

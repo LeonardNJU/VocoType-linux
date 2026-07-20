@@ -7,7 +7,15 @@ INSTALL_DIR="$HOME/.local/share/vocotype"
 COMPONENT_DIR="$HOME/.local/share/ibus/component"
 LIBEXEC_DIR="$HOME/.local/libexec"
 SYSTEM_COMPONENT="/usr/share/ibus/component/vocotype.xml"
-VOCOTYPE_RIME_CONFIG="$HOME/.config/vocotype"
+VOCOTYPE_CONFIG_DIR="$HOME/.config/vocotype"
+
+FCITX_PRESENT=0
+if [ -d "$HOME/.local/share/vocotype-fcitx5" ] || \
+   [ -f "$HOME/.local/share/fcitx5/addon/vocotype.conf" ] || \
+   [ -f "$HOME/.local/lib/fcitx5/vocotype.so" ] || \
+   [ -f "$HOME/.local/lib64/fcitx5/vocotype.so" ]; then
+    FCITX_PRESENT=1
+fi
 
 echo "=== VoCoType IBus 卸载 ==="
 echo ""
@@ -38,6 +46,7 @@ case "$UNINSTALL_LEVEL" in
         echo "将删除以下内容（保留 .venv 和模型）："
         [ -d "$INSTALL_DIR/app" ] && echo "  - $INSTALL_DIR/app"
         [ -d "$INSTALL_DIR/ibus" ] && echo "  - $INSTALL_DIR/ibus"
+        [ -d "$INSTALL_DIR/settings_center" ] && echo "  - $INSTALL_DIR/settings_center"
         [ -f "$INSTALL_DIR/vocotype_version.py" ] && echo "  - $INSTALL_DIR/vocotype_version.py"
         ;;
 esac
@@ -45,7 +54,12 @@ esac
 [ -f "$COMPONENT_DIR/vocotype.xml" ] && echo "  - $COMPONENT_DIR/vocotype.xml"
 [ -f "$LIBEXEC_DIR/ibus-engine-vocotype" ] && echo "  - $LIBEXEC_DIR/ibus-engine-vocotype"
 [ -f "$SYSTEM_COMPONENT" ] && echo "  - $SYSTEM_COMPONENT (需要 sudo)"
-[ -d "$VOCOTYPE_RIME_CONFIG" ] && echo "  - $VOCOTYPE_RIME_CONFIG"
+if [ "$FCITX_PRESENT" = "0" ]; then
+    [ -f "$HOME/.local/bin/vocotype-settings" ] && echo "  - $HOME/.local/bin/vocotype-settings"
+    [ -f "$HOME/.local/share/applications/io.github.LeonardNJU.VoCoType.Settings.desktop" ] && \
+        echo "  - VoCoType 设置中心桌面入口"
+fi
+echo "  - 保留用户配置和术语库: $VOCOTYPE_CONFIG_DIR"
 echo ""
 
 read -r -p "确认卸载？(y/N): " CONFIRM
@@ -59,9 +73,10 @@ echo "正在卸载..."
 
 # 删除文件
 if [ "$KEEP_VENV" = "1" ]; then
-    # 快速卸载：只删除配置文件，保留 .venv 和模型
+    # 快速卸载：删除已安装代码，保留 .venv 和模型
     rm -rf "$INSTALL_DIR/app"
     rm -rf "$INSTALL_DIR/ibus"
+    rm -rf "$INSTALL_DIR/settings_center"
     rm -f "$INSTALL_DIR/vocotype_version.py"
 else
     # 完全卸载：删除整个安装目录
@@ -70,7 +85,14 @@ fi
 
 rm -f "$COMPONENT_DIR/vocotype.xml"
 rm -f "$LIBEXEC_DIR/ibus-engine-vocotype"
-rm -rf "$VOCOTYPE_RIME_CONFIG"
+
+# Runtime settings, terms, hotwords, and audio selection are user data. Keep
+# them across uninstall; they may also be shared with the Fcitx integration.
+if [ "$FCITX_PRESENT" = "0" ]; then
+    rm -f "$HOME/.local/bin/vocotype-settings"
+    rm -f "$HOME/.local/share/applications/io.github.LeonardNJU.VoCoType.Settings.desktop"
+    rm -f "$HOME/.local/share/icons/hicolor/192x192/apps/vocotype.png"
+fi
 
 # 删除系统级组件文件
 if [ -f "$SYSTEM_COMPONENT" ]; then
@@ -92,4 +114,7 @@ echo "   设置 → 键盘 → 输入源 → 选择 VoCoType → 点击 '-' 删�
 echo ""
 echo "2. 重启 IBus:"
 echo "   ibus restart"
+echo ""
+echo "用户配置已保留在 $VOCOTYPE_CONFIG_DIR。确需删除时请手动确认后执行："
+echo "   rm -rf $VOCOTYPE_CONFIG_DIR"
 echo ""

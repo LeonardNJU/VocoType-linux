@@ -50,11 +50,19 @@ fcitx5/data/vocotype.conf      Category=Module 的 addon 元数据
 Fcitx 版本不需要 `pyrime`。用户需要 Rime 时直接安装和使用发行版提供的
 `fcitx5-rime`，VoCoType 会在它处于活动状态时照常工作。
 
-## 自动安装
+## 图形安装（推荐）
 
 ```bash
 git clone https://github.com/LeonardNJU/VocoType-linux.git
 cd VocoType-linux
+bash scripts/launch-settings.sh
+```
+
+在“概览与安装”点击 **安装 / 修复**。已安装用户可直接从应用菜单打开 **VoCoType 设置**。
+
+## 命令行安装
+
+```bash
 bash fcitx5/scripts/install-fcitx5.sh
 systemctl --user enable --now vocotype-fcitx5-backend.service
 fcitx5 -r
@@ -68,9 +76,20 @@ fcitx5 -r
 4. 安装 Python 后端和录音启动器。
 5. 创建并启动 systemd 用户服务所需文件。
 6. 配置音频设备和可选 SLM。
+7. 安装 `vocotype-settings`、桌面入口和 Doctor。
 
 无需在“输入法列表”中添加 VoCoType。可在 `fcitx5-configtool` 的附加组件页面
 确认 **VoCoType Voice Input** 已启用。
+
+
+## 图形设置、Doctor 与支持包
+
+```bash
+vocotype-settings
+vocotype-doctor
+```
+
+设置中心可配置 AI endpoint/API Key、编辑术语、预览 ITN、安装/修复、重启服务并生成脱敏支持包。完整说明见 [`docs/SETTINGS_CENTER.md`](../docs/SETTINGS_CENTER.md)。
 
 ## Module 配置
 
@@ -139,11 +158,9 @@ Contextual Paraformer ONNX，术语可以同时进入原生 hotword 编码器和
 
 完整格式见 [`docs/TERMS.md`](../docs/TERMS.md)。
 
-## 强制 ITN 与数字格式
+## ITN 与数字格式
 
-中文转写始终经过受保护的 WeTextProcessing FST ITN，没有关闭开关。产品规则负责中文输入法
-的日期、时间、金额和单位风格，FST 补齐剩余安全数字场景。详见
-[`docs/ITN.md`](../docs/ITN.md)。
+设置中心可整体开关数字/ITN，并分别控制 `2026/05/11`、`15:20`、`320m` 与 `¥128` 等紧凑书写风格。详见 [`docs/ITN.md`](../docs/ITN.md)。
 
 ## AI 润色与实时预览
 
@@ -268,6 +285,12 @@ rm -f ~/.local/lib64/fcitx5/vocotype.so ~/.local/lib64/fcitx5/libvocotype.so
 rm -f ~/.local/share/fcitx5/addon/vocotype.conf
 rm -f ~/.config/systemd/user/vocotype-fcitx5-backend.service
 rm -f ~/.local/bin/vocotype-fcitx5-backend ~/.local/bin/vocotype-fcitx5-recorder
+# 仅在没有同时使用 IBus 版时删除共享设置中心：
+rm -f ~/.local/bin/vocotype-settings
+rm -f ~/.local/share/applications/io.github.LeonardNJU.VoCoType.Settings.desktop
+rm -f ~/.local/share/icons/hicolor/192x192/apps/vocotype.png
 systemctl --user daemon-reload
 fcitx5 -r
 ```
+
+`~/.config/vocotype/` 包含术语、hotword、音频与运行配置，卸载时默认保留。

@@ -141,7 +141,7 @@ class SLMPolisher:
             90000 if self.provider == self.PROVIDER_LOCAL_EPHEMERAL else 12000
         )
         self.timeout_ms = int(cfg.get("timeout_ms", default_timeout_ms))
-        self.min_chars = max(1, int(cfg.get("min_chars", 8)))
+        self.min_chars = max(0, int(cfg.get("min_chars", 8)))
         self.max_tokens = max(1, int(cfg.get("max_tokens", default_max_tokens)))
         self.temperature = float(cfg.get("temperature", 0.0))
         self.top_p = float(cfg.get("top_p", 0.9))
@@ -151,7 +151,10 @@ class SLMPolisher:
             self.enable_thinking = False
         else:
             self.enable_thinking = bool(enable_thinking_cfg)
+        self.api_key_env = str(cfg.get("api_key_env", "")).strip()
         self.api_key = str(cfg.get("api_key", "")).strip()
+        if not self.api_key and self.api_key_env:
+            self.api_key = str(os.environ.get(self.api_key_env, "")).strip()
         self.system_prompt = str(cfg.get("system_prompt", DEFAULT_SYSTEM_PROMPT))
         self.edit_enabled = bool(cfg.get("edit_enabled", True))
         self.edit_system_prompt = str(
@@ -212,7 +215,7 @@ class SLMPolisher:
     ) -> bool:
         if not self.enabled or not long_mode:
             return False
-        threshold = self.min_chars if min_chars is None else max(1, int(min_chars))
+        threshold = self.min_chars if min_chars is None else max(0, int(min_chars))
         return len(text.strip()) >= threshold
 
     def prewarm(self, *, long_mode: bool) -> None:
@@ -258,7 +261,7 @@ class SLMPolisher:
             return
 
         stripped = original.strip()
-        threshold = self.min_chars if min_chars is None else max(1, int(min_chars))
+        threshold = self.min_chars if min_chars is None else max(0, int(min_chars))
         if len(stripped) < threshold:
             self.release()
             yield {"kind": "final", "text": original, "reason": "too_short"}
