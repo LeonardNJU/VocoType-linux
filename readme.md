@@ -16,7 +16,7 @@
 - **语音编辑（IBus）** - `Ctrl+F9` 进入编辑指令模式，可改写/替换/插入/删除/导航/撤销重做
 - **轻量化设计** - 仅需 700MB 内存，纯 CPU 推理，无需显卡
 - **0.1 秒级响应** - 感受所言即所得的畅快体验
-- **可选 Rime 集成** - 需要拼音时可启用 Rime，无需切换输入法
+- **Fcitx 全局模块** - 在原有 Rime、拼音、Mozc 等任意 Fcitx 5 输入法中直接使用 F9，无需切换到 VoCoType
 
 ## Demo
 https://github.com/user-attachments/assets/94772920-0f9e-4dff-8da5-c9026eb23256
@@ -29,7 +29,7 @@ https://github.com/user-attachments/assets/94772920-0f9e-4dff-8da5-c9026eb23256
 | 输入法框架 | 状态 | 说明 |
 |-----------|------|------|
 | **IBus** | ✅ 完整支持 | 适用于 GNOME、大多数发行版默认 |
-| **Fcitx 5** | ✅ 完整支持 | 适用于 KDE、偏好 Fcitx 的用户 |
+| **Fcitx 5** | ✅ 全局 Module | 增强当前所有 Fcitx 5 输入法，不再内嵌或代理 Rime |
 
 两个版本**可以同时安装**，共享 VoCoType 核心引擎，各自独立运行。
 
@@ -69,7 +69,7 @@ fcitx5 -r
   - 本地模型（`local_ephemeral`）：按下预热，润色后释放
   - 远程 API（`remote`）：交互配置 `model`、`endpoint`、`api_key`
 
-安装脚本还会询问 Python 环境：项目虚拟环境、用户级虚拟环境、系统 Python 或手动指定解释器。若安装后希望删除当前仓库，请选择用户级虚拟环境或系统 Python。
+Fcitx 版本安装为全局 Module，无需在输入法列表中添加 VoCoType；继续使用原来的 Rime、拼音或其他输入法即可。安装脚本还会询问 Python 环境：项目虚拟环境、用户级虚拟环境、系统 Python 或手动指定解释器。若安装后希望删除当前仓库，请选择用户级虚拟环境或系统 Python。
 
 详细安装说明：[fcitx5/README.md](fcitx5/README.md)
 
@@ -283,7 +283,7 @@ python scripts/benchmark_slm_pipeline.py ./samples \
 
 - [IBus 版本安装指南](ibus/README.md)
 - [Fcitx 5 版本安装指南](fcitx5/README.md)
-- [Rime 拼音配置指南](RIME_CONFIG_GUIDE.md)（可选功能）
+- [Rime 拼音配置指南](RIME_CONFIG_GUIDE.md)（主要面向 IBus；Fcitx 版本直接使用现有 fcitx5-rime）
 
 ---
 

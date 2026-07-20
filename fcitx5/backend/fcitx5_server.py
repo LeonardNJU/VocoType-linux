@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Fcitx 5 Python 后端服务（语音 + Rime）
+"""Fcitx 5 全局语音模块的 Python 后端服务。
 
-此服务作为独立进程运行，通过 Unix Socket 接收来自 C++ Addon 的请求，
-提供语音识别和 Rime 拼音输入功能。
+此服务作为独立进程运行，通过 Unix Socket 提供语音识别与可选 SLM 润色。
+用户当前使用的 Rime、拼音或其他输入法继续由 Fcitx 5 原生管理。
 """
 from __future__ import annotations
 
@@ -25,7 +25,6 @@ from app.config import DEFAULT_CONFIG, ensure_logging_dir, load_config
 from app.funasr_server import FunASRServer
 from app.logging_config import setup_logging
 from app.slm_polisher import SLMPolisher
-from backend.rime_handler import RimeHandler
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +62,8 @@ class Fcitx5Backend:
 
     职责：
     1. 接收语音识别请求，调用 FunASRServer
-    2. 接收 Rime 按键请求，调用 RimeHandler
-    3. 通过 IPC 返回结果给 C++ Addon
+    2. 对长句执行可选 SLM 润色
+    3. 通过 IPC 返回结果给 Fcitx 5 全局 module
     """
 
     def __init__(self, config: dict | None = None):
@@ -83,17 +82,10 @@ class Fcitx5Backend:
         self._slm_polisher = SLMPolisher(self.config.get("slm", {}))
         logger.info("SLM 长句润色: enabled=%s", self._slm_polisher.enabled)
 
-        # Rime 处理器
-        self.rime_handler = RimeHandler()
-        if self.rime_handler.available:
-            logger.info("Rime 集成已启用")
-        else:
-            logger.info("Rime 集成未启用（纯语音模式）")
 
         # 标记运行状态
         self.running = True
         self._asr_lock = threading.Lock()
-        self._rime_lock = threading.Lock()
 
         # 注册信号处理
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -182,15 +174,7 @@ class Fcitx5Backend:
            {"type": "slm_release"}
            -> {"success": true}
 
-        4. key_event: Rime 按键处理
-           {"type": "key_event", "keyval": 97, "mask": 0}
-           -> {"handled": true, "commit": "...", "preedit": {...}, ...}
-
-        5. reset: 重置 Rime 状态
-           {"type": "reset"}
-           -> {"success": true}
-
-        6. ping: 健康检查
+        4. ping: 健康检查
            {"type": "ping"}
            -> {"pong": true}
         """
@@ -300,23 +284,6 @@ class Fcitx5Backend:
                 self._slm_polisher.release()
                 response = {"success": True}
 
-            elif req_type == 'key_event':
-                # Rime 按键处理
-                keyval = request.get('keyval')
-                mask = request.get('mask', 0)
-                if keyval is None:
-                    response = {"handled": False, "error": "缺少 keyval 参数"}
-                else:
-                    with self._rime_lock:
-                        result = self.rime_handler.process_key(keyval, mask)
-                    response = result
-
-            elif req_type == 'reset':
-                # 重置 Rime
-                with self._rime_lock:
-                    self.rime_handler.reset()
-                response = {"success": True}
-
             elif req_type == 'ping':
                 # 健康检查
                 response = {"pong": True}
@@ -364,7 +331,6 @@ class Fcitx5Backend:
         logger.info("正在清理资源...")
         try:
             self.asr_server.cleanup()
-            self.rime_handler.cleanup()
         except Exception as exc:
             logger.error("清理资源失败: %s", exc)
 

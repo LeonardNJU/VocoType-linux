@@ -1,7 +1,0 @@
-[InputMethod]
-Name=vocotype
-Icon=microphone
-Label=🎤
-LangCode=zh_CN
-Addon=vocotype
-Configurable=True
