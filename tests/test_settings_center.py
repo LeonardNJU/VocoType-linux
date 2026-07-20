@@ -800,6 +800,17 @@ def test_shared_uninstaller_preserves_user_configuration_by_default():
     assert ".source-fcitx-integration" in script
 
 
+def test_source_fcitx_helper_only_queries_package_database_for_real_usr():
+    source = Path("installers/manage-fcitx-system-integration.sh").read_text(
+        encoding="utf-8"
+    )
+    assert '[[ "$PREFIX" == /usr ]] || return 0' in source
+    assert 'if output=$(dpkg-query -S -- "$path" 2>/dev/null); then' in source
+    assert 'if output=$(rpm -qf --qf' in source
+    assert 'if output=$(pacman -Qo -- "$path" 2>/dev/null); then' in source
+    assert "*[!A-Za-z0-9+_.:@-]*" in source
+
+
 def test_source_fcitx_system_helper_tracks_and_removes_owned_files(tmp_path: Path):
     helper = Path("installers/manage-fcitx-system-integration.sh").resolve()
     prefix = tmp_path / "usr"

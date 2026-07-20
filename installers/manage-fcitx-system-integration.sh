@@ -46,15 +46,32 @@ ADDON_DEST="$PREFIX/share/fcitx5/addon/vocotype.conf"
 MARKER="$PREFIX/share/vocotype/.source-fcitx-integration"
 
 package_owner() {
-    local path=$1
+    local path=$1 output owner
+    # A custom prefix is a test/staging root and cannot be owned by the host's
+    # package database. Querying it is both meaningless and distro-dependent.
+    [[ "$PREFIX" == /usr ]] || return 0
+
     if command -v pacman >/dev/null 2>&1; then
-        { pacman -Qo "$path" 2>/dev/null || true; } | \
-            sed -n 's/ is owned by / /p' | awk '{print $NF}'
+        if output=$(pacman -Qo -- "$path" 2>/dev/null); then
+            owner=$(sed -n 's/.* is owned by \([^ ]*\) .*/\1/p' <<<"$output" | head -1)
+        fi
     elif command -v rpm >/dev/null 2>&1; then
-        rpm -qf --qf '%{NAME}\n' "$path" 2>/dev/null || true
+        if output=$(rpm -qf --qf '%{NAME}\n' -- "$path" 2>/dev/null); then
+            owner=${output%%$'\n'*}
+        fi
     elif command -v dpkg-query >/dev/null 2>&1; then
-        dpkg-query -S "$path" 2>/dev/null | head -1 | cut -d: -f1
+        if output=$(dpkg-query -S -- "$path" 2>/dev/null); then
+            output=${output%%$'\n'*}
+            owner=${output%%: *}
+        fi
     fi
+
+    # Package names never contain whitespace or prose. This final validation
+    # prevents diagnostics such as "file ... is not owned" becoming owners.
+    case ${owner:-} in
+        ''|*[!A-Za-z0-9+_.:@-]*) return 0 ;;
+        *) printf '%s\n' "$owner" ;;
+    esac
 }
 
 refuse_package_owned_file() {
