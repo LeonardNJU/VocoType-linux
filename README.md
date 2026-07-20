@@ -252,22 +252,20 @@ bash fcitx5/scripts/uninstall.sh
 
 ## 架构设计
 
-```
+```text
 VoCoType Linux
-├── app/                    # 核心引擎（共享）
-│   ├── funasr_server.py    # 语音识别（FunASR）
-│   └── ...
-├── ibus/                   # IBus 版本
-│   ├── engine.py           # IBus 引擎
-│   └── README.md
-└── fcitx5/                 # Fcitx 5 全局 Module
-    ├── module/             # 当前 C++ 全局模块
-    ├── backend/            # Python ASR/SLM 后端
-    ├── addon/              # 旧输入法引擎源码（迁移参考）
-    └── README.md
+├── app/                    # 两套 integration 共用的核心运行时
+├── settings_center/        # GTK 设置、安装、卸载与诊断
+├── ibus/                   # IBus 引擎、数据和生命周期入口
+├── fcitx5/                 # Fcitx module、backend、IPC 和生命周期入口
+├── installers/             # 两套 integration 共用的安装/卸载实现
+├── packaging/              # 原生包配方、构建器、清单与 smoke
+├── tools/                  # benchmark 和开发排障工具
+├── tests/                  # 自动化行为测试
+└── docs/                   # 用户、排障和维护者文档
 ```
 
-IBus 和 Fcitx 5 是**并列独立**的实现，共享 VoCoType 核心（语音识别、音频采集）。
+IBus 和 Fcitx 5 是**地位对等、实现独立**的 integration，共享 VoCoType 核心及安装基础设施。完整目录约束见 [仓库目录规范](docs/development/repository-layout.md)。
 
 ---
 

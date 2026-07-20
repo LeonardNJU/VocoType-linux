@@ -355,6 +355,21 @@ def test_fcitx_module_has_system_recorder_fallback():
     assert 'recorder_launcher_path_ = "/usr/bin/vocotype-fcitx5-recorder"' in source
 
 
+
+
+def test_native_package_smoke_exercises_lifecycle_ownership_boundary():
+    smoke = (ROOT / "packaging/tests/smoke-installed-package.sh").read_text(encoding="utf-8")
+    assert "/usr/share/vocotype/ibus/scripts/uninstall-gui.sh" in smoke
+    assert "/usr/share/vocotype/fcitx5/scripts/uninstall-gui.sh" in smoke
+    assert "NATIVE_PACKAGE_COMMAND:" in smoke
+    assert "PACKAGE_UNINSTALL_OWNERSHIP_OK" in smoke
+
+def test_ci_discovers_shell_scripts_by_responsibility_directory():
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    assert "find ibus/scripts fcitx5/scripts installers packaging/tools packaging/tests tools/diagnostics" in workflow
+    assert "xargs -0 -n1 bash -n" in workflow
+    assert "compileall -q app settings_center ibus fcitx5/backend installers packaging/tools tools tests" in workflow
+
 def test_workflows_parse_and_pin_current_major_actions():
     ci = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
     release = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8"))

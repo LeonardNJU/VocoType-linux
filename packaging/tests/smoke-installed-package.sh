@@ -17,7 +17,13 @@ for path in \
   /usr/bin/vocotype-fcitx5-backend \
   /usr/bin/vocotype-fcitx5-recorder \
   /usr/share/ibus/component/vocotype.xml \
-  /usr/share/vocotype/.system-package; do
+  /usr/share/vocotype/.system-package \
+  /usr/share/vocotype/installers/runtime-common.sh \
+  /usr/share/vocotype/installers/uninstall-integration.sh \
+  /usr/share/vocotype/ibus/scripts/install-gui.sh \
+  /usr/share/vocotype/ibus/scripts/uninstall-gui.sh \
+  /usr/share/vocotype/fcitx5/scripts/install-gui.sh \
+  /usr/share/vocotype/fcitx5/scripts/uninstall-gui.sh; do
   check_path "$path"
 done
 
@@ -73,5 +79,19 @@ if find /usr/share/vocotype -type d -name __pycache__ -print -quit | grep -q .; 
   echo 'runtime import wrote __pycache__ into the immutable package tree' >&2
   exit 1
 fi
+
+
+lifecycle_home=$(mktemp -d)
+trap 'rm -rf "$lifecycle_home"' EXIT
+for framework in ibus fcitx5; do
+  log="$lifecycle_home/$framework-uninstall.log"
+  HOME="$lifecycle_home" XDG_CONFIG_HOME="$lifecycle_home/.config" \
+    bash "/usr/share/vocotype/$framework/scripts/uninstall-gui.sh" \
+    --purge-runtime >"$log" 2>&1
+  grep -Fq 'NATIVE_PACKAGE_COMMAND:' "$log"
+done
+check_path /usr/share/ibus/component/vocotype.xml
+check_path "$module"
+echo PACKAGE_UNINSTALL_OWNERSHIP_OK
 
 echo PACKAGE_INSTALL_SMOKE_OK
