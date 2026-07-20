@@ -15,7 +15,7 @@ MODELS = {
     "asr": {
         "name": os.environ.get(
             "FUNASR_ASR_MODEL",
-            "iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-onnx",
+            "iic/speech_paraformer-large-contextual_asr_nat-zh-cn-16k-common-vocab8404-onnx",
         ),
         "type": "asr",
     },

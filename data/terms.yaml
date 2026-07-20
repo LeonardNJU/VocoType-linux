@@ -1,0 +1,27 @@
+# VoCoType 统一术语库
+#
+# canonical: 希望最终输出的标准写法
+# aliases:   ASR 常见错写；仅进行一次、最长优先、大小写不敏感的确定性替换
+# hotword:   true 时将 canonical 发送给 Contextual Paraformer 原生热词编码器
+# hotwords:  也可显式指定多个原生热词；每个词不能含空格且至多 10 个字符
+# protect:   是否保护标准写法，避免后续 ITN/数字归一化误改（默认 true）
+terms:
+  - canonical: Ghostty
+    aliases:
+      - 鬼斯提
+      - 格斯提
+    hotword: true
+    protect: true
+
+  - canonical: Paraformer
+    aliases:
+      - 帕拉福摩
+      - para former
+    hotword: true
+    protect: true
+
+# 只保护、不替换的固定表达也可写在这里。
+protect:
+  - 三体问题
+  - 一加手机
+  - 五四运动

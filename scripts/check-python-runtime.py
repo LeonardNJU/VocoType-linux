@@ -10,6 +10,7 @@ REQUIRED_IMPORTS = (
     "sounddevice",
     "soundfile",
     "librosa",
+    "yaml",
     "modelscope.hub.snapshot_download",
     "funasr_onnx.paraformer_bin",
     "funasr_onnx.vad_bin",

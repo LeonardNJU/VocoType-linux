@@ -442,6 +442,17 @@ cp -r "$PROJECT_DIR/fcitx5/backend" "$INSTALL_DIR/"
 cp "$PROJECT_DIR/vocotype_version.py" "$INSTALL_DIR/"
 cp "$SCRIPT_DIR/setup-audio.py" "$INSTALLED_SETUP_AUDIO_SCRIPT"
 
+TERMS_DIR="$HOME/.config/vocotype"
+TERMS_FILE="$TERMS_DIR/terms.yaml"
+LEGACY_TERMS_FILE="$TERMS_DIR/user-dictionary.yaml"
+mkdir -p "$TERMS_DIR"
+if [ ! -e "$TERMS_FILE" ] && [ ! -e "$LEGACY_TERMS_FILE" ]; then
+    cp "$PROJECT_DIR/data/terms.yaml" "$TERMS_FILE"
+    echo "✓ 已创建统一术语库模板: $TERMS_FILE"
+else
+    echo "✓ 保留已有术语库配置"
+fi
+
 # 创建 __init__.py
 touch "$INSTALL_DIR/backend/__init__.py"
 
@@ -549,6 +560,7 @@ if [ "$USE_SYSTEM_PYTHON" = "1" ]; then
 import jieba  # noqa: F401
 import librosa  # noqa: F401
 import modelscope  # noqa: F401
+import yaml  # noqa: F401
 import sounddevice  # noqa: F401
 import soundfile  # noqa: F401
 import funasr_onnx  # noqa: F401
