@@ -4,6 +4,8 @@ import importlib.util
 from pathlib import Path
 import sys
 
+import numpy as np
+
 
 MODULE_PATH = (
     Path(__file__).resolve().parents[1] / "fcitx5" / "backend" / "audio_recorder.py"
@@ -29,3 +31,17 @@ def test_16khz_is_used_when_neither_cli_nor_config_is_present():
         == audio_recorder.SAMPLE_RATE
         == 16000
     )
+
+
+def test_pending_callback_frames_are_preserved_after_stream_stop():
+    recorder = audio_recorder.AudioRecorder(device=None, sample_rate=16000)
+    first = np.array([[1], [2]], dtype=np.int16)
+    second = np.array([[3], [4]], dtype=np.int16)
+    recorder.audio_queue.put(first)
+    recorder.audio_queue.put(second)
+
+    assert recorder._drain_pending_frames() == 2
+    assert len(recorder.audio_frames) == 2
+    assert np.array_equal(recorder.audio_frames[0], first)
+    assert np.array_equal(recorder.audio_frames[1], second)
+    assert recorder.audio_queue.empty()

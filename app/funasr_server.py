@@ -7,6 +7,7 @@ FunASR模型服务器
 
 import argparse
 import json
+import math
 import logging
 import traceback
 import signal
@@ -32,6 +33,13 @@ from app.text_normalizer import normalize_text
 
 
 logger = logging.getLogger(__name__)
+
+
+# funasr-onnx's WavFrontend indexes the first feature frame while applying
+# low-frame-rate splicing. Audio shorter than one 25 ms analysis window
+# therefore raises ``IndexError: index 0 is out of bounds ...`` instead of
+# producing an empty recognition result. Treat such captures as no speech.
+MIN_ASR_AUDIO_SECONDS = 0.025
 
 
 class FunASRServer:
@@ -406,7 +414,41 @@ class FunASRServer:
                 return {"success": False, "error": f"音频文件不存在: {audio_path}"}
 
             logger.info(f"开始转录音频文件: {audio_path}")
-            duration = self._get_audio_duration(audio_path)
+            audio_probe = self._probe_audio_file(audio_path)
+            if audio_probe is None:
+                duration = self._get_audio_duration(audio_path)
+            else:
+                frame_count, sample_rate = audio_probe
+                duration = frame_count / sample_rate
+                self.total_audio_duration += duration
+
+                minimum_frames = max(
+                    1,
+                    math.ceil(sample_rate * MIN_ASR_AUDIO_SECONDS),
+                )
+                if frame_count < minimum_frames:
+                    logger.warning(
+                        "录音过短，跳过 ASR：%s 帧 @ %s Hz（至少需要 %s 帧）",
+                        frame_count,
+                        sample_rate,
+                        minimum_frames,
+                    )
+                    self.transcription_count += 1
+                    return {
+                        "success": True,
+                        "text": "",
+                        "raw_text": "",
+                        "confidence": 0.0,
+                        "duration": duration,
+                        "language": "zh-CN",
+                        "model_type": (
+                            "onnx"
+                            if "onnx" in str(self.model_names.get("asr", "")).lower()
+                            else "pytorch"
+                        ),
+                        "models": self.model_names,
+                        "reason": "audio_too_short",
+                    }
 
             # 设置默认选项
             default_options = {
@@ -596,6 +638,27 @@ class FunASRServer:
         except Exception as e:
             logger.debug(f"获取音频时长失败: {str(e)}")
             return 0.0
+
+    @staticmethod
+    def _probe_audio_file(audio_path):
+        """Return ``(frames, sample_rate)`` for a readable audio file.
+
+        ``soundfile.info`` reads only the container metadata, so this check is
+        cheap enough to run before every inference. Returning ``None`` keeps
+        the existing decoder error path for malformed or unsupported files.
+        """
+        try:
+            import soundfile as sf
+
+            info = sf.info(audio_path)
+            frame_count = int(info.frames)
+            sample_rate = int(info.samplerate)
+            if frame_count < 0 or sample_rate <= 0:
+                return None
+            return frame_count, sample_rate
+        except Exception as exc:
+            logger.debug("读取音频元数据失败: %s", exc)
+            return None
 
     def _warmup_librosa(self):
         """预热librosa库，避免首次load时的初始化延迟（这是真正的问题所在）"""

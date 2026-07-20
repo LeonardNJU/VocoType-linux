@@ -116,6 +116,16 @@ class AudioRecorder:
 
         return preferred or SAMPLE_RATE
 
+    def _drain_pending_frames(self) -> int:
+        """Move callback frames still queued after stream shutdown into the capture."""
+        drained = 0
+        while True:
+            try:
+                self.audio_frames.append(self.audio_queue.get_nowait())
+                drained += 1
+            except queue.Empty:
+                return drained
+
     def record(self, duration: float | None = None) -> Path:
         """录制音频
 
@@ -178,6 +188,13 @@ class AudioRecorder:
         self.stream.stop()
         self.stream.close()
         capture_thread.join(timeout=1.0)
+
+        # ``stop_event`` makes the consumer thread exit immediately. A final
+        # callback may already have queued one or more blocks at that point,
+        # especially while PipeWire/PortAudio is warming up on the first
+        # recording. Preserve those blocks instead of silently shortening the
+        # capture passed to FunASR.
+        self._drain_pending_frames()
 
         logger.info("录音完成，共 %d 帧", len(self.audio_frames))
 
