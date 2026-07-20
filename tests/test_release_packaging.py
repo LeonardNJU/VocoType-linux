@@ -78,19 +78,14 @@ def test_release_manifest_is_safe_complete_and_unique():
         "app",
         "settings_center",
         "ibus",
-        "fcitx5/backend/audio_recorder.py",
-        "fcitx5/backend/fcitx5_server.py",
+        "fcitx5/backend",
+        "fcitx5/common",
+        "fcitx5/data",
         "fcitx5/module",
-        "fcitx5/scripts/install.sh",
-        "fcitx5/scripts/install-gui.sh",
-        "fcitx5/scripts/uninstall.sh",
-        "fcitx5/scripts/uninstall-gui.sh",
-        "installers/check-python-runtime.py",
-        "installers/uninstall-integration.sh",
-        "ibus/scripts/install-gui.sh",
-        "ibus/scripts/uninstall-gui.sh",
-        "installers/install-system-dependencies.sh",
+        "fcitx5/scripts",
+        "installers",
         "data",
+        "docs",
         "pyproject.toml",
         "requirements.txt",
         "uv.lock",
@@ -98,6 +93,11 @@ def test_release_manifest_is_safe_complete_and_unique():
         "LICENSE",
     }
     assert required.issubset(entries)
+    entry_paths = [Path(entry) for entry in entries]
+    for index, path in enumerate(entry_paths):
+        for other in entry_paths[index + 1 :]:
+            assert path not in other.parents, f"redundant manifest entry: {path} contains {other}"
+            assert other not in path.parents, f"redundant manifest entry: {other} contains {path}"
     for entry in entries:
         path = Path(entry)
         assert not path.is_absolute()
