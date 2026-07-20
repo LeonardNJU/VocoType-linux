@@ -11,6 +11,7 @@ REQUIRED_IMPORTS = (
     "soundfile",
     "librosa",
     "yaml",
+    "itn.chinese.inverse_normalizer",
     "modelscope.hub.snapshot_download",
     "funasr_onnx.paraformer_bin",
     "funasr_onnx.vad_bin",

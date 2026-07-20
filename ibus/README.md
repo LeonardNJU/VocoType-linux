@@ -2,6 +2,12 @@
 
 VoCoType 离线语音输入法的 IBus 版本实现。
 
+## 强制 ITN 与数字格式
+
+中文转写始终经过受保护的 WeTextProcessing FST ITN，没有关闭开关。产品规则负责中文输入法
+的日期、时间、金额和单位风格，FST 补齐剩余安全数字场景。详见
+[`docs/ITN.md`](../docs/ITN.md)。
+
 ## 术语库与原生热词
 
 IBus 与 Fcitx 5 共用 `~/.config/vocotype/terms.yaml`。默认 Contextual Paraformer
