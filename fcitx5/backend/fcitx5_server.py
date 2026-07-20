@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Fcitx 5 全局语音模块的 Python 后端服务。
-
-此服务作为独立进程运行，通过 Unix Socket 提供语音识别与可选 SLM 润色。
-用户当前使用的 Rime、拼音或其他输入法继续由 Fcitx 5 原生管理。
-"""
+"""Fcitx 5 global voice module backend with streamed polishing tasks."""
 from __future__ import annotations
 
 import sys
@@ -15,6 +11,8 @@ import signal
 import stat
 import threading
 import time
+import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # 添加项目根目录到 path
@@ -32,6 +30,132 @@ SOCKET_PATH = "/tmp/vocotype-fcitx5.sock"
 MAX_REQUEST_BYTES = 1024 * 1024
 REQUEST_TIMEOUT_S = 2.0
 DEFAULT_CONFIG_PATH = "~/.config/vocotype/fcitx5-backend.json"
+TASK_TTL_S = 300.0
+
+
+@dataclass
+class StreamTask:
+    task_id: str
+    long_mode: bool
+    polish_min_chars: int = 0
+    polish_timeout_ms: int = 0
+    enable_thinking: bool | None = None
+    created_at: float = field(default_factory=time.monotonic)
+    last_event_at: float = field(default_factory=time.monotonic)
+    status: str = "running"
+    phase: str = "asr"
+    events: list[dict] = field(default_factory=list)
+    seq: int = 0
+    preview: str = ""
+    final_text: str = ""
+    original_text: str = ""
+    error: str = ""
+    reason: str = ""
+    cancelled: bool = False
+    done_at: float | None = None
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def add_event(self, kind: str, text: str = "", **extra) -> None:
+        with self.lock:
+            if self.cancelled or self.status != "running":
+                return
+            self._add_event_locked(kind, text, **extra)
+
+    def set_original(self, text: str) -> None:
+        with self.lock:
+            self.original_text = text
+
+    def set_phase(self, phase: str) -> None:
+        with self.lock:
+            self.phase = phase
+            self.last_event_at = time.monotonic()
+
+    def touch(self) -> None:
+        with self.lock:
+            if self.cancelled or self.status != "running":
+                return
+            self.last_event_at = time.monotonic()
+
+    def is_cancelled(self) -> bool:
+        with self.lock:
+            return self.cancelled
+
+    def mark_final(self, text: str, reason: str = "ok") -> None:
+        with self.lock:
+            if self.cancelled or self.status != "running":
+                return
+            self.status = "final"
+            self.final_text = text
+            self.preview = text
+            self.reason = reason
+            self.done_at = time.monotonic()
+            self._add_event_locked("final", text, reason=reason)
+
+    def mark_error(self, message: str, reason: str = "error") -> None:
+        with self.lock:
+            if self.cancelled or self.status != "running":
+                return
+            self._mark_error_locked(message, reason)
+
+    def cancel(self) -> None:
+        with self.lock:
+            self.cancelled = True
+            if self.status == "running":
+                self.status = "cancelled"
+                self.done_at = time.monotonic()
+                self._add_event_locked("cancelled", "已取消")
+
+    def snapshot(self, after_seq: int, idle_timeout_s: float) -> dict:
+        with self.lock:
+            now = time.monotonic()
+            effective_idle_timeout_s = (
+                max(0.1, self.polish_timeout_ms / 1000.0)
+                if self.polish_timeout_ms > 0
+                else idle_timeout_s
+            )
+            if (
+                self.status == "running"
+                and self.phase == "polishing"
+                and effective_idle_timeout_s > 0
+                and now - self.last_event_at > effective_idle_timeout_s
+            ):
+                self.cancelled = True
+                self._mark_error_locked("SLM 调用失败：长时间未收到模型输出", "idle_timeout")
+
+            events = [event for event in self.events if int(event.get("seq", 0)) > after_seq]
+            return {
+                "success": True,
+                "task_id": self.task_id,
+                "status": self.status,
+                "phase": self.phase,
+                "events": events,
+                "last_seq": self.seq,
+                "preview": self.preview,
+                "final_text": self.final_text,
+                "original_text": self.original_text,
+                "error": self.error,
+                "reason": self.reason,
+            }
+
+    def _mark_error_locked(self, message: str, reason: str) -> None:
+        self.status = "error"
+        self.error = message
+        self.reason = reason
+        self.done_at = time.monotonic()
+        self._add_event_locked("error", message, reason=reason)
+
+    def _add_event_locked(self, kind: str, text: str = "", **extra) -> None:
+        self.seq += 1
+        event = {"seq": self.seq, "kind": kind, "text": text}
+        event.update(extra)
+        self.events.append(event)
+        if len(self.events) > 200:
+            self.events = self.events[-200:]
+        if kind == "delta":
+            self.preview = str(extra.get("preview", self.preview))
+        elif kind == "status":
+            self.reason = str(extra.get("reason", self.reason))
+        self.last_event_at = time.monotonic()
 
 
 def load_backend_config() -> tuple[dict, str]:
@@ -62,8 +186,8 @@ class Fcitx5Backend:
 
     职责：
     1. 接收语音识别请求，调用 FunASRServer
-    2. 对长句执行可选 SLM 润色
-    3. 通过 IPC 返回结果给 Fcitx 5 全局 module
+    2. 管理远程/本地 SLM 的异步流式任务
+    3. 通过 IPC 向 Fcitx 5 全局 module 返回增量事件
     """
 
     def __init__(self, config: dict | None = None):
@@ -81,11 +205,24 @@ class Fcitx5Backend:
         self._asr_options = dict(self.config.get("asr", {}))
         self._slm_polisher = SLMPolisher(self.config.get("slm", {}))
         logger.info("SLM 长句润色: enabled=%s", self._slm_polisher.enabled)
+        slm_cfg = dict(self.config.get("slm", {}))
+        self._slm_stream_idle_timeout_s = max(
+            0.1,
+            int(
+                slm_cfg.get(
+                    "stream_idle_timeout_ms",
+                    self._slm_polisher.stream_idle_timeout_ms,
+                )
+            )
+            / 1000.0,
+        )
 
 
         # 标记运行状态
         self.running = True
         self._asr_lock = threading.Lock()
+        self._stream_tasks: dict[str, StreamTask] = {}
+        self._stream_tasks_lock = threading.Lock()
 
         # 注册信号处理
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -154,6 +291,168 @@ class Fcitx5Backend:
                 logger.warning("清理 socket 失败: %s", exc)
             logger.info("Fcitx5 Backend 已停止")
 
+    def _start_stream_task(
+        self,
+        audio_path: str,
+        long_mode: bool,
+        polish_min_chars: int = 0,
+        polish_timeout_ms: int = 0,
+        enable_thinking: bool | None = None,
+    ) -> StreamTask:
+        task = StreamTask(
+            task_id=uuid.uuid4().hex,
+            long_mode=long_mode,
+            polish_min_chars=max(0, int(polish_min_chars or 0)),
+            polish_timeout_ms=max(0, int(polish_timeout_ms or 0)),
+            enable_thinking=enable_thinking,
+        )
+        with self._stream_tasks_lock:
+            self._cleanup_stream_tasks_locked()
+            self._stream_tasks[task.task_id] = task
+
+        threading.Thread(
+            target=self._run_stream_task,
+            args=(task, audio_path),
+            daemon=True,
+            name=f"VoCoTypeStreamTask-{task.task_id[:8]}",
+        ).start()
+        return task
+
+    def _get_stream_task(self, task_id: str) -> StreamTask | None:
+        with self._stream_tasks_lock:
+            self._cleanup_stream_tasks_locked()
+            return self._stream_tasks.get(task_id)
+
+    def _cleanup_stream_tasks_locked(self) -> None:
+        now = time.monotonic()
+        expired = [
+            task_id
+            for task_id, task in self._stream_tasks.items()
+            if task.done_at is not None and now - task.done_at > TASK_TTL_S
+        ]
+        for task_id in expired:
+            self._stream_tasks.pop(task_id, None)
+
+    def _run_stream_task(self, task: StreamTask, audio_path: str) -> None:
+        asr_ms = 0.0
+        slm_start = 0.0
+        slm_reason = "not_used"
+        slm_used = False
+        try:
+            task.add_event("status", "识别中...")
+            asr_start = time.perf_counter()
+            with self._asr_lock:
+                result = self.asr_server.transcribe_audio(
+                    audio_path,
+                    options=self._asr_options,
+                )
+            asr_ms = (time.perf_counter() - asr_start) * 1000.0
+
+            if task.is_cancelled():
+                return
+
+            if not result.get("success"):
+                task.mark_error(str(result.get("error", "转录失败")), "asr_failed")
+                return
+
+            text = str(result.get("text", "")).strip()
+            task.set_original(text)
+            if not text:
+                task.mark_error("转录结果为空", "empty_asr_text")
+                return
+
+            should_polish = (
+                task.long_mode
+                and self._slm_polisher.should_polish(
+                    text,
+                    long_mode=True,
+                    min_chars=task.polish_min_chars or None,
+                )
+            )
+            if not should_polish:
+                if not task.long_mode:
+                    slm_reason = "not_long_mode"
+                elif not self._slm_polisher.enabled:
+                    slm_reason = "disabled"
+                else:
+                    slm_reason = "too_short"
+                task.mark_final(text, slm_reason)
+                return
+
+            slm_used = True
+            slm_start = time.perf_counter()
+            task.set_phase("polishing")
+            task.add_event("status", "正在润色...")
+            got_final = False
+            for event in self._slm_polisher.stream_polish(
+                text,
+                long_mode=True,
+                min_chars=task.polish_min_chars or None,
+                enable_thinking=task.enable_thinking,
+            ):
+                if task.is_cancelled():
+                    return
+
+                kind = str(event.get("kind", ""))
+                if kind == "status":
+                    task.add_event("status", str(event.get("text", "")))
+                elif kind == "delta":
+                    task.add_event(
+                        "delta",
+                        str(event.get("text", "")),
+                        preview=str(event.get("preview", "")),
+                    )
+                elif kind == "heartbeat":
+                    task.touch()
+                elif kind == "final":
+                    final_text = str(event.get("text", "")).strip()
+                    if not final_text:
+                        reason = "blank_content"
+                        slm_reason = reason
+                        task.mark_error(
+                            self._slm_polisher.format_failure_message(reason),
+                            reason,
+                        )
+                    else:
+                        got_final = True
+                        slm_reason = str(event.get("reason", "ok"))
+                        task.mark_final(final_text, slm_reason)
+                    return
+                elif kind == "error":
+                    reason = str(event.get("reason", "request_error"))
+                    slm_reason = reason
+                    message = str(
+                        event.get("message")
+                        or self._slm_polisher.format_failure_message(reason)
+                    )
+                    task.mark_error(message, reason)
+                    return
+
+            if not got_final and not task.is_cancelled():
+                reason = "empty_content"
+                slm_reason = reason
+                task.mark_error(self._slm_polisher.format_failure_message(reason), reason)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("流式转录任务失败: %s", exc)
+            task.mark_error(str(exc), "exception")
+        finally:
+            try:
+                os.remove(audio_path)
+            except OSError:
+                pass
+            slm_ms = (time.perf_counter() - slm_start) * 1000.0 if slm_start else 0.0
+            if task.long_mode:
+                self._slm_polisher.release()
+            logger.info(
+                "Fcitx 流式转录流水线 mode=%s asr_ms=%.2f slm_used=%s slm_ms=%.2f reason=%s status=%s",
+                "long" if task.long_mode else "normal",
+                asr_ms,
+                slm_used,
+                slm_ms,
+                slm_reason,
+                task.status,
+            )
+
     def handle_client(self, conn: socket.socket):
         """处理客户端请求
 
@@ -166,15 +465,21 @@ class Fcitx5Backend:
            {"type": "transcribe", "audio_path": "/tmp/xxx.wav", "long_mode": false}
            -> {"success": true, "text": "识别结果"}
 
-        2. slm_prewarm: 预加载 SLM（长句模式按下时调用）
-           {"type": "slm_prewarm"}
+        1b. transcribe_start: 异步语音识别/润色任务
+           {"type": "transcribe_start", "audio_path": "/tmp/xxx.wav", "long_mode": true, "polish_min_chars": 16, "polish_timeout_ms": 12000, "enable_thinking": false}
+           -> {"success": true, "task_id": "...", "status": "running"}
+
+        1c. polish_poll: 拉取异步任务事件
+           {"type": "polish_poll", "task_id": "...", "after_seq": 0}
+           -> {"success": true, "status": "running", "events": [...]}
+
+        1d. polish_cancel: 取消异步任务
+           {"type": "polish_cancel", "task_id": "..."}
            -> {"success": true}
 
-        3. slm_release: 释放 SLM（长句流程结束时调用）
-           {"type": "slm_release"}
-           -> {"success": true}
+        2. slm_prewarm / slm_release: 本地模型生命周期兼容接口
 
-        4. ping: 健康检查
+        3. ping: 健康检查
            {"type": "ping"}
            -> {"pong": true}
         """
@@ -203,8 +508,51 @@ class Fcitx5Backend:
             logger.debug("收到请求: type=%s", req_type)
 
             # 处理请求
-            if req_type == 'transcribe':
-                # 语音识别
+            if req_type == 'transcribe_start':
+                audio_path = request.get('audio_path')
+                long_mode = bool(request.get('long_mode', False))
+                polish_min_chars = int(request.get("polish_min_chars", 0) or 0)
+                polish_timeout_ms = int(request.get("polish_timeout_ms", 0) or 0)
+                enable_thinking = (
+                    bool(request["enable_thinking"])
+                    if "enable_thinking" in request
+                    else None
+                )
+                if not audio_path:
+                    response = {"success": False, "error": "缺少 audio_path 参数"}
+                else:
+                    task = self._start_stream_task(
+                        str(audio_path),
+                        long_mode,
+                        polish_min_chars,
+                        polish_timeout_ms,
+                        enable_thinking,
+                    )
+                    response = {
+                        "success": True,
+                        "task_id": task.task_id,
+                        "status": task.status,
+                    }
+
+            elif req_type == 'polish_poll':
+                task_id = str(request.get('task_id', '')).strip()
+                after_seq = int(request.get('after_seq', 0) or 0)
+                task = self._get_stream_task(task_id)
+                if task is None:
+                    response = {"success": False, "error": "任务不存在或已过期"}
+                else:
+                    response = task.snapshot(after_seq, self._slm_stream_idle_timeout_s)
+
+            elif req_type == 'polish_cancel':
+                task_id = str(request.get('task_id', '')).strip()
+                task = self._get_stream_task(task_id)
+                if task is not None:
+                    task.cancel()
+                response = {"success": True}
+
+            elif req_type == 'transcribe':
+                # Backwards-compatible synchronous path. The global module uses
+                # this for plain ASR and transcribe_start for polishing.
                 audio_path = request.get('audio_path')
                 long_mode = bool(request.get('long_mode', False))
                 if not audio_path:
@@ -218,56 +566,40 @@ class Fcitx5Backend:
                                 options=self._asr_options,
                             )
                         asr_ms = (time.perf_counter() - asr_start) * 1000.0
-
-                        slm_used = False
-                        slm_ms = 0.0
                         slm_reason = "not_used"
-                        if result.get("success"):
-                            text = str(result.get("text", "")).strip()
-                            if text:
-                                should_polish = (
-                                    long_mode
-                                    and self._slm_polisher.should_polish(
-                                        text,
-                                        long_mode=True,
-                                    )
+                        slm_ms = 0.0
+                        if result.get("success") and long_mode:
+                            original = str(result.get("text", "")).strip()
+                            if self._slm_polisher.should_polish(
+                                original,
+                                long_mode=True,
+                            ):
+                                polished, metrics = self._slm_polisher.polish(
+                                    original,
+                                    long_mode=True,
                                 )
-                                if should_polish:
-                                    polished_text, metrics = self._slm_polisher.polish(
-                                        text,
-                                        long_mode=long_mode,
-                                    )
-                                    slm_used = metrics.used
-                                    slm_ms = metrics.latency_ms
-                                    slm_reason = metrics.reason
-                                    if self._slm_polisher.is_failure_reason(metrics.reason):
-                                        logger.warning(
-                                            "长句 SLM 调用失败: reason=%s",
-                                            metrics.reason,
-                                        )
-                                        result = {
-                                            "success": False,
-                                            "error": self._slm_polisher.format_failure_message(
-                                                metrics.reason
-                                            ),
-                                            "original_text": text,
-                                        }
-                                    else:
-                                        result["text"] = polished_text
-                                elif long_mode:
-                                    slm_reason = (
-                                        "disabled"
-                                        if not self._slm_polisher.enabled
-                                        else "too_short"
-                                    )
+                                slm_reason = metrics.reason
+                                slm_ms = metrics.latency_ms
+                                if self._slm_polisher.is_failure_reason(metrics.reason):
+                                    result = {
+                                        "success": False,
+                                        "error": self._slm_polisher.format_failure_message(
+                                            metrics.reason
+                                        ),
+                                        "original_text": original,
+                                    }
+                                else:
+                                    result["text"] = polished
                             else:
-                                slm_reason = "empty_asr_text"
-
+                                slm_reason = (
+                                    "disabled"
+                                    if not self._slm_polisher.enabled
+                                    else "too_short"
+                                )
                         logger.info(
-                            "Fcitx 转录流水线 mode=%s asr_ms=%.2f slm_used=%s slm_ms=%.2f fallback_reason=%s",
-                            "long" if long_mode else "normal",
+                            "Fcitx 同步转录流水线 mode=%s asr_ms=%.2f slm_ms=%.2f reason=%s",
+                            "long" if long_mode else "plain",
                             asr_ms,
-                            slm_used,
                             slm_ms,
                             slm_reason,
                         )

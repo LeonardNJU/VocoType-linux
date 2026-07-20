@@ -32,6 +32,7 @@ namespace {
 constexpr auto FCITX_CONFIG_PATH = "conf/vocotype.conf";
 constexpr uint64_t RECORDING_ANIMATION_INTERVAL_US = 200000;
 constexpr uint64_t PTT_RELEASE_DEBOUNCE_US = 50000;
+constexpr uint64_t POLISH_POLL_INTERVAL_US = 100000;
 constexpr uint64_t DUPLICATE_COMMIT_SUPPRESS_US = 250000;
 
 constexpr std::array<const char *, 8> RECORDING_ANIMATION_FRAMES = {
@@ -164,6 +165,7 @@ VoCoTypeModule::VoCoTypeModule(fcitx::Instance *instance)
 VoCoTypeModule::~VoCoTypeModule() {
     cancelPendingRecordingStart();
     cancelPendingRecordingStop();
+    cancelActivePolishTask();
     stopPanelAnimation();
     if (recorder_pid_ > 0 || recorder_stdout_ || recorder_stdin_fd_ >= 0) {
         std::string audio_path = stopRecorderProcess(
@@ -215,6 +217,10 @@ void VoCoTypeModule::applyConfig() {
     ptt_key_name_ = ptt_key.toString();
     ptt_hold_threshold_ms_ = config_.pttHoldThresholdMs.value();
     long_mode_modifier_ = modifier_state;
+    polish_by_default_ = config_.polishByDefault.value();
+    polish_min_chars_ = std::max(1, config_.polishMinChars.value());
+    polish_timeout_ms_ = std::max(1000, config_.polishTimeoutMs.value());
+    enable_thinking_ = config_.enableThinking.value();
     block_when_composing_ = config_.blockWhenComposing.value();
     strip_trailing_period_on_commit_ =
         config_.stripTrailingPeriodOnCommit.value();
@@ -229,6 +235,11 @@ bool VoCoTypeModule::hasActiveComposition(fcitx::InputContext *ic) const {
            static_cast<bool>(panel.candidateList());
 }
 
+bool VoCoTypeModule::polishModeForStates(fcitx::KeyStates states) const {
+    const bool modifier_active = static_cast<bool>(states & long_mode_modifier_);
+    return polish_by_default_ ? !modifier_active : modifier_active;
+}
+
 void VoCoTypeModule::handleKeyEvent(fcitx::KeyEvent &event) {
     auto *ic = event.inputContext();
     if (!ic) {
@@ -240,6 +251,14 @@ void VoCoTypeModule::handleKeyEvent(fcitx::KeyEvent &event) {
     }
 
     const auto key = event.key();
+    if (!active_polish_task_id_.empty() && !event.isRelease()) {
+        cancelActivePolishTask();
+        clearOwnedUI(ic);
+        if (key.sym() == FcitxKey_Escape) {
+            event.filterAndAccept();
+            return;
+        }
+    }
     if (key.sym() != ptt_key_sym_) {
         return;
     }
@@ -258,8 +277,7 @@ void VoCoTypeModule::handleKeyEvent(fcitx::KeyEvent &event) {
             }
             pending_ptt_states_ = key.states();
             active_ic_ = ic->watch();
-            armPendingRecordingStart(
-                ic, static_cast<bool>(key.states() & long_mode_modifier_));
+            armPendingRecordingStart(ic, polishModeForStates(key.states()));
         }
     } else if (is_recording_) {
         armPendingRecordingStop();
@@ -278,6 +296,7 @@ void VoCoTypeModule::handleFocusOut(fcitx::InputContextEvent &event) {
         return;
     }
 
+    cancelActivePolishTask();
     if (is_recording_) {
         FCITX_INFO() << "Input focus changed while recording; cancelling VoCoType session";
         stopRecording(false);
@@ -361,6 +380,7 @@ void VoCoTypeModule::replayShortTapAsRegularKey(fcitx::InputContext *ic) {
 }
 
 void VoCoTypeModule::startRecording(fcitx::InputContext *ic, bool long_mode) {
+    cancelActivePolishTask();
     if (is_recording_ || !ic || !ic->hasFocus()) {
         return;
     }
@@ -482,11 +502,52 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
             return;
         }
 
+        if (long_mode) {
+            TranscribeStartResult start_result;
+            if (audio_path.empty()) {
+                start_result.error = "录音失败";
+            } else {
+                start_result = ipc_client_->startTranscription(
+                    audio_path,
+                    true,
+                    polish_min_chars_,
+                    polish_timeout_ms_,
+                    enable_thinking_);
+                if (!start_result.success || start_result.task_id.empty()) {
+                    std::remove(audio_path.c_str());
+                }
+            }
+
+            instance_->eventDispatcher().scheduleWithContext(
+                ic_ref, [this, ic_ref, start_result]() {
+                    auto *ic_ptr = ic_ref.get();
+                    if (!ic_ptr || !ic_ptr->hasFocus()) {
+                        if (start_result.success && !start_result.task_id.empty()) {
+                            const std::string task_id = start_result.task_id;
+                            std::thread([task_id]() {
+                                IPCClient client("/tmp/vocotype-fcitx5.sock");
+                                (void)client.cancelPolishTask(task_id);
+                            }).detach();
+                        }
+                        active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
+                        return;
+                    }
+                    if (start_result.success && !start_result.task_id.empty()) {
+                        startPolishPolling(ic_ptr, start_result.task_id);
+                    } else {
+                        showError(
+                            ic_ptr,
+                            start_result.error.empty() ? "转录失败" : start_result.error);
+                    }
+                });
+            return;
+        }
+
         TranscribeResult result;
         if (audio_path.empty()) {
             result.error = "录音失败";
         } else {
-            result = ipc_client_->transcribeAudio(audio_path, long_mode);
+            result = ipc_client_->transcribeAudio(audio_path, false);
             std::remove(audio_path.c_str());
         }
 
@@ -515,6 +576,176 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
                 }
             });
     }).detach();
+}
+
+void VoCoTypeModule::startPolishPolling(fcitx::InputContext *ic,
+                                            const std::string &task_id) {
+    stopPanelAnimation();
+    active_polish_task_id_ = task_id;
+    active_polish_preview_.clear();
+    active_polish_original_.clear();
+    active_polish_after_seq_ = 0;
+    polish_poll_in_flight_ = false;
+    polish_poll_timer_.reset();
+    showPanelMessage(ic, "⏳ 识别中...");
+    schedulePolishPoll(ic->watch());
+}
+
+void VoCoTypeModule::schedulePolishPoll(
+    fcitx::TrackableObjectReference<fcitx::InputContext> ic_ref) {
+    if (active_polish_task_id_.empty() || polish_poll_timer_ ||
+        polish_poll_in_flight_) {
+        return;
+    }
+
+    polish_poll_timer_ = instance_->eventLoop().addTimeEvent(
+        CLOCK_MONOTONIC,
+        fcitx::now(CLOCK_MONOTONIC) + POLISH_POLL_INTERVAL_US,
+        0,
+        [this, ic_ref](fcitx::EventSourceTime *, uint64_t) {
+            polish_poll_timer_.reset();
+            if (active_polish_task_id_.empty() || polish_poll_in_flight_) {
+                return false;
+            }
+
+            const std::string task_id = active_polish_task_id_;
+            const int after_seq = active_polish_after_seq_;
+            polish_poll_in_flight_ = true;
+            std::thread([this, ic_ref, task_id, after_seq]() {
+                const PolishPollResult result =
+                    ipc_client_->pollPolishTask(task_id, after_seq);
+                instance_->eventDispatcher().scheduleWithContext(
+                    ic_ref, [this, ic_ref, task_id, result]() {
+                        polish_poll_in_flight_ = false;
+                        auto *ic_ptr = ic_ref.get();
+                        if (!ic_ptr || !ic_ptr->hasFocus() ||
+                            task_id != active_polish_task_id_) {
+                            return;
+                        }
+                        handlePolishPollResult(ic_ptr, result);
+                    });
+            }).detach();
+            return false;
+        });
+    polish_poll_timer_->setOneShot();
+}
+
+void VoCoTypeModule::handlePolishPollResult(
+    fcitx::InputContext *ic,
+    const PolishPollResult &result) {
+    if (!result.success) {
+        const std::string fallback = active_polish_original_;
+        active_polish_task_id_.clear();
+        polish_poll_timer_.reset();
+        showError(ic,
+                  result.error.empty() ? "润色任务失败" : result.error,
+                  fallback);
+        return;
+    }
+
+    active_polish_after_seq_ = result.last_seq;
+    if (!result.original_text.empty()) {
+        active_polish_original_ = result.original_text;
+    }
+    if (!result.preview.empty()) {
+        active_polish_preview_ = result.preview;
+    }
+
+    std::string status_text =
+        result.phase == "asr" ? "⏳ 识别中..." : "✨ 正在润色...";
+    for (const auto &event : result.events) {
+        if (event.kind == "status" && !event.text.empty()) {
+            status_text = event.text;
+        } else if (event.kind == "delta" && !event.preview.empty()) {
+            active_polish_preview_ = event.preview;
+        }
+    }
+
+    if (result.status == "final") {
+        const std::string final_text = result.final_text.empty()
+                                           ? active_polish_preview_
+                                           : result.final_text;
+        active_polish_task_id_.clear();
+        polish_poll_timer_.reset();
+        active_polish_preview_.clear();
+        active_polish_original_.clear();
+        active_polish_after_seq_ = 0;
+        if (!final_text.empty()) {
+            commitText(ic, final_text, strip_trailing_period_on_commit_);
+        } else {
+            clearOwnedUI(ic);
+        }
+        active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
+        return;
+    }
+
+    if (result.status == "error" || result.status == "cancelled") {
+        const std::string error = result.error.empty() ? "润色失败" : result.error;
+        const std::string fallback = result.original_text.empty()
+                                         ? active_polish_original_
+                                         : result.original_text;
+        active_polish_task_id_.clear();
+        polish_poll_timer_.reset();
+        active_polish_preview_.clear();
+        active_polish_original_.clear();
+        active_polish_after_seq_ = 0;
+        showError(ic, error, fallback);
+        return;
+    }
+
+    showPolishProgress(ic, status_text, active_polish_preview_,
+                       active_polish_original_);
+    schedulePolishPoll(ic->watch());
+}
+
+void VoCoTypeModule::showPolishProgress(
+    fcitx::InputContext *ic,
+    const std::string &status,
+    const std::string &preview,
+    const std::string &original_text) {
+    stopPanelAnimation();
+    pending_fallback_text_.clear();
+    ui_owned_ = true;
+
+    auto &panel = ic->inputPanel();
+    panel.reset();
+    fcitx::Text status_text;
+    status_text.append(status.empty() ? "✨ 正在润色..." : status);
+    panel.setAuxUp(status_text);
+
+    auto candidates = std::make_unique<fcitx::CommonCandidateList>();
+    candidates->setPageSize(2);
+    fcitx::Text preview_text;
+    preview_text.append(preview.empty() ? "等待模型输出..." : preview);
+    candidates->append<fcitx::DisplayOnlyCandidateWord>(preview_text);
+    if (!original_text.empty()) {
+        fcitx::Text original;
+        original.append(original_text);
+        candidates->append<fcitx::DisplayOnlyCandidateWord>(original);
+    }
+    candidates->setGlobalCursorIndex(0);
+    panel.setCandidateList(std::move(candidates));
+    ic->updatePreedit();
+    ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+}
+
+void VoCoTypeModule::cancelActivePolishTask() {
+    polish_poll_timer_.reset();
+    polish_poll_in_flight_ = false;
+    if (!active_polish_task_id_.empty()) {
+        const std::string task_id = active_polish_task_id_;
+        // Never block the Fcitx key-event thread on backend cancellation and
+        // never capture the module object in the detached request.
+        std::thread([task_id]() {
+            IPCClient client("/tmp/vocotype-fcitx5.sock");
+            (void)client.cancelPolishTask(task_id);
+        }).detach();
+    }
+    active_polish_task_id_.clear();
+    active_polish_preview_.clear();
+    active_polish_original_.clear();
+    active_polish_after_seq_ = 0;
+    active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
 }
 
 void VoCoTypeModule::showPanelMessage(fcitx::InputContext *ic,

@@ -7,7 +7,7 @@ VoCoType 只拦截配置的 PTT 热键并把语音识别结果直接提交到当
 ## 主要能力
 
 - `F9`：按住录音，松开执行本地 ASR 并提交。
-- `Shift+F9`：长句模式，识别后可选执行本地或远程 SLM 润色。
+- `Shift+F9`：长句模式；远程 SLM 生成期间在输入面板实时显示可见预览。
 - 在所有 Fcitx 5 输入法下生效，不再代理普通键盘事件。
 - 不依赖 `pyrime`，不创建独立 Rime session，不复制候选词或 preedit。
 - 按下热键时记录原始 `InputContext`；焦点变化后取消或丢弃结果，避免误输到其他窗口。
@@ -84,7 +84,11 @@ fcitx5 -r
 
 - `PTTKey`：主热键，默认 `F9`。
 - `PTTHoldThresholdMs`：超过指定时长才开始录音；默认 `0`，即按下立即开始。
-- `LongModeModifier`：长句/润色模式修饰键，默认 `Shift`。
+- `LongModeModifier`：润色模式临时反转修饰键，默认 `Shift`。
+- `PolishByDefault`：普通 F9 是否默认润色，默认关闭。
+- `PolishMinChars`：ASR 文本达到多少字符才调用 SLM，默认 `8`。
+- `PolishTimeoutMs`：流式输出空闲超时，默认 `20000` 毫秒。
+- `EnableThinking`：是否允许模型 reasoning；预览和最终提交仍会过滤 thinking。
 - `BlockWhenComposing`：当前输入法存在未提交组合时不启动录音，默认开启。
 - `StripTrailingPeriodOnCommit`：提交前移除末尾 `。` 或 `.`，默认关闭。
 
@@ -141,10 +145,14 @@ Contextual Paraformer ONNX，术语可以同时进入原生 hotword 编码器和
 的日期、时间、金额和单位风格，FST 补齐剩余安全数字场景。详见
 [`docs/ITN.md`](../docs/ITN.md)。
 
-## 长句 SLM
+## AI 润色与实时预览
 
-`F9` 只进行 ASR；`Shift+F9` 将 `long_mode=true` 发送给 backend。
 SLM 默认关闭，在 `~/.config/vocotype/fcitx5-backend.json` 中配置。
+`PolishByDefault=false` 时，`F9` 只做 ASR，`Shift+F9` 才润色；设为 `true` 后两者反转。
+
+润色模式通过异步任务执行：module 先获得 `task_id`，随后每 100 ms 拉取
+`status / heartbeat / delta / final / error` 事件。远程模型的可见增量会显示在输入面板，
+同时保留 ASR 原文；thinking/reasoning 不会进入预览。
 
 ### 本地按需模型
 
@@ -166,25 +174,40 @@ SLM 默认关闭，在 `~/.config/vocotype/fcitx5-backend.json` 中配置。
 }
 ```
 
-### 远程 OpenAI-compatible API
+本地 worker 暂时返回完整结果，但使用同一任务协议；录音时预热，完成后按既有保活策略释放。
+
+### 远程 OpenAI-compatible SSE
 
 ```json
 {
   "slm": {
     "enabled": true,
     "provider": "remote",
-    "model": "gpt-4o",
+    "model": "gpt-4o-mini",
     "endpoint": "https://example.com/v1/chat/completions",
     "api_key": "sk-***",
-    "timeout_ms": 20000,
+    "remote_stream": true,
+    "stream_idle_timeout_ms": 20000,
+    "transport_timeout_ms": 0,
+    "remote_max_tokens": 0,
     "min_chars": 8,
-    "max_tokens": 128,
-    "retry_without_proxy": true
+    "enable_thinking": false,
+    "retry_without_proxy": true,
+    "extra_headers": {},
+    "extra_body": {}
   }
 }
 ```
 
-SLM 失败时不会静默提交错误结果。若 ASR 原文可用，输入面板会提供原文候选供用户确认提交。
+`remote_max_tokens=0` 表示不发送固定输出上限，避免长文本被旧的 128-token 默认值截断。
+`stream_idle_timeout_ms` 从最后一次 SSE 事件开始计时。OpenRouter 会自动映射 reasoning 参数和
+项目标识 header，用户显式配置的 `extra_headers` / `extra_body` 优先。
+
+任务中按 `Escape` 可取消；开始普通键盘输入也会取消润色并把该按键继续交给当前输入法。
+调用失败时不会丢失已识别文字：输入面板保留 ASR 原文，按 `1`、空格或回车提交，
+按 `Escape` 放弃。
+
+完整协议与参数见 [`docs/SLM_STREAMING.md`](../docs/SLM_STREAMING.md)。
 
 ## 行为边界
 

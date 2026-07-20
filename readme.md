@@ -97,9 +97,19 @@ ASR 后的确定性 alias → canonical 替换，并保护标准词不被 ITN/�
 
 ## SLM 后处理配置（通用）
 
-`F9` 为极速模式（不走 SLM），`Shift+F9` 为长句模式（可选 SLM/LLM 润色）。
+VoCoType 保留 `local_ephemeral` 与 `remote` 两种 provider，以及 IBus 的 `Ctrl+F9`
+语音编辑链路。Fcitx 5 的远程润色默认使用 OpenAI-compatible SSE：模型生成期间在
+输入面板显示可见预览，thinking/reasoning 内容不会上屏。
 
-### 本地模型（推荐，按需加载）
+默认快捷键仍是：
+
+- `F9`：极速 ASR，不调用 SLM。
+- `Shift+F9`：ASR 后尝试润色。
+
+Fcitx 5 可将 `PolishByDefault=true`，此时两者语义反转：`F9` 默认润色，
+`Shift+F9` 临时跳过。
+
+### 本地模型（按需加载）
 
 ```json
 {
@@ -121,34 +131,46 @@ ASR 后的确定性 alias → canonical 替换，并保护标准词不被 ITN/�
 }
 ```
 
-### 远程 API（OpenAI 兼容）
+### 远程 API（OpenAI-compatible SSE）
 
 ```json
 {
   "slm": {
     "enabled": true,
     "provider": "remote",
-    "model": "gpt-4o",
-    "endpoint": "http://<host>:<port>/v1/chat/completions",
+    "model": "gpt-4o-mini",
+    "endpoint": "https://example.com/v1/chat/completions",
     "api_key": "sk-***",
-    "timeout_ms": 20000,
+    "remote_stream": true,
+    "stream_idle_timeout_ms": 20000,
+    "transport_timeout_ms": 0,
+    "remote_max_tokens": 0,
     "min_chars": 8,
-    "max_tokens": 128,
+    "enable_thinking": false,
+    "retry_without_proxy": true,
+    "extra_headers": {},
+    "extra_body": {},
     "edit_enabled": true,
-    "edit_max_tokens": 256,
-    "retry_without_proxy": true
+    "edit_max_tokens": 256
   }
 }
 ```
 
-关键参数说明：
-- `provider`：`local_ephemeral` / `remote`
-- `min_chars`：长句触发阈值（默认 `8`）
-- `max_tokens`：润色输出预算
-- `edit_enabled`：是否启用 `Ctrl+F9` 语音编辑（默认 `true`，仅 IBus）
-- `edit_max_tokens`：语音编辑模式下的输出预算（默认 `256`）
-- `enable_thinking`：是否允许思考输出（默认关闭）
-- `retry_without_proxy`：远程请求失败时尝试绕过代理直连重试
+关键参数：
+
+- `provider`：`local_ephemeral` / `remote`。
+- `min_chars`：润色触发阈值，默认 `8`。
+- `max_tokens`：仅用于本地模型生成预算。
+- `remote_max_tokens`：远程输出上限；默认 `0`，不发送固定限制，避免长文本被截断。
+- `stream_idle_timeout_ms`：最后一次 SSE 事件后的空闲超时，而非整个生成过程总时长。
+- `extra_headers` / `extra_body`：provider 专属请求扩展。
+- `enable_thinking`：是否允许模型 reasoning；最终文本与 Fcitx 预览都会过滤 thinking。
+- `edit_enabled` / `edit_max_tokens`：IBus `Ctrl+F9` 语音编辑配置。
+
+OpenRouter endpoint 会自动获得项目标识 header，并按其 API 映射 reasoning 参数。远程失败、
+流式超时或只返回 thinking 时，Fcitx 会保留 ASR 原文供用户确认提交。
+
+详见：[流式 AI 润色](docs/SLM_STREAMING.md)。
 
 ---
 
@@ -213,9 +235,10 @@ VoCoType Linux
 ├── ibus/                   # IBus 版本
 │   ├── engine.py           # IBus 引擎
 │   └── README.md
-└── fcitx5/                 # Fcitx 5 版本
-    ├── addon/              # C++ Addon
-    ├── backend/            # Python 后端
+└── fcitx5/                 # Fcitx 5 全局 Module
+    ├── module/             # 当前 C++ 全局模块
+    ├── backend/            # Python ASR/SLM 后端
+    ├── addon/              # 旧输入法引擎源码（迁移参考）
     └── README.md
 ```
 
@@ -227,10 +250,10 @@ IBus 和 Fcitx 5 是**并列独立**的实现，共享 VoCoType 核心（语音�
 
 | 特性 | IBus 版本 | Fcitx 5 版本 |
 |-----|----------|-------------|
-| 输入法框架 | IBus | Fcitx 5 |
+| 输入法框架 | IBus 输入法引擎 | Fcitx 5 全局 Module |
 | 实现语言 | 纯 Python | C++ + Python (IPC) |
 | 安装位置 | `~/.local/share/vocotype/` | `~/.local/share/vocotype-fcitx5/` |
-| 适用桌面 | GNOME 等 | KDE 等 |
+| 适用桌面 | GNOME 等 | 任意使用 Fcitx 5 的桌面 |
 
 ---
 
@@ -305,6 +328,7 @@ python scripts/benchmark_slm_pipeline.py ./samples \
 - [Fcitx 5 版本安装指南](fcitx5/README.md)
 - [术语库与原生热词](docs/TERMS.md)
 - [强制 ITN 与数字格式策略](docs/ITN.md)
+- [流式 AI 润色](docs/SLM_STREAMING.md)
 - [Rime 拼音配置指南](RIME_CONFIG_GUIDE.md)（主要面向 IBus；Fcitx 版本直接使用现有 fcitx5-rime）
 
 ---

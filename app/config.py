@@ -45,6 +45,13 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "endpoint": "http://127.0.0.1:18080/v1/chat/completions",
         "model": "Qwen/Qwen3.5-0.8B",
         "timeout_ms": 20000,
+        "remote_stream": True,
+        # 流式模式按最后一次模型事件重新计时；0 表示不限制远端输出 token。
+        "stream_idle_timeout_ms": 20000,
+        "transport_timeout_ms": 0,
+        "remote_max_tokens": 0,
+        "extra_headers": {},
+        "extra_body": {},
         # local_ephemeral 仅在长句模式下预加载，润色完成后释放模型
         "warmup_timeout_ms": 90000,
         # 空闲保活时长：长句结束后保留模型，便于连续输入复用

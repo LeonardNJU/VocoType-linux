@@ -178,8 +178,16 @@ slm.update(
 )
 if provider == "remote":
     slm["endpoint"] = endpoint
+    slm["remote_stream"] = True
+    slm["stream_idle_timeout_ms"] = timeout_ms
+    slm.setdefault("transport_timeout_ms", 0)
+    slm.setdefault("remote_max_tokens", 0)
+    slm.setdefault("extra_headers", {})
+    slm.setdefault("extra_body", {})
+    slm.pop("max_tokens", None)
 else:
     slm.pop("endpoint", None)
+    slm["max_tokens"] = max_tokens
 cfg["slm"] = slm
 
 os.makedirs(os.path.dirname(target), exist_ok=True)

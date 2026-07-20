@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 from pathlib import Path
 import sys
@@ -352,3 +353,226 @@ def test_normalize_remote_endpoint():
         SLMPolisher._normalize_remote_endpoint("http://8.153.102.23:13001/v1/chat/completions")
         == "http://8.153.102.23:13001/v1/chat/completions"
     )
+
+
+class _FakeSseResponse:
+    def __init__(self, lines):
+        self._lines = iter(lines)
+        self.headers = {"Content-Type": "text/event-stream; charset=utf-8"}
+
+    def readline(self):
+        try:
+            return next(self._lines)
+        except StopIteration:
+            return b""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+def _sse_event(payload: dict) -> list[bytes]:
+    return [
+        f"data: {json.dumps(payload, ensure_ascii=False)}\n".encode("utf-8"),
+        b"\n",
+    ]
+
+
+def test_remote_stream_yields_preview_and_final(monkeypatch):
+    polisher = SLMPolisher(
+        {
+            "enabled": True,
+            "provider": "remote",
+            "min_chars": 1,
+            "endpoint": "http://test.local/v1/chat/completions",
+        }
+    )
+    lines = []
+    lines += _sse_event({"choices": [{"delta": {"role": "assistant"}}]})
+    lines += _sse_event({"choices": [{"delta": {"content": "润色后"}}]})
+    lines += _sse_event({"choices": [{"delta": {"content": "的文本。"}}]})
+    lines += [b"data: [DONE]\n", b"\n"]
+
+    monkeypatch.setattr(
+        polisher,
+        "_open_remote_request",
+        lambda request, timeout_s, *, bypass_proxy: _FakeSseResponse(lines),
+    )
+
+    events = list(polisher.stream_polish("原始文本", long_mode=True))
+    assert events[0] == {"kind": "status", "text": "正在调用大模型..."}
+    assert events[1]["kind"] == "heartbeat"
+    assert events[2]["preview"] == "润色后"
+    assert events[3]["preview"] == "润色后的文本。"
+    assert events[-1]["kind"] == "final"
+    assert events[-1]["text"] == "润色后的文本。"
+
+
+def test_remote_stream_hides_thinking_until_final_marker(monkeypatch):
+    polisher = SLMPolisher(
+        {
+            "enabled": True,
+            "provider": "remote",
+            "min_chars": 1,
+            "endpoint": "http://test.local/v1/chat/completions",
+            "enable_thinking": True,
+        }
+    )
+    lines = []
+    lines += _sse_event(
+        {"choices": [{"delta": {"content": "Thinking Process: secret reasoning"}}]}
+    )
+    lines += _sse_event(
+        {"choices": [{"delta": {"content": "\nFinal Answer: 最终文本。"}}]}
+    )
+    lines += [b"data: [DONE]\n", b"\n"]
+    monkeypatch.setattr(
+        polisher,
+        "_open_remote_request",
+        lambda request, timeout_s, *, bypass_proxy: _FakeSseResponse(lines),
+    )
+
+    events = list(polisher.stream_polish("原始文本", long_mode=True))
+    previews = [event.get("preview", "") for event in events]
+    assert all("secret reasoning" not in preview for preview in previews)
+    assert events[-1]["text"] == "最终文本。"
+
+
+def test_remote_stream_reports_structured_error(monkeypatch):
+    polisher = SLMPolisher(
+        {
+            "enabled": True,
+            "provider": "remote",
+            "min_chars": 1,
+            "endpoint": "http://test.local/v1/chat/completions",
+        }
+    )
+    lines = _sse_event({"error": {"code": 402, "message": "No credits"}})
+    monkeypatch.setattr(
+        polisher,
+        "_open_remote_request",
+        lambda request, timeout_s, *, bypass_proxy: _FakeSseResponse(lines),
+    )
+
+    events = list(polisher.stream_polish("原始文本", long_mode=True))
+    assert events[-1]["kind"] == "error"
+    assert events[-1]["reason"] == "remote_error"
+
+
+def test_local_stream_contract_keeps_local_provider(monkeypatch):
+    polisher = SLMPolisher(
+        {
+            "enabled": True,
+            "provider": "local_ephemeral",
+            "min_chars": 1,
+        }
+    )
+    monkeypatch.setattr(
+        polisher,
+        "_polish_local",
+        lambda original, stripped, start: (
+            "本地润色结果。",
+            slm_polisher.PolisherMetrics(True, True, 12.0, "ok"),
+        ),
+    )
+
+    events = list(polisher.stream_polish("原始文本", long_mode=True))
+    assert events[0]["kind"] == "status"
+    assert events[-1]["kind"] == "final"
+    assert events[-1]["text"] == "本地润色结果。"
+
+
+def test_remote_payload_omits_default_token_limit_and_maps_openrouter_reasoning():
+    polisher = SLMPolisher(
+        {
+            "enabled": True,
+            "provider": "remote",
+            "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+            "enable_thinking": False,
+        }
+    )
+    payload = polisher._build_remote_payload("文本", stream=True)
+    assert "max_tokens" not in payload
+    assert payload["reasoning"] == {"effort": "none", "exclude": True}
+    assert payload["include_reasoning"] is False
+    assert polisher._request_headers()["HTTP-Referer"].endswith(
+        "LeonardNJU/VocoType-linux"
+    )
+
+
+def test_remote_payload_respects_explicit_token_limit_and_headers():
+    polisher = SLMPolisher(
+        {
+            "enabled": True,
+            "provider": "remote",
+            "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+            "remote_max_tokens": 512,
+            "extra_headers": {"X-Title": "Custom VoCoType"},
+        }
+    )
+    payload = polisher._build_remote_payload("文本", stream=False)
+    assert payload["max_tokens"] == 512
+    assert polisher._request_headers()["X-Title"] == "Custom VoCoType"
+
+
+
+def test_remote_stream_http_error_is_structured_provider_error(monkeypatch):
+    polisher = SLMPolisher(
+        {
+            "enabled": True,
+            "provider": "remote",
+            "min_chars": 1,
+            "endpoint": "https://example.test/v1/chat/completions",
+        }
+    )
+    body = json.dumps(
+        {"error": {"code": 429, "message": "Rate limit exceeded"}}
+    ).encode("utf-8")
+    error = slm_polisher.urllib.error.HTTPError(
+        polisher.endpoint,
+        429,
+        "Too Many Requests",
+        {},
+        io.BytesIO(body),
+    )
+    monkeypatch.setattr(
+        polisher,
+        "_open_remote_request",
+        lambda request, timeout_s, *, bypass_proxy: (_ for _ in ()).throw(error),
+    )
+
+    events = list(polisher.stream_polish("原始文本", long_mode=True))
+    assert events[-1]["kind"] == "error"
+    assert events[-1]["reason"] == "remote_error"
+
+
+def test_remote_edit_preserves_edit_token_budget_with_streaming(monkeypatch):
+    polisher = SLMPolisher(
+        {
+            "enabled": True,
+            "provider": "remote",
+            "endpoint": "http://test.local/v1/chat/completions",
+            "edit_max_tokens": 384,
+        }
+    )
+    captured = {}
+
+    def _fake_stream(original, stripped, start, *, enable_thinking):
+        captured["remote_max_tokens"] = polisher.remote_max_tokens
+        captured["enable_thinking"] = enable_thinking
+        yield {"kind": "final", "text": "编辑结果", "reason": "ok"}
+
+    monkeypatch.setattr(polisher, "_stream_remote", _fake_stream)
+    out, metrics = polisher.edit_with_instruction(
+        context_text="原始上下文",
+        instruction="改得简洁一点",
+        cursor_pos=5,
+        anchor_pos=5,
+    )
+
+    assert out == "编辑结果"
+    assert metrics.reason == "ok"
+    assert captured == {"remote_max_tokens": 384, "enable_thinking": False}
+    assert polisher.remote_max_tokens == 0
