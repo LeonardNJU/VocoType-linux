@@ -2,7 +2,12 @@ import wave
 
 import numpy as np
 
-from app.funasr_server import FunASRServer
+from app.funasr_server import (
+    FunASRServer,
+    _empty_contextual_hotword_tensors,
+    _is_contextual_onnx_model,
+    _prepare_contextual_onnx_layout,
+)
 
 
 class _FailIfCalledASR:
@@ -31,6 +36,7 @@ def _write_wav(path, sample_count: int, sample_rate: int = 16000) -> None:
 def _server_with_model(model):
     server = FunASRServer.__new__(FunASRServer)
     server.asr_model = model
+    server.asr_supports_hotword = False
     server.vad_model = None
     server.punc_model = None
     server.initialized = True
@@ -70,3 +76,68 @@ def test_one_frontend_window_still_reaches_asr(tmp_path):
     assert model.calls == 1
     assert result["success"] is True
     assert result["raw_text"] == "测试"
+
+
+class _RecordingContextualASR:
+    def __init__(self):
+        self.hotwords = None
+
+    def __call__(self, _audio, *, hotwords):
+        self.hotwords = hotwords
+        return [{"preds": "鬼斯提"}]
+
+
+def test_contextual_model_detection():
+    assert _is_contextual_onnx_model("iic/foo-contextual-onnx") is True
+    assert _is_contextual_onnx_model("iic/foo-seaco-onnx") is True
+    assert _is_contextual_onnx_model("iic/plain-paraformer-onnx") is False
+
+
+def test_contextual_layout_links_quantized_backbone(tmp_path):
+    (tmp_path / "model_quant.onnx").write_bytes(b"backbone")
+    (tmp_path / "model_eb.onnx").write_bytes(b"embedding")
+
+    assert _prepare_contextual_onnx_layout(str(tmp_path)) == str(tmp_path)
+    assert (tmp_path / "model.onnx").exists()
+    assert (tmp_path / "model.onnx").read_bytes() == b"backbone"
+
+
+def test_empty_contextual_hotword_uses_only_sentinel():
+    hotwords, lengths = _empty_contextual_hotword_tensors()
+    assert hotwords.shape == (1, 10)
+    assert hotwords[0, 0] == 1
+    assert hotwords[0, 1:].tolist() == [0] * 9
+    assert lengths.tolist() == [0]
+
+
+def test_contextual_asr_receives_terms_and_explicit_hotwords(
+    tmp_path, monkeypatch
+):
+    terms_path = tmp_path / "terms.yaml"
+    terms_path.write_text(
+        """
+terms:
+  - canonical: Ghostty
+    aliases: [鬼斯提]
+    hotword: true
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("VOCOTYPE_TERMS_FILE", str(terms_path))
+    from app import term_lexicon
+
+    term_lexicon._reset_term_lexicon_cache()
+    audio_path = tmp_path / "audio.wav"
+    _write_wav(audio_path, sample_count=400)
+    model = _RecordingContextualASR()
+    server = _server_with_model(model)
+    server.asr_supports_hotword = True
+
+    result = server.transcribe_audio(
+        str(audio_path),
+        options={"use_punc": False, "hotword": "VoCoType"},
+    )
+
+    assert model.hotwords == "Ghostty VoCoType"
+    assert result["text"] == "Ghostty"
+    term_lexicon._reset_term_lexicon_cache()

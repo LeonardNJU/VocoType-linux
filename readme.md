@@ -75,6 +75,16 @@ Fcitx 版本安装为全局 Module，无需在输入法列表中添加 VoCoType�
 
 ---
 
+## 统一术语库与原生热词
+
+默认 ASR 已切换为官方 Contextual Paraformer ONNX。IBus 与 Fcitx 5 共用
+`~/.config/vocotype/terms.yaml`：同一条术语既可作为模型原生 hotword，也可配置
+ASR 后的确定性 alias → canonical 替换，并保护标准词不被 ITN/数字规则误改。
+
+详见：[术语库与原生热词](docs/TERMS.md)。
+
+---
+
 ## SLM 后处理配置（通用）
 
 `F9` 为极速模式（不走 SLM），`Shift+F9` 为长句模式（可选 SLM/LLM 润色）。
@@ -283,6 +293,7 @@ python scripts/benchmark_slm_pipeline.py ./samples \
 
 - [IBus 版本安装指南](ibus/README.md)
 - [Fcitx 5 版本安装指南](fcitx5/README.md)
+- [术语库与原生热词](docs/TERMS.md)
 - [Rime 拼音配置指南](RIME_CONFIG_GUIDE.md)（主要面向 IBus；Fcitx 版本直接使用现有 fcitx5-rime）
 
 ---

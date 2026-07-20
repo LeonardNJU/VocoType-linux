@@ -867,6 +867,17 @@ cp -r "$PROJECT_DIR/app" "$INSTALL_DIR/"
 cp -r "$PROJECT_DIR/ibus" "$INSTALL_DIR/"
 cp "$PROJECT_DIR/vocotype_version.py" "$INSTALL_DIR/"
 
+TERMS_DIR="$HOME/.config/vocotype"
+TERMS_FILE="$TERMS_DIR/terms.yaml"
+LEGACY_TERMS_FILE="$TERMS_DIR/user-dictionary.yaml"
+mkdir -p "$TERMS_DIR"
+if [ ! -e "$TERMS_FILE" ] && [ ! -e "$LEGACY_TERMS_FILE" ]; then
+    cp "$PROJECT_DIR/data/terms.yaml" "$TERMS_FILE"
+    echo "✓ 已创建统一术语库模板: $TERMS_FILE"
+else
+    echo "✓ 保留已有术语库配置"
+fi
+
 # 4. 创建启动脚本
 echo "[4/6] 创建启动脚本..."
 cat > "$LIBEXEC_DIR/ibus-engine-vocotype" << 'LAUNCHER'

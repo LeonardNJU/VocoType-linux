@@ -2,7 +2,26 @@
 
 from __future__ import annotations
 
+import importlib.util
+from pathlib import Path
 import re
+import sys
+from typing import Sequence
+
+try:
+    from .term_lexicon import apply_term_lexicon
+except ImportError:  # Support direct file loading used by standalone tests/tools.
+    module_path = Path(__file__).with_name("term_lexicon.py")
+    module_name = "_vocotype_term_lexicon"
+    module = sys.modules.get(module_name)
+    if module is None:
+        spec = importlib.util.spec_from_file_location(module_name, module_path)
+        if spec is None or spec.loader is None:
+            raise
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+    apply_term_lexicon = module.apply_term_lexicon
 
 
 _DIGIT_MAP = {
@@ -94,16 +113,27 @@ _CONTEXT_PREFIX_CHARS = set("到至和或比乘除加减约近超共用隔差")
 _CONTEXT_SUFFIX_CHARS = set("到至和或比乘除加减多余前后")
 
 
-def normalize_text(text: str, *, convert_chinese_numbers: bool = True) -> str:
-    """Normalize ASR output without changing its meaning."""
+Span = tuple[int, int]
 
-    normalized = text or ""
+
+def normalize_text(text: str, *, convert_chinese_numbers: bool = True) -> str:
+    """Canonicalize configured terms, then normalize unprotected numerals."""
+
+    term_result = apply_term_lexicon(text or "")
+    normalized = term_result.text
     if convert_chinese_numbers and normalized:
-        normalized = normalize_chinese_numbers(normalized)
+        normalized = normalize_chinese_numbers(
+            normalized,
+            protected_spans=term_result.protected_spans,
+        )
     return normalized
 
 
-def normalize_chinese_numbers(text: str) -> str:
+def normalize_chinese_numbers(
+    text: str,
+    *,
+    protected_spans: Sequence[Span] = (),
+) -> str:
     """Convert suitable Chinese numerals to Arabic digits."""
 
     if not text:
@@ -114,6 +144,9 @@ def normalize_chinese_numbers(text: str) -> str:
         prev_char = text[start - 1] if start > 0 else ""
         next_text = text[end:]
         full_match = match.group(0)
+
+        if _span_overlaps_protected(start, end, protected_spans):
+            return full_match
 
         if match.group("percent") is not None:
             converted = _convert_number_body(match.group("percent"))
@@ -135,6 +168,14 @@ def normalize_chinese_numbers(text: str) -> str:
 
     return _CANDIDATE_RE.sub(_replace, text)
 
+
+
+def _span_overlaps_protected(
+    start: int,
+    end: int,
+    protected_spans: Sequence[Span],
+) -> bool:
+    return any(start < protected_end and end > protected_start for protected_start, protected_end in protected_spans)
 
 def _should_convert_general(body: str, *, prev_char: str, next_text: str) -> bool:
     if not body:

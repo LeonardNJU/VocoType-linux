@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.11, <3.13"
 resolution-markers = [
     "python_full_version >= '3.12'",
@@ -1294,6 +1294,7 @@ dependencies = [
     { name = "librosa" },
     { name = "modelscope" },
     { name = "pygobject" },
+    { name = "pyyaml" },
     { name = "sounddevice" },
     { name = "soundfile" },
 ]
@@ -1321,6 +1322,7 @@ requires-dist = [
     { name = "pygobject", specifier = ">=3.46,<3.52" },
     { name = "pyrime", marker = "extra == 'full'", specifier = ">=0.2.1" },
     { name = "pyrime", marker = "extra == 'rime'", specifier = ">=0.2.1" },
+    { name = "pyyaml", specifier = ">=6.0,<7" },
     { name = "sentencepiece", marker = "extra == 'slm'", specifier = ">=0.2.1" },
     { name = "socksio", marker = "extra == 'slm'", specifier = ">=1.0.0" },
     { name = "sounddevice", specifier = "==0.5.2" },

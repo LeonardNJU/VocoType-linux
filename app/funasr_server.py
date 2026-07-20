@@ -29,6 +29,7 @@ os.environ.setdefault("FUNASR_DEVICE", "cpu")
 from app.funasr_config import MODEL_REVISION, MODELS
 from app.download_models import get_model_cache_path
 from app.logging_config import setup_logging
+from app.term_lexicon import build_native_hotword_string
 from app.text_normalizer import normalize_text
 
 
@@ -42,9 +43,62 @@ logger = logging.getLogger(__name__)
 MIN_ASR_AUDIO_SECONDS = 0.025
 
 
+def _is_contextual_onnx_model(model_name: str) -> bool:
+    normalized = str(model_name or "").lower()
+    return "contextual" in normalized or "seaco" in normalized
+
+
+def _prepare_contextual_onnx_layout(model_dir: str) -> str:
+    """Adapt ModelScope's mixed quantized layout for funasr_onnx 0.4.2.
+
+    The official contextual snapshot contains ``model_quant.onnx`` and the
+    non-quantized hotword encoder ``model_eb.onnx``. funasr_onnx selects both
+    filenames from one ``quantize`` flag, so expose the quantized backbone via
+    a harmless ``model.onnx`` symlink and load with ``quantize=False``.
+    """
+
+    from pathlib import Path
+
+    path = Path(model_dir)
+    backbone = path / "model.onnx"
+    quantized_backbone = path / "model_quant.onnx"
+    embedding = path / "model_eb.onnx"
+    if not embedding.exists():
+        raise FileNotFoundError(f"Contextual Paraformer 缺少 model_eb.onnx: {path}")
+    if backbone.exists():
+        return str(path)
+    if not quantized_backbone.exists():
+        raise FileNotFoundError(
+            f"Contextual Paraformer 缺少 model.onnx/model_quant.onnx: {path}"
+        )
+    try:
+        backbone.symlink_to(quantized_backbone.name)
+    except FileExistsError:
+        pass
+    except OSError:
+        # A hard link is still zero-copy and works on filesystems that disable
+        # symlinks inside the model cache.
+        try:
+            backbone.hardlink_to(quantized_backbone)
+        except FileExistsError:
+            pass
+    if not backbone.exists():
+        raise OSError(f"无法为 contextual backbone 创建兼容链接: {backbone}")
+    return str(path)
+
+
+def _empty_contextual_hotword_tensors():
+    """Return the sentinel-only hotword input expected by the ONNX encoder."""
+
+    import numpy as np
+
+    return np.array([[1] + [0] * 9], dtype=np.int64), np.array([0], dtype=np.int64)
+
+
 class FunASRServer:
     def __init__(self):
         self.asr_model = None
+        self.asr_supports_hotword = False
         self.vad_model = None
         self.punc_model = None
         self.initialized = False
@@ -132,26 +186,50 @@ class FunASRServer:
             
             # 如果是 ONNX 模型，使用 funasr_onnx 专用加载器
             if "onnx" in model_name_lower:
-                from funasr_onnx.paraformer_bin import Paraformer
+                contextual = _is_contextual_onnx_model(self.model_names["asr"])
+                if contextual:
+                    from funasr_onnx.paraformer_bin import ContextualParaformer
+
+                    class VoCoTypeContextualParaformer(ContextualParaformer):
+                        def __init__(self, *args, **kwargs):
+                            super().__init__(*args, **kwargs)
+                            # funasr_onnx 0.4.2's contextual constructor omits
+                            # the language attribute used by its own decoder.
+                            if not hasattr(self, "language"):
+                                self.language = None
+
+                        def proc_hotword(self, hotwords):
+                            if not str(hotwords or "").strip():
+                                return _empty_contextual_hotword_tensors()
+                            return super().proc_hotword(hotwords)
+
+                    model_class = VoCoTypeContextualParaformer
+                else:
+                    from funasr_onnx.paraformer_bin import Paraformer
+
+                    model_class = Paraformer
 
                 logger.info("开始加载ASR ONNX模型: %s", self.model_names["asr"])
                 try:
                     model_dir = get_model_cache_path(
                         self.model_names["asr"],
-                        self.model_revision
+                        self.model_revision,
+                        required_files=(("model_eb.onnx",) if contextual else ()),
                     )
+                    if contextual:
+                        model_dir = _prepare_contextual_onnx_layout(model_dir)
                 except Exception as e:
-                    logger.error("下载 ASR ONNX 模型失败: %s", e)
+                    logger.error("下载或校验 ASR ONNX 模型失败: %s", e)
                     return False
 
-                # 基本完整性校验，优先使用量化模型
                 quant_file = os.path.join(model_dir, "model_quant.onnx")
                 base_file = os.path.join(model_dir, "model.onnx")
-                use_quantize = False
-                if os.path.exists(quant_file):
-                    use_quantize = True
-                elif not os.path.exists(base_file):
-                    logger.error("ASR 模型目录缺少 model.onnx: %s", model_dir)
+                # Contextual snapshots use model_quant + model_eb. The layout
+                # adapter exposes model_quant as model.onnx, so use the mixed
+                # pair through quantize=False.
+                use_quantize = bool(not contextual and os.path.exists(quant_file))
+                if not os.path.exists(base_file) and not use_quantize:
+                    logger.error("ASR 模型目录缺少可用 backbone: %s", model_dir)
                     return False
 
                 device_id = -1  # CPU
@@ -160,18 +238,20 @@ class FunASRServer:
                         device_id = int(self.device.split(":")[-1])
                     except Exception:
                         device_id = 0
-                
-                # 性能优化参数
-                num_threads = int(os.environ.get("OMP_NUM_THREADS", "8"))
 
-                self.asr_model = Paraformer(
+                num_threads = int(os.environ.get("OMP_NUM_THREADS", "8"))
+                self.asr_model = model_class(
                     str(model_dir),
                     batch_size=1,
                     device_id=device_id,
                     quantize=use_quantize,
-                    intra_op_num_threads=num_threads,  # 线程并行加速
+                    intra_op_num_threads=num_threads,
                 )
-                logger.info("ASR ONNX模型加载完成")
+                self.asr_supports_hotword = contextual
+                logger.info(
+                    "ASR ONNX模型加载完成，native_hotword=%s",
+                    self.asr_supports_hotword,
+                )
                 return True
             else:
                 logger.error("仅支持 ONNX 模型加载，当前模型名称: %s", self.model_names["asr"]) 
@@ -541,8 +621,25 @@ class FunASRServer:
                         cache={},
                     )
                 else:
-                    # ONNX 模型直接调用（funasr_onnx.Paraformer）
-                    asr_result = self.asr_model([audio_path_for_asr])
+                    native_hotwords = build_native_hotword_string(
+                        default_options.get("hotword", "")
+                    )
+                    if self.asr_supports_hotword:
+                        logger.info(
+                            "Contextual Paraformer 使用 %s 个原生热词",
+                            len(native_hotwords.split()) if native_hotwords else 0,
+                        )
+                        asr_result = self.asr_model(
+                            [audio_path_for_asr],
+                            hotwords=native_hotwords,
+                        )
+                    else:
+                        if native_hotwords:
+                            logger.warning(
+                                "当前 ASR 模型不支持原生热词，忽略 %s 个热词",
+                                len(native_hotwords.split()),
+                            )
+                        asr_result = self.asr_model([audio_path_for_asr])
             finally:
                 if tmp_vad_path:
                     try:

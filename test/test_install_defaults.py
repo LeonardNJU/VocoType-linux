@@ -43,3 +43,19 @@ def test_installers_omit_endpoint_for_local_provider_and_use_provider_defaults()
         assert "SLM_MAX_TOKENS=96" in script
         assert 'SLM_PROVIDER="remote"\n            SLM_TIMEOUT_MS=20000' in script
         assert "SLM_MAX_TOKENS=128" in script
+
+
+def test_default_asr_model_is_contextual_onnx_with_native_hotword_support():
+    from app.funasr_config import MODELS
+
+    assert "contextual" in MODELS["asr"]["name"]
+    assert MODELS["asr"]["name"].endswith("-onnx")
+
+
+def test_installers_create_shared_terms_template_without_overwriting_legacy_file():
+    for path in INSTALLERS:
+        script = path.read_text(encoding="utf-8")
+        assert 'TERMS_FILE="$TERMS_DIR/terms.yaml"' in script
+        assert 'LEGACY_TERMS_FILE="$TERMS_DIR/user-dictionary.yaml"' in script
+        assert 'cp "$PROJECT_DIR/data/terms.yaml" "$TERMS_FILE"' in script
+        assert '[ ! -e "$TERMS_FILE" ] && [ ! -e "$LEGACY_TERMS_FILE" ]' in script
