@@ -203,6 +203,9 @@ class Fcitx5Backend:
         logger.info("FunASR 服务器初始化成功")
 
         self._asr_options = dict(self.config.get("asr", {}))
+        self._asr_options["normalization"] = dict(
+            self.config.get("normalization", {})
+        )
         self._slm_polisher = SLMPolisher(self.config.get("slm", {}))
         logger.info("SLM 长句润色: enabled=%s", self._slm_polisher.enabled)
         slm_cfg = dict(self.config.get("slm", {}))
@@ -366,7 +369,7 @@ class Fcitx5Backend:
                 and self._slm_polisher.should_polish(
                     text,
                     long_mode=True,
-                    min_chars=task.polish_min_chars or None,
+                    min_chars=task.polish_min_chars,
                 )
             )
             if not should_polish:
@@ -387,7 +390,7 @@ class Fcitx5Backend:
             for event in self._slm_polisher.stream_polish(
                 text,
                 long_mode=True,
-                min_chars=task.polish_min_chars or None,
+                min_chars=task.polish_min_chars,
                 enable_thinking=task.enable_thinking,
             ):
                 if task.is_cancelled():

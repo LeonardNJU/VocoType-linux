@@ -89,7 +89,7 @@ protect:
 """,
     )
 
-    assert normalize_text("hundred meter plan启动，一百米") == "一百米计划启动，100米"
+    assert normalize_text("hundred meter plan启动，一百米") == "一百米计划启动，100m"
     assert normalize_text("三体问题有三个变量") == "三体问题有3个变量"
 
 

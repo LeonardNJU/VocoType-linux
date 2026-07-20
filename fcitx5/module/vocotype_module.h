@@ -50,7 +50,7 @@ FCITX_CONFIGURATION(
         "PolishMinChars",
         "AI 润色最少字数",
         8,
-        fcitx::IntConstrain(1, 2000)};
+        fcitx::IntConstrain(0, 2000)};
     fcitx::Option<int, fcitx::IntConstrain> polishTimeoutMs{
         this,
         "PolishTimeoutMs",

@@ -538,6 +538,7 @@ class FunASRServer:
                 "use_vad": os.environ.get("FUNASR_USE_VAD", "false").lower() not in ("0", "false", "no"),
                 "use_punc": os.environ.get("FUNASR_USE_PUNC", "true").lower() not in ("0", "false", "no"),
                 "language": "zh",
+                "normalization": None,
             }
 
             if options:
@@ -681,7 +682,10 @@ class FunASRServer:
                     logger.warning(f"标点恢复失败，使用原始文本: {str(e)}")
 
             if final_text.strip():
-                final_text = normalize_text(final_text)
+                final_text = normalize_text(
+                    final_text,
+                    config=default_options.get("normalization"),
+                )
 
             self.transcription_count += 1
 

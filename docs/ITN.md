@@ -1,68 +1,74 @@
-# 强制 ITN 与数字格式策略
+# ITN 与数字格式策略
 
-VoCoType 的中文逆文本归一化（ITN）是基础转写流水线的一部分，**不可关闭**。
-IBus 与 Fcitx 5 使用完全相同的处理路径。
+VoCoType 使用 WeTextProcessing 中文 FST ITN 和产品级数字规则。运行依赖始终安装，但用户可以在图形设置中心整体关闭数字/ITN，或独立选择输出风格。
 
-## 为什么同时保留产品规则和 FST ITN
-
-通用 ITN 擅长把口语数字恢复成书面形式，但输入法还需要稳定的显示风格：
+## 默认行为
 
 ```text
-二零二六年五月十一号  → 2026年5月11号
-下午三点二十分开会    → 下午3点20分开会
+二零二六年五月十一号  → 2026/05/11
+下午三点二十分开会    → 15:20开会
 延迟一点五秒           → 延迟1.5秒
-九十九块九             → 99.9块
+九十九块九             → ¥99.9
 系统还有二百五十六台   → 系统还有256台
+跑了三百二十米         → 跑了320m
 ```
 
-通用 FST 可能把日期改成斜杠、时间改成冒号和 `p.m.`、单位改成英文缩写、金额改成货币符号。
-这些格式不一定适合中文输入法，因此 VoCoType 采用两层处理：
+默认配置：
+
+```json
+{
+  "normalization": {
+    "enabled": true,
+    "compact_dates": true,
+    "compact_times": true,
+    "compact_distances": true,
+    "currency_symbols": true
+  }
+}
+```
+
+Fcitx 与 IBus 共用这组语义。设置中心保存时会同步写入两份运行配置。
+
+## 开关语义
+
+- `enabled=false`：不执行中文数字规则或 FST ITN；用户词典 alias → canonical 仍然执行。
+- `compact_dates=false`：保留 `2026年5月11号`，而不是 `2026/05/11`。
+- `compact_times=false`：保留 `下午3点20分`，而不是 `15:20`。
+- `compact_distances=false`：保留 `320米`，而不是 `320m`。
+- `currency_symbols=false`：保留 `128元`，而不是 `¥128`。
+
+## 处理顺序
 
 ```text
+Contextual Paraformer + native hotwords
+    ↓
+标点恢复
+    ↓
 术语 alias → canonical
     ↓
-VoCoType 数字产品规则
+（enabled=true）产品数字规则
     ↓
-保护已确定的数字、术语、固定短语和现有技术字符串
+保护 canonical、固定短语和已确定格式
     ↓
-WeTextProcessing 中文 FST ITN（始终执行）
+WeTextProcessing 中文 FST ITN
     ↓
-仅接受语义安全的数字替换，拒绝单位/日期/时间/货币风格重写
+按独立开关应用日期/时间/路程/金额书写风格
 ```
 
-## 安全护栏
+通用 FST 仍受语义安全护栏约束。日期、时间、单位和货币风格不再由 FST 随机决定，而由最后一层确定性产品策略统一输出。
 
-强制 ITN 执行前会保护：
+## 术语保护
 
-- 术语库中的 `canonical` 和顶层 `protect` 条目；
-- 产品数字规则已经生成的结果；
-- 成语、诗句和固定表达；
-- 已存在的英文、版本号、路径、参数和阿拉伯数字 token。
+用户名称、作品名、型号或特殊写法应加入 `~/.config/vocotype/terms.yaml` 并保持 `protect: true`。例如 `100米计划` 不会因为启用了路程缩写而变成 `100m计划`。
 
-FST 输出只有在变化完全由中文数字字符转换为阿拉伯数字及基础数字标点时才会被接受。
-例如：
-
-```text
-系统还有二百五十六台机器 → 系统还有256台机器
-三十而立                   → 三十而立
-二零二六年五月十一号       → FST 的斜杠日期被拒绝，产品规则输出 2026年5月11号
-跑了三百二十米             → FST 的 320m 风格被拒绝，产品规则输出 320米
-```
-
-## 固定短语与用户术语
-
-内置数字规则包含常见成语、诗句和固定短语保护。用户自己的名称、作品名、型号或特殊写法
-应加入 `~/.config/vocotype/terms.yaml`，并保持 `protect: true`。
-
-详见 [`TERMS.md`](TERMS.md)。
+详见 [`TERMS.md`](TERMS.md) 和 [`SETTINGS_CENTER.md`](SETTINGS_CENTER.md)。
 
 ## 依赖
 
-基础安装固定依赖：
+基础安装仍固定依赖：
 
 ```text
 WeTextProcessing==1.2.0
 ```
 
-它及其 FST 运行时会随标准安装一起安装。由于 ITN 不提供关闭开关，选择系统 Python 时也必须
-确保该依赖可导入；安装器的运行时检查会验证这一点。
+关闭 ITN 只是运行策略，不会卸载依赖；再次开启时无需重新安装。

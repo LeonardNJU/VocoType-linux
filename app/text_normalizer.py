@@ -284,13 +284,55 @@ _FIXED_NON_NUMERIC_PHRASES = _load_fixed_non_numeric_phrases()
 Span = tuple[int, int]
 
 
-def normalize_text(text: str) -> str:
-    """Run terminology, product numeric policy, then mandatory guarded ITN."""
+_DEFAULT_NORMALIZATION_CONFIG = {
+    "enabled": True,
+    "compact_dates": True,
+    "compact_times": True,
+    "compact_distances": True,
+    "currency_symbols": True,
+}
+_DATE_STYLE_RE = re.compile(
+    r"(?<!\d)(?P<year>\d{4})年(?P<month>\d{1,2})月(?P<day>\d{1,2})(?:日|号)"
+)
+_TIME_STYLE_RE = re.compile(
+    r"(?P<period>凌晨|早上|上午|中午|下午|傍晚|晚上)?"
+    r"(?<!\d)(?P<hour>\d{1,2})点"
+    r"(?:(?P<minute>\d{1,2})分|(?P<half>半))?"
+)
+_DISTANCE_STYLE_RE = re.compile(
+    r"(?<![A-Za-z0-9_.])(?P<value>-?\d+(?:\.\d+)?)\s*"
+    r"(?P<unit>公里|千米|厘米|毫米|米)(?![A-Za-z])"
+)
+_CURRENCY_STYLE_RE = re.compile(
+    r"(?<![A-Za-z0-9_.¥￥])(?P<value>-?\d+(?:\.\d+)?)\s*(?:元|块)(?![A-Za-z])"
+)
+_DISTANCE_SYMBOLS = {
+    "公里": "km",
+    "千米": "km",
+    "厘米": "cm",
+    "毫米": "mm",
+    "米": "m",
+}
+
+
+def normalize_text(text: str, *, config: dict | None = None) -> str:
+    """Apply terms and configurable ITN/compact written-style policies.
+
+    Terminology canonicalization is always active. ``normalization.enabled``
+    controls numeric and FST ITN rewriting; the remaining switches independently
+    select compact written forms for dates, times, distances, and currency.
+    """
+
+    settings = dict(_DEFAULT_NORMALIZATION_CONFIG)
+    if isinstance(config, dict):
+        settings.update(config)
 
     term_result = apply_term_lexicon(text or "")
     source = term_result.text
     if not source:
         return ""
+    if not bool(settings.get("enabled", True)):
+        return source
 
     product_normalized = normalize_chinese_numbers(
         source,
@@ -298,12 +340,110 @@ def normalize_text(text: str) -> str:
     )
     # Re-evaluate protected spans after numeric replacements shift offsets.
     refreshed_terms = apply_term_lexicon(product_normalized)
-    return normalize_mandatory_itn(
+    normalized = normalize_mandatory_itn(
         refreshed_terms.text,
         source_text=source,
         protected_spans=refreshed_terms.protected_spans,
         fixed_phrases=_FIXED_NON_NUMERIC_PHRASES,
     )
+    styled_terms = apply_term_lexicon(normalized)
+    return apply_written_style(
+        styled_terms.text,
+        config=settings,
+        protected_spans=styled_terms.protected_spans,
+    )
+
+
+def apply_written_style(
+    text: str,
+    *,
+    config: dict | None = None,
+    protected_spans: Sequence[Span] = (),
+) -> str:
+    """Apply deterministic display styles after semantics-safe ITN."""
+
+    settings = dict(_DEFAULT_NORMALIZATION_CONFIG)
+    if isinstance(config, dict):
+        settings.update(config)
+    result = text or ""
+    if not result:
+        return ""
+
+    if bool(settings.get("compact_dates", True)):
+        result = _DATE_STYLE_RE.sub(
+            lambda match: match.group(0)
+            if _span_overlaps_protected(*match.span(), protected_spans)
+            else _format_compact_date(match),
+            result,
+        )
+    if bool(settings.get("compact_times", True)):
+        result = _TIME_STYLE_RE.sub(
+            lambda match: match.group(0)
+            if _span_overlaps_protected(*match.span(), protected_spans)
+            else _format_compact_time(match),
+            result,
+        )
+    if bool(settings.get("compact_distances", True)):
+        result = _DISTANCE_STYLE_RE.sub(
+            lambda match: match.group(0)
+            if _span_overlaps_protected(*match.span(), protected_spans)
+            else f"{match.group('value')}{_DISTANCE_SYMBOLS[match.group('unit')]}",
+            result,
+        )
+    if bool(settings.get("currency_symbols", True)):
+        result = _CURRENCY_STYLE_RE.sub(
+            lambda match: match.group(0)
+            if _span_overlaps_protected(*match.span(), protected_spans)
+            else _format_compact_currency(match),
+            result,
+        )
+    return result
+
+
+def _format_compact_date(match: re.Match[str]) -> str:
+    formatted = (
+        f"{int(match.group('year')):04d}/"
+        f"{int(match.group('month')):02d}/"
+        f"{int(match.group('day')):02d}"
+    )
+    tail = match.string[match.end() :]
+    if re.match(r"(?:凌晨|早上|上午|中午|下午|傍晚|晚上|\d{1,2}点)", tail):
+        formatted += " "
+    return formatted
+
+
+def _format_compact_currency(match: re.Match[str]) -> str:
+    value = match.group("value")
+    return f"-¥{value[1:]}" if value.startswith("-") else f"¥{value}"
+
+
+def _format_compact_time(match: re.Match[str]) -> str:
+    period = match.group("period") or ""
+    half = bool(match.group("half"))
+    minute_text = match.group("minute")
+    # A bare “3点” can mean a numbered point (“三点建议”), not a clock time.
+    # Require a day period or an explicit minute/half marker before compacting.
+    if not period and minute_text is None and not half:
+        return match.group(0)
+    hour = int(match.group("hour"))
+    minute = 30 if half else int(minute_text or 0)
+    if hour > 23 or minute > 59:
+        return match.group(0)
+
+    if period in {"下午", "傍晚"} and hour < 12:
+        hour += 12
+    elif period == "晚上":
+        if hour == 12:
+            hour = 0
+        elif hour < 12:
+            hour += 12
+    elif period == "中午" and 1 <= hour < 11:
+        hour += 12
+    elif period == "凌晨" and hour == 12:
+        hour = 0
+    elif period in {"早上", "上午"} and hour == 12:
+        hour = 0
+    return f"{hour:02d}:{minute:02d}"
 
 
 def normalize_chinese_numbers(

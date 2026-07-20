@@ -38,6 +38,17 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "hotword": "",
         "batch_size_s": 60.0,
     },
+    "normalization": {
+        # The settings center may disable all numeric/ITN rewriting while
+        # terminology canonicalization remains active.
+        "enabled": True,
+        # Compact written styles requested by the product owner. Each can be
+        # changed independently in the GUI and previewed before saving.
+        "compact_dates": True,
+        "compact_times": True,
+        "compact_distances": True,
+        "currency_symbols": True,
+    },
     "slm": {
         "enabled": False,
         "provider": "remote",
@@ -71,6 +82,13 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "edit_enabled": True,
         "edit_max_tokens": 256,
         "api_key": "",
+        # Prefer an environment variable for credentials on shared machines.
+        "api_key_env": "",
+    },
+    "feedback": {
+        # Optional project-operated POST endpoint. When unset, the settings
+        # center opens a prefilled GitHub issue instead of transmitting data.
+        "endpoint": "",
     },
     "output": {
         "dedupe": True,

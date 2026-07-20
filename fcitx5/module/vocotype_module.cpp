@@ -218,7 +218,7 @@ void VoCoTypeModule::applyConfig() {
     ptt_hold_threshold_ms_ = config_.pttHoldThresholdMs.value();
     long_mode_modifier_ = modifier_state;
     polish_by_default_ = config_.polishByDefault.value();
-    polish_min_chars_ = std::max(1, config_.polishMinChars.value());
+    polish_min_chars_ = std::max(0, config_.polishMinChars.value());
     polish_timeout_ms_ = std::max(1000, config_.polishTimeoutMs.value());
     enable_thinking_ = config_.enableThinking.value();
     block_when_composing_ = config_.blockWhenComposing.value();

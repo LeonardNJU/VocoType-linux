@@ -379,9 +379,13 @@ class TranscriptionWorker:
         tmp_path = self._write_temp_wav(samples)
         start = time.time()
         try:
+            asr_options = dict(self.config.get("asr", {}))
+            asr_options["normalization"] = dict(
+                self.config.get("normalization", {})
+            )
             asr_result = self.fun_server.transcribe_audio(
                 tmp_path,
-                options=self.config.get("asr"),
+                options=asr_options,
             )
         finally:
             inference_latency = time.time() - start

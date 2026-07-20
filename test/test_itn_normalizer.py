@@ -37,8 +37,16 @@ def test_product_numeric_output_is_masked_from_fst_restyling():
         "延迟1.5秒",
         source_text="延迟一点五秒",
     ) == "延迟1.5秒"
-    assert normalize_text("下午三点二十分开会") == "下午3点20分开会"
-    assert normalize_text("二零二六年五月十一号") == "2026年5月11号"
+    assert normalize_text("下午三点二十分开会") == "15:20开会"
+    assert normalize_text("二零二六年五月十一号") == "2026/05/11"
+    assert normalize_text(
+        "下午三点二十分开会",
+        config={"compact_times": False},
+    ) == "下午3点20分开会"
+    assert normalize_text(
+        "二零二六年五月十一号",
+        config={"compact_dates": False},
+    ) == "2026年5月11号"
 
 
 def test_fixed_phrase_mask_does_not_split_larger_number():
@@ -75,7 +83,7 @@ terms:
     term_lexicon._reset_term_lexicon_cache()
 
 
-def test_itn_dependency_is_mandatory_and_has_no_config_switch():
+def test_itn_dependency_remains_installed_but_runtime_is_configurable():
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     dependencies = project["project"]["dependencies"]
     assert "WeTextProcessing==1.2.0" in dependencies
@@ -87,6 +95,6 @@ def test_itn_dependency_is_mandatory_and_has_no_config_switch():
     server_source = (ROOT / "app" / "funasr_server.py").read_text(
         encoding="utf-8"
     )
-    assert "normalize_chinese_numbers" not in config_source
-    assert 'default_options["normalize_chinese_numbers"]' not in server_source
-    assert "normalize_text(final_text)" in server_source
+    assert '"normalization"' in config_source
+    assert 'default_options.get("normalization")' in server_source
+    assert normalize_text("二百五十六台", config={"enabled": False}) == "二百五十六台"

@@ -46,12 +46,18 @@ Homepage = "https://github.com/LeonardNJU/VocoType-linux"
 [project.scripts]
 vocotype-ibus = "ibus.main:main"
 vocotype-download-models = "app.download_models:main"
+vocotype-settings = "settings_center.application:main"
+vocotype-doctor = "settings_center.doctor:main"
 
 [tool.setuptools]
 py-modules = ["vocotype_version"]
 
 [tool.setuptools.packages.find]
-include = ["app*", "ibus*"]
+include = ["app*", "ibus*", "settings_center*"]
+
+[tool.setuptools.data-files]
+"share/applications" = ["data/applications/io.github.LeonardNJU.VoCoType.Settings.desktop"]
+"share/icons/hicolor/192x192/apps" = ["site/icon-192.png"]
 
 [tool.setuptools.dynamic]
 version = { attr = "vocotype_version.__version__" }

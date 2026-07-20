@@ -11,7 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fcitx 5 now installs a true global `Category=Module` addon: `F9` and its modifiers work with the user's existing Rime, Pinyin, Mozc, keyboard, or other Fcitx input method without proxying ordinary key events.
 - Added a shared `~/.config/vocotype/terms.yaml` terminology layer with deterministic canonical replacements, protected spans, live reload, legacy Geequlim dictionary compatibility, and native Contextual Paraformer hotwords.
-- Added mandatory guarded Chinese ITN with `WeTextProcessing==1.2.0`, an expanded numeric regression matrix, and product-specific handling for dates, times, quantities, money, technical strings, idioms, and poems.
+- Added guarded Chinese ITN with `WeTextProcessing==1.2.0`, an expanded numeric regression matrix, and independently configurable compact date, time, distance, and currency styles.
+- Added a GTK settings center for graphical install/repair, synchronized IBus/Fcitx configuration, terminology editing, AI connection testing, Doctor checks, privacy-safe support bundles, tutorials, and feedback submission/GitHub fallback.
 - Added OpenAI-compatible SSE polishing events, Fcitx live previews, asynchronous start/poll/cancel tasks, OpenRouter reasoning/header support, and configurable stream idle timeouts.
 
 ### Changed
@@ -20,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fcitx 5 no longer embeds `pyrime`, creates a separate Rime session, or requires users to add VoCoType as an input method.
 - Remote polishing no longer sends a fixed output-token limit by default; `remote_max_tokens` is explicit, while `max_tokens` remains the local-model budget.
 - IBus keeps its final-result UI and `Ctrl+F9` editing workflow, but remote calls can consume SSE internally for idle-timeout and long-output improvements.
+- Numeric/ITN rewriting can now be disabled at runtime while terminology canonicalization remains active; compact styles default to ISO-like dates, 24-hour times, SI distance symbols, and `¥` currency output.
 - Python distribution metadata now describes the combined IBus/Fcitx 5 Linux package as `vocotype-linux`.
 - Installation examples consistently use the `VocoType-linux` clone directory.
 

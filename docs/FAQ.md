@@ -805,3 +805,14 @@ sample_rate = 48000
 ---
 
 **最后更新**：2026-01-09
+
+
+---
+
+## 图形 Doctor、支持包与反馈
+
+打开 `vocotype-settings` → **诊断**，先运行 Doctor。它会检查 Python、依赖、Fcitx module、旧版输入法条目、后台服务、IPC socket、配置、术语 YAML、麦克风和 ITN。
+
+仍有问题时点击 **导出支持包**。生成的 `~/Downloads/vocotype-support-*.tar.gz` 不含录音、API Key 或用户词典正文，可直接附到 issue。
+
+反馈页面在未配置 endpoint 时打开预填 GitHub issue；只有明确填写反馈 endpoint 后才会直接发送数据。

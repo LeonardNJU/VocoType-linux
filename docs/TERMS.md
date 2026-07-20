@@ -11,7 +11,7 @@ IBus 与 Fcitx 5 共用：
 ~/.config/vocotype/terms.yaml
 ```
 
-编辑文件后无需重启，下一次转录会自动重新加载。也可用环境变量
+可在 `vocotype-settings` 的“用户词典”页面编辑并验证；直接编辑文件后也无需重启，下一次转录会自动重新加载。也可用环境变量
 `VOCOTYPE_TERMS_FILE` 指向其他文件。
 
 ## 配置格式
