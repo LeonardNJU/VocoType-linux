@@ -31,3 +31,8 @@ CHANGELOG.md
 README.md
 docs
 docs/guides/rime.md
+fcitx5/scripts/install-gui.sh
+fcitx5/scripts/uninstall.sh
+fcitx5/scripts/uninstall-gui.sh
+ibus/scripts/uninstall-gui.sh
+installers/uninstall-integration.sh

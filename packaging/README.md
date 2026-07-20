@@ -8,6 +8,8 @@ VoCoType has three supported distribution layers:
 
 Native packages deliberately do not run `pip`, download models, write user configuration, or start a user service during the package-manager transaction. After installation, open **VoCoType Settings**. The graphical installer creates an isolated Python 3.12 environment in the user's home directory and performs any optional model download or framework repair with normal Polkit authorization.
 
+The settings center can remove either user-level integration without bypassing package ownership. Files under `/usr` remain managed by `apt`, `dnf`, or `pacman`; the GUI reports the matching `vocotype-linux` removal command when a native package is detected.
+
 ## Local commands
 
 ```bash

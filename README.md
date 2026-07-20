@@ -62,7 +62,7 @@ cd VocoType-linux
 bash installers/launch-settings.sh
 ```
 
-在 **概览与安装** 页面选择 Fcitx 5 或 IBus。两者都在设置窗口内完成选择、依赖安装、进度显示和错误处理；需要系统权限时由 Polkit 弹出标准授权框，不会打开终端或读取管理员密码。安装后可在 GUI 中选择/测试麦克风，并使用 ITN 预览、用户词典、AI endpoint、Doctor、日志打包和反馈入口。
+在 **概览与安装** 页面选择 Fcitx 5 或 IBus。安装、修复和卸载都在设置窗口内完成，进度与错误直接显示在 GUI 中；需要系统权限时由 Polkit 弹出标准授权框，不会打开终端或读取管理员密码。安装后可在 GUI 中选择/测试麦克风，并使用 ITN 预览、用户词典、AI endpoint、Doctor、日志打包和反馈入口。
 
 安装完成后可从应用菜单打开 **VoCoType 设置**，或运行：
 
@@ -72,20 +72,12 @@ vocotype-settings
 
 ### 命令行安装（高级/无桌面环境）
 
-IBus：
+| Integration | 安装 | 卸载 |
+|---|---|---|
+| IBus | `bash ibus/scripts/install.sh` | `bash ibus/scripts/uninstall.sh` |
+| Fcitx 5 | `bash fcitx5/scripts/install.sh` | `bash fcitx5/scripts/uninstall.sh` |
 
-```bash
-./ibus/scripts/install.sh
-ibus restart
-```
-
-Fcitx 5：
-
-```bash
-bash fcitx5/scripts/install.sh
-systemctl --user enable --now vocotype-fcitx5-backend.service
-fcitx5 -r
-```
+交互式 CLI 会询问 Python 环境、配置保留策略和确认信息。设置中心分别调用同目录下的 `install-gui.sh` 与 `uninstall-gui.sh`，两套 integration 的生命周期入口完全对称。
 
 Fcitx 版本安装为全局 Module，无需在输入法列表中添加 VoCoType；继续使用原来的 Rime、拼音或其他输入法即可。
 
@@ -239,14 +231,22 @@ OpenRouter endpoint 会自动获得项目标识 header，并按其 API 映射 re
 
 ### 卸载
 
-**IBus 版本**：
+推荐在 **VoCoType 设置 → 概览与安装** 中点击 **卸载 IBus** 或 **卸载 Fcitx 5**。GUI 默认只清理用户级程序与 integration 文件，并保留虚拟环境、模型以及 `~/.config/vocotype` 中的术语、音频和 AI 配置。
+
+命令行入口：
+
 ```bash
-./ibus/scripts/uninstall.sh
+bash ibus/scripts/uninstall.sh
+bash fcitx5/scripts/uninstall.sh
 ```
 
-卸载时可选择：
-- **快速卸载**（选项 1）：保留 .venv 和模型文件，方便下次安装
-- **完全卸载**（选项 2）：删除所有内容
+可选参数：
+
+- `--purge-runtime`：同时删除该 integration 的虚拟环境、模型和缓存；
+- `--remove-user-data`：同时删除两套 integration 共享的 `~/.config/vocotype`，需谨慎使用；
+- IBus 的 `--remove-system-component`：通过 Polkit 删除旧版安装器留下、且不受原生软件包管理的系统 component。
+
+通过 DEB、RPM 或 Arch 安装的 `/usr` 文件始终由包管理器维护。设置中心只清理用户级运行环境，并显示 `pacman`、`dnf` 或 `apt` 的软件包卸载命令。
 
 ---
 

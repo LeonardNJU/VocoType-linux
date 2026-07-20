@@ -57,7 +57,7 @@ cd VocoType-linux
 bash installers/launch-settings.sh
 ```
 
-在“概览与安装”点击 **安装 / 修复**。已安装用户可直接从应用菜单打开 **VoCoType 设置**。
+在“概览与安装”点击 **安装 / 修复 Fcitx 5** 或 **卸载 Fcitx 5**。已安装用户可直接从应用菜单打开 **VoCoType 设置**。
 
 ## 命令行安装
 
@@ -276,20 +276,12 @@ VoCoType module 不处理 Rime 普通按键。请直接按 `fcitx5-rime` 的方�
 
 ## 卸载
 
+图形设置中心提供 **卸载 Fcitx 5**，会停止用户服务并清理用户级 module、addon、launcher 和服务定义。命令行使用：
+
 ```bash
-systemctl --user disable --now vocotype-fcitx5-backend.service
-rm -rf ~/.local/share/vocotype-fcitx5
-rm -f ~/.local/lib/fcitx5/vocotype.so ~/.local/lib/fcitx5/libvocotype.so
-rm -f ~/.local/lib64/fcitx5/vocotype.so ~/.local/lib64/fcitx5/libvocotype.so
-rm -f ~/.local/share/fcitx5/addon/vocotype.conf
-rm -f ~/.config/systemd/user/vocotype-fcitx5-backend.service
-rm -f ~/.local/bin/vocotype-fcitx5-backend ~/.local/bin/vocotype-fcitx5-recorder
-# 仅在没有同时使用 IBus 版时删除共享设置中心：
-rm -f ~/.local/bin/vocotype-settings
-rm -f ~/.local/share/applications/io.github.LeonardNJU.VoCoType.Settings.desktop
-rm -f ~/.local/share/icons/hicolor/192x192/apps/vocotype.png
-systemctl --user daemon-reload
-fcitx5 -r
+bash fcitx5/scripts/uninstall.sh
 ```
 
-`~/.config/vocotype/` 包含术语、hotword、音频与运行配置，卸载时默认保留。
+默认保留 `~/.local/share/vocotype-fcitx5/.venv`、模型缓存和 `~/.config/vocotype/`。使用 `--purge-runtime` 删除整个 Fcitx 运行环境；只有明确使用 `--remove-user-data` 时才会删除 IBus 与 Fcitx 共用的术语、hotword、音频和 AI 配置。
+
+若 module 来自 DEB、RPM 或 Arch 包，卸载脚本不会直接删除 `/usr/lib*/fcitx5/vocotype.so`；请按设置中心显示的命令卸载 `vocotype-linux` 软件包。

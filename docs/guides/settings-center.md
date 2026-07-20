@@ -1,6 +1,6 @@
 # VoCoType 图形设置中心
 
-VoCoType 设置中心统一管理 Fcitx 5 与 IBus 的运行配置，并提供安装、预览、诊断、日志打包和反馈入口。
+VoCoType 设置中心统一管理 Fcitx 5 与 IBus 的运行配置，并提供安装、卸载、预览、诊断、日志打包和反馈入口。
 
 ## 启动
 
@@ -18,15 +18,17 @@ bash installers/launch-settings.sh
 
 通过 DEB、RPM 或 Arch 包安装时，系统包已经提供 Fcitx module、IBus component、桌面入口和安装源码。设置中心会识别 `/usr/share/vocotype/.system-package`，复用这些由包管理器维护的系统文件，只创建或修复用户级 Python 运行时；已有且内容一致的系统 IBus component 不会再次请求管理员授权。
 
-Fcitx 5 与 IBus 的“安装 / 修复”都使用窗口内非交互后端：选项、下载进度、编译输出和错误均显示在设置中心。缺少系统依赖或需要把 IBus component 注册到 `/usr/share/ibus/component` 时，设置中心调用 `pkexec`，由桌面 Polkit 代理弹出密码、指纹或其他管理员授权框。VoCoType 不读取或保存管理员凭据，也不会打开终端。
+Fcitx 5 与 IBus 的安装和卸载都使用同目录下的非交互 GUI worker：选项、下载进度、编译输出、清理进度和错误均显示在设置中心。缺少系统依赖、需要注册 IBus component，或清理旧版非托管系统 component 时，设置中心调用 `pkexec`，由桌面 Polkit 代理弹出密码、指纹或其他管理员授权框。VoCoType 不读取或保存管理员凭据，也不会打开终端。
 
 ## 页面
 
 ### 概览与安装
 
 - 检查源码目录、Fcitx 全局 module 和 addon 元数据；
-- 执行用户级安装、升级或修复；
-- 重启后台服务或 Fcitx 5；
+- 执行用户级安装、升级、修复或卸载；
+- 卸载时选择是否删除虚拟环境、模型缓存和共享用户数据；
+- 原生软件包存在时显示对应的包管理器卸载命令，不直接删除 `/usr` 文件；
+- 重启后台服务、Fcitx 5 或 IBus；
 - 快速运行 Doctor。
 
 ### 语音识别与 ITN

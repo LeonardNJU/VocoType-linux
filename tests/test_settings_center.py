@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import subprocess
 import tarfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,9 +19,13 @@ from settings_center.doctor import run_doctor
 from settings_center.feedback import build_issue_url, submit_feedback
 from settings_center.setup_manager import (
     InstallOptions,
+    UninstallOptions,
     fcitx_installer_command,
+    fcitx_uninstaller_command,
     ibus_installer_command,
+    ibus_uninstaller_command,
     installer_command,
+    native_package_removal_command,
 )
 from settings_center.support_bundle import create_support_bundle
 
@@ -262,6 +267,172 @@ def test_gui_installers_use_noninteractive_polkit_ready_mode():
     assert ibus[ibus.index("--component-mode") + 1] == "system"
 
 
+
+def test_gui_uninstallers_use_symmetric_noninteractive_entrypoints():
+    root = Path("/tmp/VocoType-linux")
+    options = UninstallOptions(
+        purge_runtime=True,
+        remove_user_data=True,
+        remove_system_component=True,
+    )
+    fcitx = fcitx_uninstaller_command(root, options)
+    ibus = ibus_uninstaller_command(root, options)
+    assert fcitx[1].endswith("fcitx5/scripts/uninstall-gui.sh")
+    assert ibus[1].endswith("ibus/scripts/uninstall-gui.sh")
+    for command in (fcitx, ibus):
+        assert "--purge-runtime" in command
+        assert "--remove-user-data" in command
+    assert "--remove-system-component" not in fcitx
+    assert "--remove-system-component" in ibus
+
+
+def _write_executable(path: Path, content: str = "#!/bin/sh\nexit 0\n") -> None:
+    path.write_text(content, encoding="utf-8")
+    path.chmod(0o755)
+
+
+def _run_uninstaller(script: str, home: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    fake_bin = home / "bin"
+    fake_bin.mkdir(parents=True, exist_ok=True)
+    for command in ("systemctl", "fcitx5", "ibus"):
+        _write_executable(fake_bin / command)
+    env = os.environ.copy()
+    env.update(
+        {
+            "HOME": str(home),
+            "XDG_CONFIG_HOME": str(home / ".config"),
+            "PATH": f"{fake_bin}:{env['PATH']}",
+        }
+    )
+    return subprocess.run(
+        ["bash", script, *args],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=15,
+        check=False,
+    )
+
+
+def test_ibus_gui_uninstall_preserves_runtime_cache_config_and_shared_launcher(tmp_path: Path):
+    home = tmp_path / "home"
+    runtime = home / ".local/share/vocotype"
+    for directory in ("app", "ibus", "settings_center", ".venv"):
+        (runtime / directory).mkdir(parents=True, exist_ok=True)
+    (runtime / "vocotype_version.py").write_text("version", encoding="utf-8")
+    (runtime / ".venv/keep").write_text("cached", encoding="utf-8")
+    component = home / ".local/share/ibus/component/vocotype.xml"
+    component.parent.mkdir(parents=True, exist_ok=True)
+    component.write_text("component", encoding="utf-8")
+    launcher = home / ".local/libexec/ibus-engine-vocotype"
+    launcher.parent.mkdir(parents=True, exist_ok=True)
+    launcher.write_text("launcher", encoding="utf-8")
+    shared_launcher = home / ".local/bin/vocotype-settings"
+    shared_launcher.parent.mkdir(parents=True, exist_ok=True)
+    shared_launcher.write_text("settings", encoding="utf-8")
+    (home / ".local/share/vocotype-fcitx5/backend").mkdir(parents=True, exist_ok=True)
+    (home / ".local/share/vocotype-fcitx5/backend/fcitx5_server.py").write_text("server", encoding="utf-8")
+    user_config = home / ".config/vocotype/terms.yaml"
+    user_config.parent.mkdir(parents=True, exist_ok=True)
+    user_config.write_text("terms: []", encoding="utf-8")
+
+    result = _run_uninstaller("ibus/scripts/uninstall-gui.sh", home)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not (runtime / "app").exists()
+    assert not (runtime / "ibus").exists()
+    assert not (runtime / "settings_center").exists()
+    assert not (runtime / "vocotype_version.py").exists()
+    assert (runtime / ".venv/keep").is_file()
+    assert not component.exists()
+    assert not launcher.exists()
+    assert shared_launcher.exists()
+    assert user_config.exists()
+    assert "用户配置已保留" in result.stdout
+
+
+def test_fcitx_gui_uninstall_purges_runtime_and_user_integration_only(tmp_path: Path):
+    home = tmp_path / "home"
+    runtime = home / ".local/share/vocotype-fcitx5"
+    (runtime / ".venv").mkdir(parents=True, exist_ok=True)
+    (runtime / ".venv/keep").write_text("cached", encoding="utf-8")
+    artifacts = [
+        home / ".local/lib/fcitx5/vocotype.so",
+        home / ".local/lib64/fcitx5/libvocotype.so",
+        home / ".local/share/fcitx5/addon/vocotype.conf",
+        home / ".config/environment.d/fcitx5-vocotype.conf",
+        home / ".config/systemd/user/vocotype-fcitx5-backend.service",
+        home / ".local/bin/vocotype-fcitx5-backend",
+        home / ".local/bin/vocotype-fcitx5-recorder",
+    ]
+    for artifact in artifacts:
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        artifact.write_text("artifact", encoding="utf-8")
+    shared_launcher = home / ".local/bin/vocotype-settings"
+    shared_launcher.write_text("settings", encoding="utf-8")
+    (home / ".local/share/vocotype/ibus").mkdir(parents=True, exist_ok=True)
+    (home / ".local/share/vocotype/ibus/main.py").write_text("main", encoding="utf-8")
+    user_config = home / ".config/vocotype/audio.conf"
+    user_config.parent.mkdir(parents=True, exist_ok=True)
+    user_config.write_text("[audio]", encoding="utf-8")
+
+    result = _run_uninstaller(
+        "fcitx5/scripts/uninstall-gui.sh",
+        home,
+        "--purge-runtime",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not runtime.exists()
+    assert all(not artifact.exists() for artifact in artifacts)
+    assert shared_launcher.exists()
+    assert user_config.exists()
+    assert "Fcitx 5 用户级集成已卸载" in result.stdout
+
+
+
+def test_last_user_integration_removes_broken_shared_launcher(tmp_path: Path):
+    home = tmp_path / "home"
+    runtime = home / ".local/share/vocotype"
+    (runtime / "ibus").mkdir(parents=True, exist_ok=True)
+    (runtime / "ibus/main.py").write_text("main", encoding="utf-8")
+    shared_launcher = home / ".local/bin/vocotype-settings"
+    shared_launcher.parent.mkdir(parents=True, exist_ok=True)
+    shared_launcher.write_text("settings", encoding="utf-8")
+
+    result = _run_uninstaller("ibus/scripts/uninstall-gui.sh", home)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not shared_launcher.exists()
+
+def test_gui_uninstall_can_explicitly_remove_shared_user_data(tmp_path: Path):
+    home = tmp_path / "home"
+    (home / ".local/share/vocotype").mkdir(parents=True, exist_ok=True)
+    user_config = home / ".config/vocotype/terms.yaml"
+    user_config.parent.mkdir(parents=True, exist_ok=True)
+    user_config.write_text("terms: []", encoding="utf-8")
+
+    result = _run_uninstaller(
+        "ibus/scripts/uninstall-gui.sh",
+        home,
+        "--purge-runtime",
+        "--remove-user-data",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not user_config.parent.exists()
+
+
+def test_native_package_removal_command_uses_available_package_manager(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import settings_center.setup_manager as setup_manager
+
+    monkeypatch.setattr(setup_manager, "native_package_present", lambda _root=None: True)
+    monkeypatch.setattr(
+        setup_manager.shutil,
+        "which",
+        lambda command: "/usr/bin/pacman" if command == "pacman" else None,
+    )
+    assert native_package_removal_command() == "sudo pacman -Rns vocotype-linux"
+
 def test_settings_desktop_entry_and_console_scripts_exist():
     desktop = Path("data/applications/io.github.LeonardNJU.VoCoType.Settings.desktop")
     assert desktop.is_file()
@@ -277,6 +448,10 @@ def test_settings_application_exposes_both_install_paths():
     source = Path("settings_center/application.py").read_text(encoding="utf-8")
     assert "安装 / 修复 Fcitx 5" in source
     assert "安装 / 修复 IBus" in source
+    assert "卸载 Fcitx 5" in source
+    assert "卸载 IBus" in source
+    assert "UninstallOptions" in source
+    assert "uninstall_framework" in source
     assert "launch_ibus_installer" not in source
     assert "Polkit" in source
     assert "InstallOptions" in source
@@ -300,11 +475,14 @@ def test_installers_have_gui_noninteractive_paths_without_terminal_password_prom
         assert fragment in script
 
 
-def test_ibus_uninstall_preserves_shared_user_configuration():
-    script = Path("ibus/scripts/uninstall.sh").read_text(encoding="utf-8")
-    assert 'rm -rf "$VOCOTYPE_CONFIG_DIR"' not in script
+def test_shared_uninstaller_preserves_user_configuration_by_default():
+    script = Path("installers/uninstall-integration.sh").read_text(encoding="utf-8")
+    assert "REMOVE_USER_DATA=false" in script
+    assert 'rm -rf "$VOCOTYPE_CONFIG_DIR"' in script
+    assert '[[ "$REMOVE_USER_DATA" == true ]]' in script
     assert "用户配置已保留" in script
-    assert "FCITX_PRESENT" in script
+    assert "fcitx_user_present" in script
+    assert "ibus_user_present" in script
 
 
 def test_ibus_gui_installer_uses_pkexec_and_never_reads_from_a_terminal():

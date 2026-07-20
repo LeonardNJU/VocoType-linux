@@ -33,13 +33,16 @@ from .doctor import DoctorCheck, doctor_summary, run_doctor
 from .feedback import open_github_issue, submit_feedback
 from .setup_manager import (
     InstallOptions,
+    UninstallOptions,
     find_project_root,
     install_or_repair,
     installation_paths,
+    native_package_removal_command,
     polkit_available,
     restart_backend,
     restart_fcitx,
     restart_ibus,
+    uninstall_framework,
 )
 from .support_bundle import create_support_bundle
 
@@ -97,6 +100,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.last_doctor_checks: list[DoctorCheck] = []
         self.last_bundle_path: Path | None = None
         self._install_dialog: Gtk.Dialog | None = None
+        self._uninstall_dialog: Gtk.Dialog | None = None
         self._build_header()
         self._build_layout()
         self._load_values()
@@ -188,26 +192,36 @@ class SettingsWindow(Gtk.ApplicationWindow):
         card = self._card()
         self.install_status = Gtk.Label(label="尚未检查安装状态", xalign=0)
         self.install_status.set_line_wrap(True)
-        actions = Gtk.Box(spacing=8)
+        lifecycle_actions = Gtk.Box(spacing=8)
         install_button = Gtk.Button(label="安装 / 修复 Fcitx 5")
         install_button.get_style_context().add_class("suggested-action")
         install_button.connect("clicked", lambda _b: self._open_install_dialog("fcitx5"))
         ibus_install_button = Gtk.Button(label="安装 / 修复 IBus")
         ibus_install_button.connect("clicked", lambda _b: self._open_install_dialog("ibus"))
+        uninstall_fcitx_button = Gtk.Button(label="卸载 Fcitx 5")
+        uninstall_fcitx_button.connect("clicked", lambda _b: self._open_uninstall_dialog("fcitx5"))
+        uninstall_ibus_button = Gtk.Button(label="卸载 IBus")
+        uninstall_ibus_button.connect("clicked", lambda _b: self._open_uninstall_dialog("ibus"))
+        lifecycle_actions.pack_start(install_button, False, False, 0)
+        lifecycle_actions.pack_start(ibus_install_button, False, False, 0)
+        lifecycle_actions.pack_start(uninstall_fcitx_button, False, False, 0)
+        lifecycle_actions.pack_start(uninstall_ibus_button, False, False, 0)
+
+        restart_actions = Gtk.Box(spacing=8)
         restart_service = Gtk.Button(label="重启后台服务")
         restart_service.connect("clicked", lambda _b: self._run_quick_action(restart_backend))
         restart_fcitx_button = Gtk.Button(label="重启 Fcitx 5")
         restart_fcitx_button.connect("clicked", lambda _b: self._run_quick_action(restart_fcitx))
         restart_ibus_button = Gtk.Button(label="重启 IBus")
         restart_ibus_button.connect("clicked", lambda _b: self._run_quick_action(restart_ibus))
-        actions.pack_start(install_button, False, False, 0)
-        actions.pack_start(ibus_install_button, False, False, 0)
-        actions.pack_start(restart_service, False, False, 0)
-        actions.pack_start(restart_fcitx_button, False, False, 0)
-        actions.pack_start(restart_ibus_button, False, False, 0)
+        restart_actions.pack_start(restart_service, False, False, 0)
+        restart_actions.pack_start(restart_fcitx_button, False, False, 0)
+        restart_actions.pack_start(restart_ibus_button, False, False, 0)
+
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         box.pack_start(self.install_status, False, False, 0)
-        box.pack_start(actions, False, False, 0)
+        box.pack_start(lifecycle_actions, False, False, 0)
+        box.pack_start(restart_actions, False, False, 0)
         card.pack_start(
             self._row(
                 "VoCoType 安装",
@@ -769,6 +783,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         lines = [
             f"源码目录：{root or '未发现'}",
             f"Polkit 授权：{'可用' if polkit_available() else '未检测到 pkexec'}",
+            f"原生软件包：{'已安装' if native_package_removal_command(root) else '未检测到'}",
             f"Fcitx module：{'已安装' if any(path.is_file() for path in paths.fcitx_modules) else '未安装'}",
             f"Fcitx addon：{'已安装' if any(path.is_file() for path in paths.fcitx_addons) else '未安装'}",
             f"IBus launcher：{'已安装' if any(path.is_file() for path in paths.ibus_launchers) else '未安装'}",
@@ -909,6 +924,149 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
         dialog.connect("response", on_response)
         dialog.connect("delete-event", prevent_close)
+        dialog.show_all()
+
+    def _open_uninstall_dialog(self, framework: str) -> None:
+        if self._uninstall_dialog is not None and self._uninstall_dialog.get_visible():
+            self._uninstall_dialog.present()
+            return
+
+        is_ibus = framework == "ibus"
+        framework_name = "IBus" if is_ibus else "Fcitx 5"
+        dialog = Gtk.Dialog(
+            title=f"卸载 {framework_name}",
+            transient_for=self,
+            modal=True,
+        )
+        self._uninstall_dialog = dialog
+        dialog.connect("destroy", lambda _dialog: setattr(self, "_uninstall_dialog", None))
+        dialog.add_button("关闭", Gtk.ResponseType.CLOSE)
+        start_button = dialog.add_button("开始卸载", Gtk.ResponseType.APPLY)
+        start_button.get_style_context().add_class("destructive-action")
+        close_button = dialog.get_widget_for_response(Gtk.ResponseType.CLOSE)
+        dialog.set_default_size(820, 560)
+
+        content = dialog.get_content_area()
+        options_card = self._card()
+        purge_runtime = Gtk.CheckButton(label="同时删除 Python 虚拟环境、模型和运行缓存")
+        remove_user_data = Gtk.CheckButton(label="同时删除共享配置、术语和音频设置")
+        options_card.pack_start(
+            self._row(
+                "运行环境",
+                "默认只删除程序代码和 integration 文件，保留虚拟环境以便快速重装。",
+                purge_runtime,
+            ),
+            False,
+            False,
+            0,
+        )
+        options_card.pack_start(
+            self._row(
+                "共享用户数据",
+                "此选项会影响 IBus 与 Fcitx 5；默认关闭。",
+                remove_user_data,
+            ),
+            False,
+            False,
+            0,
+        )
+
+        remove_system_component = Gtk.CheckButton(
+            label="移除旧版安装器写入的系统 IBus component（通过 Polkit 授权）"
+        )
+        package_command = native_package_removal_command()
+        if is_ibus:
+            remove_system_component.set_active(package_command is None and polkit_available())
+            remove_system_component.set_sensitive(package_command is None and polkit_available())
+            options_card.pack_start(
+                self._row(
+                    "旧版系统 component",
+                    "原生软件包管理的文件不会由设置中心直接删除。",
+                    remove_system_component,
+                ),
+                False,
+                False,
+                0,
+            )
+        content.pack_start(options_card, False, False, 8)
+
+        warning = (
+            f"检测到 vocotype-linux 原生软件包。本操作只清理用户级 {framework_name} 运行环境；"
+            f"如需删除 /usr 下的程序，请使用：{package_command}"
+            if package_command
+            else f"将卸载用户级 {framework_name} integration。默认保留 ~/.config/vocotype。"
+        )
+        notice = Gtk.Label(label=warning, xalign=0)
+        notice.set_line_wrap(True)
+        content.pack_start(notice, False, False, 8)
+
+        text_view = Gtk.TextView()
+        text_view.set_editable(False)
+        text_view.set_monospace(True)
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_vexpand(True)
+        scroller.add(text_view)
+        content.pack_start(scroller, True, True, 8)
+        buffer = text_view.get_buffer()
+        state = {"running": False}
+        option_widgets = [purge_runtime, remove_user_data, remove_system_component]
+
+        def append(line: str) -> None:
+            def update() -> bool:
+                if not dialog.get_visible():
+                    return False
+                buffer.insert(buffer.get_end_iter(), line + "\n")
+                text_view.scroll_to_iter(buffer.get_end_iter(), 0.0, False, 0, 0)
+                return False
+
+            GLib.idle_add(update)
+
+        def mark_finished(ok: bool) -> bool:
+            state["running"] = False
+            close_button.set_sensitive(True)
+            start_button.set_sensitive(False)
+            self._refresh_install_status()
+            if ok:
+                close_button.grab_focus()
+            return False
+
+        def begin() -> None:
+            if state["running"]:
+                return
+            state["running"] = True
+            close_button.set_sensitive(False)
+            start_button.set_sensitive(False)
+            for widget in option_widgets:
+                widget.set_sensitive(False)
+            options = UninstallOptions(
+                purge_runtime=purge_runtime.get_active(),
+                remove_user_data=remove_user_data.get_active(),
+                remove_system_component=(
+                    remove_system_component.get_active() if is_ibus else False
+                ),
+            )
+
+            def work() -> None:
+                ok, output = uninstall_framework(
+                    "ibus" if is_ibus else "fcitx5",
+                    options=options,
+                    progress=append,
+                )
+                append("\n✅ 卸载完成" if ok else "\n❌ 卸载失败")
+                if not ok and not output:
+                    append("没有收到卸载后端输出")
+                GLib.idle_add(mark_finished, ok)
+
+            threading.Thread(target=work, daemon=True).start()
+
+        def on_response(_dialog: Gtk.Dialog, response: int) -> None:
+            if response == Gtk.ResponseType.APPLY:
+                begin()
+            elif response == Gtk.ResponseType.CLOSE and not state["running"]:
+                dialog.destroy()
+
+        dialog.connect("response", on_response)
+        dialog.connect("delete-event", lambda _dialog, _event: state["running"])
         dialog.show_all()
 
     def _run_quick_action(self, action: Callable[[], tuple[bool, str]]) -> None:

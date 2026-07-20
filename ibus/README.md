@@ -43,7 +43,7 @@ IBus 与 Fcitx 5 共用 `~/.config/vocotype/terms.yaml`。默认 Contextual Para
 
 ## 图形安装
 
-从源码目录运行 `bash installers/launch-settings.sh`，在“概览与安装”选择 **安装 / 修复 IBus**。Python 环境、Rime、component 位置和系统依赖安装均在 GUI 中选择。需要系统权限时会弹出 Polkit 授权框，不会打开终端。
+从源码目录运行 `bash installers/launch-settings.sh`，在“概览与安装”选择 **安装 / 修复 IBus** 或 **卸载 IBus**。Python 环境、Rime、component 位置和系统依赖安装均在 GUI 中选择。需要系统权限时会弹出 Polkit 授权框，不会打开终端。
 
 传统交互脚本仍保留用于兼容和开发排障。
 
@@ -307,12 +307,15 @@ bash tools/diagnostics/test-surrounding-probe.sh
 
 ## 卸载
 
+图形设置中心提供 **卸载 IBus**，并在窗口内显示清理进度。命令行使用：
+
 ```bash
-rm -rf ~/.local/share/vocotype
-rm -rf ~/.local/share/ibus/component/vocotype.xml
-rm -rf ~/.local/libexec/ibus-engine-vocotype
-ibus restart
+bash ibus/scripts/uninstall.sh
 ```
+
+默认删除 IBus 程序代码、用户 component 和 launcher，保留 `.venv`、模型缓存以及 `~/.config/vocotype`。使用 `--purge-runtime` 删除运行环境；只有明确使用 `--remove-user-data` 时才会删除共享术语、音频和 AI 配置。
+
+旧版安装器可能把 component 写入 `/usr/share/ibus/component`。GUI 可通过 Polkit 清理不受软件包管理的旧文件；若检测到 `vocotype-linux` 原生软件包，则必须使用系统包管理器卸载，脚本不会直接删除 `/usr` 中的软件包文件。
 
 ## 与 Fcitx 5 版本的区别
 
