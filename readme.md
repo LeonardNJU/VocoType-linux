@@ -46,7 +46,7 @@ cd VocoType-linux
 bash scripts/launch-settings.sh
 ```
 
-在 **概览与安装** 页面选择 Fcitx 5 或 IBus。Fcitx 5 使用窗口内非交互安装；IBus 在可能需要 `sudo` 注册 component 时打开可见终端。安装后可在 GUI 中选择/测试麦克风，并使用 ITN 预览、用户词典、AI endpoint、Doctor、日志打包和反馈入口。
+在 **概览与安装** 页面选择 Fcitx 5 或 IBus。两者都在设置窗口内完成选择、依赖安装、进度显示和错误处理；需要系统权限时由 Polkit 弹出标准授权框，不会打开终端或读取管理员密码。安装后可在 GUI 中选择/测试麦克风，并使用 ITN 预览、用户词典、AI endpoint、Doctor、日志打包和反馈入口。
 
 安装完成后可从应用菜单打开 **VoCoType 设置**，或运行：
 

@@ -41,6 +41,12 @@ IBus 与 Fcitx 5 共用 `~/.config/vocotype/terms.yaml`。默认 Contextual Para
 | **纯语音版** | F9 极速语音输入 + Shift+F9 长句模式 | 只需要语音输入，使用其他拼音输入法 |
 | **完整版** | F9 语音 + Shift+F9 长句 + Rime 拼音 | 一个输入法同时支持语音和拼音 |
 
+## 图形安装
+
+从源码目录运行 `bash scripts/launch-settings.sh`，在“概览与安装”选择 **安装 / 修复 IBus**。Python 环境、Rime、component 位置和系统依赖安装均在 GUI 中选择。需要系统权限时会弹出 Polkit 授权框，不会打开终端。
+
+传统交互脚本仍保留用于兼容和开发排障。
+
 ## 安装
 
 图形设置中心会随 IBus 安装器一同安装。安装后运行 `vocotype-settings` 可管理 IBus 与 Fcitx 共用配置、Doctor 和反馈。

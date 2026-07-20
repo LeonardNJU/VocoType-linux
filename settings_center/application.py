@@ -32,11 +32,13 @@ from .config_service import (
 from .doctor import DoctorCheck, doctor_summary, run_doctor
 from .feedback import open_github_issue, submit_feedback
 from .setup_manager import (
+    InstallOptions,
     find_project_root,
     install_or_repair,
-    launch_ibus_installer,
+    polkit_available,
     restart_backend,
     restart_fcitx,
+    restart_ibus,
 )
 from .support_bundle import create_support_bundle
 
@@ -93,6 +95,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.module_config = load_fcitx_module_config()
         self.last_doctor_checks: list[DoctorCheck] = []
         self.last_bundle_path: Path | None = None
+        self._install_dialog: Gtk.Dialog | None = None
         self._build_header()
         self._build_layout()
         self._load_values()
@@ -187,24 +190,27 @@ class SettingsWindow(Gtk.ApplicationWindow):
         actions = Gtk.Box(spacing=8)
         install_button = Gtk.Button(label="安装 / 修复 Fcitx 5")
         install_button.get_style_context().add_class("suggested-action")
-        install_button.connect("clicked", self._on_install)
+        install_button.connect("clicked", lambda _b: self._open_install_dialog("fcitx5"))
         ibus_install_button = Gtk.Button(label="安装 / 修复 IBus")
-        ibus_install_button.connect("clicked", self._on_install_ibus)
+        ibus_install_button.connect("clicked", lambda _b: self._open_install_dialog("ibus"))
         restart_service = Gtk.Button(label="重启后台服务")
         restart_service.connect("clicked", lambda _b: self._run_quick_action(restart_backend))
         restart_fcitx_button = Gtk.Button(label="重启 Fcitx 5")
         restart_fcitx_button.connect("clicked", lambda _b: self._run_quick_action(restart_fcitx))
+        restart_ibus_button = Gtk.Button(label="重启 IBus")
+        restart_ibus_button.connect("clicked", lambda _b: self._run_quick_action(restart_ibus))
         actions.pack_start(install_button, False, False, 0)
         actions.pack_start(ibus_install_button, False, False, 0)
         actions.pack_start(restart_service, False, False, 0)
         actions.pack_start(restart_fcitx_button, False, False, 0)
+        actions.pack_start(restart_ibus_button, False, False, 0)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         box.pack_start(self.install_status, False, False, 0)
         box.pack_start(actions, False, False, 0)
         card.pack_start(
             self._row(
                 "VoCoType 安装",
-                "Fcitx 5 可在窗口内非交互安装；IBus 因 GNOME/Debian 可能需要 sudo，会打开可见终端完成注册。",
+                "Fcitx 5 与 IBus 均在本窗口完成。缺少系统依赖或需要注册系统 IBus component 时，Polkit 会弹出标准管理员授权窗口。",
                 box,
             ),
             False,
@@ -766,40 +772,99 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
     def _refresh_install_status(self) -> bool:
         root = find_project_root()
-        module = Path.home() / ".local/lib/fcitx5/vocotype.so"
+        module_candidates = [
+            Path.home() / ".local/lib/fcitx5/vocotype.so",
+            Path.home() / ".local/lib64/fcitx5/vocotype.so",
+        ]
         addon = Path.home() / ".local/share/fcitx5/addon/vocotype.conf"
+        ibus_launcher = Path.home() / ".local/libexec/ibus-engine-vocotype"
+        ibus_components = [
+            Path.home() / ".local/share/ibus/component/vocotype.xml",
+            Path("/usr/share/ibus/component/vocotype.xml"),
+        ]
         lines = [
             f"源码目录：{root or '未发现'}",
-            f"Fcitx module：{'已安装' if module.exists() else '未安装'}",
-            f"Addon 元数据：{'已安装' if addon.exists() else '未安装'}",
+            f"Polkit 授权：{'可用' if polkit_available() else '未检测到 pkexec'}",
+            f"Fcitx module：{'已安装' if any(path.exists() for path in module_candidates) else '未安装'}",
+            f"Fcitx addon：{'已安装' if addon.exists() else '未安装'}",
+            f"IBus launcher：{'已安装' if ibus_launcher.exists() else '未安装'}",
+            f"IBus component：{'已安装' if any(path.exists() for path in ibus_components) else '未安装'}",
         ]
         self.install_status.set_text("\n".join(lines))
         return False
 
-    def _on_install(self, _button: Gtk.Button) -> None:
-        dialog = Gtk.Dialog(title="安装 / 修复 Fcitx 5", transient_for=self, modal=True)
+    def _open_install_dialog(self, framework: str) -> None:
+        if self._install_dialog is not None and self._install_dialog.get_visible():
+            self._install_dialog.present()
+            return
+        is_ibus = framework == "ibus"
+        title = "安装 / 修复 IBus" if is_ibus else "安装 / 修复 Fcitx 5"
+        dialog = Gtk.Dialog(title=title, transient_for=self, modal=True)
+        self._install_dialog = dialog
+        dialog.connect("destroy", lambda _dialog: setattr(self, "_install_dialog", None))
         dialog.add_button("关闭", Gtk.ResponseType.CLOSE)
+        start_button = dialog.add_button("开始安装", Gtk.ResponseType.APPLY)
+        start_button.get_style_context().add_class("suggested-action")
         close_button = dialog.get_widget_for_response(Gtk.ResponseType.CLOSE)
-        close_button.set_sensitive(False)
-        dialog.set_default_size(820, 520)
+        dialog.set_default_size(860, 650)
+
+        content = dialog.get_content_area()
+        options_card = self._card()
+        python_combo = Gtk.ComboBoxText()
+        python_combo.append("user", "用户级 Python 3.12（推荐）")
+        python_combo.append("project", "项目虚拟环境（开发用）")
+        python_combo.append("system", "系统 Python 3.11/3.12")
+        python_combo.set_active_id("user")
+        preserve = Gtk.CheckButton(label="保留现有 AI 与运行配置（词典和音频始终保留）")
+        preserve.set_active(True)
+        install_deps = Gtk.CheckButton(label="自动安装缺失的系统依赖（通过 Polkit 授权）")
+        install_deps.set_active(True)
+        bootstrap_uv = Gtk.CheckButton(label="缺少兼容 Python 时自动安装 uv/Python 3.12 到用户目录")
+        bootstrap_uv.set_active(True)
+        options_card.pack_start(self._row("Python 环境", control=python_combo), False, False, 0)
+        options_card.pack_start(self._row("配置迁移", control=preserve), False, False, 0)
+        options_card.pack_start(self._row("系统依赖", "需要权限时桌面会弹出密码/指纹授权框，不会打开终端。", install_deps), False, False, 0)
+        options_card.pack_start(self._row("Python 引导", control=bootstrap_uv), False, False, 0)
+
+        rime_enabled = Gtk.CheckButton(label="在 VoCoType IBus 内集成 Rime 拼音")
+        rime_schema = Gtk.Entry()
+        rime_schema.set_text("luna_pinyin")
+        component_mode = Gtk.ComboBoxText()
+        component_mode.append("auto", "自动（GNOME/Debian 使用系统 component）")
+        component_mode.append("user", "仅用户目录")
+        component_mode.append("system", "系统目录（需要 Polkit 授权）")
+        component_mode.set_active_id("auto")
+        if is_ibus:
+            options_card.pack_start(self._row("Rime 集成", "默认关闭；也可继续使用系统中的其他 IBus 输入法。", rime_enabled), False, False, 0)
+            options_card.pack_start(self._row("Rime schema", "启用 Rime 时使用，例如 luna_pinyin 或 rime_ice。", rime_schema), False, False, 0)
+            options_card.pack_start(self._row("IBus component 位置", control=component_mode), False, False, 0)
+        content.pack_start(options_card, False, False, 8)
+
+        notice = Gtk.Label(
+            label=(
+                "管理员授权由系统 Polkit 代理显示；VoCoType 不读取、记录或保存管理员密码。"
+                if polkit_available()
+                else "未检测到 pkexec。用户目录步骤仍可运行，但系统依赖和系统 component 无法自动安装。"
+            ),
+            xalign=0,
+        )
+        notice.set_line_wrap(True)
+        content.pack_start(notice, False, False, 8)
+
         text_view = Gtk.TextView()
         text_view.set_editable(False)
         text_view.set_monospace(True)
         scroller = Gtk.ScrolledWindow()
+        scroller.set_vexpand(True)
         scroller.add(text_view)
-        dialog.get_content_area().pack_start(scroller, True, True, 8)
+        content.pack_start(scroller, True, True, 8)
         buffer = text_view.get_buffer()
-        finished = {"done": False}
-
-        def prevent_early_close(_dialog: Gtk.Dialog, _event: Gdk.Event) -> bool:
-            return not finished["done"]
-
-        dialog.connect("delete-event", prevent_early_close)
-        dialog.show_all()
+        state = {"running": False, "done": False}
+        option_widgets = [python_combo, preserve, install_deps, bootstrap_uv, rime_enabled, rime_schema, component_mode]
 
         def append(line: str) -> None:
             def update() -> bool:
-                if finished["done"] and not dialog.get_visible():
+                if not dialog.get_visible():
                     return False
                 end_iter = buffer.get_end_iter()
                 buffer.insert(end_iter, line + "\n")
@@ -808,32 +873,59 @@ class SettingsWindow(Gtk.ApplicationWindow):
             GLib.idle_add(update)
 
         def mark_finished(ok: bool) -> bool:
-            finished["done"] = True
+            state["running"] = False
+            state["done"] = True
             close_button.set_sensitive(True)
+            start_button.set_sensitive(False)
             self._refresh_install_status()
+            self._on_refresh_audio(None)
             if ok:
-                self._on_refresh_audio(None)
                 close_button.grab_focus()
             return False
 
-        def work() -> None:
-            ok, output = install_or_repair(progress=append)
-            append("\n✅ Fcitx 5 安装/修复完成" if ok else "\n❌ Fcitx 5 安装/修复失败")
-            if not ok and not output:
-                append("没有收到安装器输出")
-            GLib.idle_add(mark_finished, ok)
+        def begin() -> None:
+            if state["running"]:
+                return
+            state["running"] = True
+            close_button.set_sensitive(False)
+            start_button.set_sensitive(False)
+            for widget in option_widgets:
+                widget.set_sensitive(False)
+            opts = InstallOptions(
+                python_choice=python_combo.get_active_id() or "user",
+                preserve_config=preserve.get_active(),
+                install_system_deps=install_deps.get_active(),
+                bootstrap_uv=bootstrap_uv.get_active(),
+                rime_enabled=rime_enabled.get_active() if is_ibus else False,
+                rime_schema=rime_schema.get_text().strip() or "luna_pinyin",
+                component_mode=component_mode.get_active_id() or "auto",
+            )
 
-        threading.Thread(target=work, daemon=True).start()
-        dialog.run()
-        dialog.destroy()
+            def work() -> None:
+                ok, output = install_or_repair(
+                    "ibus" if is_ibus else "fcitx5",
+                    options=opts,
+                    progress=append,
+                )
+                append("\n✅ 安装/修复完成" if ok else "\n❌ 安装/修复失败")
+                if not ok and not output:
+                    append("没有收到安装后端输出")
+                GLib.idle_add(mark_finished, ok)
 
-    def _on_install_ibus(self, _button: Gtk.Button) -> None:
-        ok, message = launch_ibus_installer()
-        self._message(
-            "IBus 安装器" if ok else "无法启动 IBus 安装器",
-            message,
-            Gtk.MessageType.INFO if ok else Gtk.MessageType.ERROR,
-        )
+            threading.Thread(target=work, daemon=True).start()
+
+        def on_response(_dialog: Gtk.Dialog, response: int) -> None:
+            if response == Gtk.ResponseType.APPLY:
+                begin()
+            elif response == Gtk.ResponseType.CLOSE and not state["running"]:
+                dialog.destroy()
+
+        def prevent_close(_dialog: Gtk.Dialog, _event: Gdk.Event) -> bool:
+            return state["running"]
+
+        dialog.connect("response", on_response)
+        dialog.connect("delete-event", prevent_close)
+        dialog.show_all()
 
     def _run_quick_action(self, action: Callable[[], tuple[bool, str]]) -> None:
         def work() -> None:

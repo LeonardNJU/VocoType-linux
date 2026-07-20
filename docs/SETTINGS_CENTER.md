@@ -16,7 +16,7 @@ vocotype-settings
 bash scripts/launch-settings.sh
 ```
 
-Fcitx 5 的“安装 / 修复”使用非交互模式，默认创建独立的用户级 Python 3.12 环境，保留已有配置并跳过重复麦克风向导。IBus 在部分 GNOME/Debian 环境需要 `sudo` 注册系统 component，因此点击 IBus 安装会打开可见终端完成交互，不会隐藏密码提示。系统缺少依赖时，安装器会给出发行版命令。
+Fcitx 5 与 IBus 的“安装 / 修复”都使用窗口内非交互后端：选项、下载进度、编译输出和错误均显示在设置中心。缺少系统依赖或需要把 IBus component 注册到 `/usr/share/ibus/component` 时，设置中心调用 `pkexec`，由桌面 Polkit 代理弹出密码、指纹或其他管理员授权框。VoCoType 不读取或保存管理员凭据，也不会打开终端。
 
 ## 页面
 

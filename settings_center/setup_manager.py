@@ -1,19 +1,31 @@
-"""User-level install/repair orchestration for the graphical settings center."""
+"""GUI installation, repair, and framework restart helpers."""
 
 from __future__ import annotations
 
 import os
-import shlex
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Literal
 
 ProgressCallback = Callable[[str], None]
+Framework = Literal["fcitx5", "ibus"]
+
+
+@dataclass(frozen=True)
+class InstallOptions:
+    python_choice: str = "user"
+    preserve_config: bool = True
+    install_system_deps: bool = True
+    bootstrap_uv: bool = True
+    rime_enabled: bool = False
+    rime_schema: str = "luna_pinyin"
+    component_mode: str = "auto"
 
 
 def find_project_root(start: str | os.PathLike[str] | None = None) -> Path | None:
-    candidates = []
+    candidates: list[Path] = []
     if start:
         candidates.append(Path(start).expanduser().resolve())
     configured_source = os.environ.get("VOCOTYPE_PROJECT_DIR", "").strip()
@@ -26,36 +38,79 @@ def find_project_root(start: str | os.PathLike[str] | None = None) -> Path | Non
             if path in seen:
                 continue
             seen.add(path)
-            if (path / "fcitx5/scripts/install-fcitx5.sh").is_file() and (path / "pyproject.toml").is_file():
+            if (
+                (path / "fcitx5/scripts/install-fcitx5.sh").is_file()
+                and (path / "scripts/install-ibus-gui.sh").is_file()
+                and (path / "pyproject.toml").is_file()
+            ):
                 return path
     return None
 
 
-def installer_command(project_root: Path) -> list[str]:
+def _common_flags(options: InstallOptions) -> list[str]:
+    flags = ["--non-interactive", "--skip-audio", "--python-choice", options.python_choice]
+    if options.preserve_config:
+        flags.append("--preserve-config")
+    if options.install_system_deps:
+        flags.append("--install-system-deps")
+    if options.bootstrap_uv:
+        flags.append("--bootstrap-uv")
+    return flags
+
+
+def fcitx_installer_command(project_root: Path, options: InstallOptions | None = None) -> list[str]:
+    opts = options or InstallOptions()
     return [
         "bash",
         str(project_root / "fcitx5/scripts/install-fcitx5.sh"),
-        "--non-interactive",
-        "--preserve-config",
-        "--skip-audio",
-        "--python-choice",
-        "user",
+        *_common_flags(opts),
         "--slm-provider",
-        "preserve",
+        "preserve" if opts.preserve_config else "disabled",
     ]
 
 
+def ibus_installer_command(project_root: Path, options: InstallOptions | None = None) -> list[str]:
+    opts = options or InstallOptions()
+    return [
+        "bash",
+        str(project_root / "scripts/install-ibus-gui.sh"),
+        *_common_flags(opts),
+        "--slm-provider",
+        "preserve" if opts.preserve_config else "disabled",
+        "--rime",
+        "enabled" if opts.rime_enabled else "disabled",
+        "--rime-schema",
+        opts.rime_schema or "luna_pinyin",
+        "--component-mode",
+        opts.component_mode,
+    ]
+
+
+def installer_command(project_root: Path) -> list[str]:
+    """Backward-compatible alias for the default Fcitx graphical installer."""
+
+    return fcitx_installer_command(project_root)
+
+
 def install_or_repair(
+    framework: Framework = "fcitx5",
     *,
+    options: InstallOptions | None = None,
     project_root: Path | None = None,
     progress: ProgressCallback | None = None,
 ) -> tuple[bool, str]:
     root = project_root or find_project_root()
     if root is None:
-        return False, "当前应用不是从源码目录运行，找不到安装器。请从项目目录启动设置中心后重试。"
-    command = installer_command(root)
+        return False, "找不到包含安装后端的 VoCoType 源码目录。"
+    if framework == "fcitx5":
+        command = fcitx_installer_command(root, options)
+    elif framework == "ibus":
+        command = ibus_installer_command(root, options)
+    else:
+        return False, f"未知安装框架: {framework}"
+
     callback = progress or (lambda _line: None)
-    callback("$ " + " ".join(command))
+    callback("开始图形安装；需要管理员权限时，桌面将弹出 Polkit 授权窗口。")
     process = subprocess.Popen(
         command,
         cwd=root,
@@ -70,11 +125,15 @@ def install_or_repair(
     output: list[str] = []
     assert process.stdout is not None
     for line in process.stdout:
+        clean = line.rstrip()
         output.append(line)
-        callback(line.rstrip())
+        callback(clean)
     return_code = process.wait()
-    text = "".join(output)
-    return return_code == 0, text
+    return return_code == 0, "".join(output)
+
+
+def polkit_available() -> bool:
+    return shutil.which("pkexec") is not None
 
 
 def restart_backend() -> tuple[bool, str]:
@@ -100,33 +159,10 @@ def restart_fcitx() -> tuple[bool, str]:
     return result.returncode == 0, message or ("Fcitx 5 已重启" if result.returncode == 0 else "Fcitx 5 重启失败")
 
 
-def launch_ibus_installer(project_root: Path | None = None) -> tuple[bool, str]:
-    """Open the IBus installer in a terminal for prompts and possible sudo.
-
-    IBus registration can require a system component under GNOME/Debian, so the
-    graphical settings center deliberately uses a visible terminal rather than
-    hiding password prompts or failing silently.
-    """
-
-    root = project_root or find_project_root()
-    if root is None:
-        return False, "找不到源码目录，无法启动 IBus 安装器。"
-    script = root / "scripts/install-ibus.sh"
-    shell_command = (
-        f"cd {shlex.quote(str(root))}; "
-        f"bash {shlex.quote(str(script))}; status=$?; "
-        'echo; read -r -p "安装器已结束，按 Enter 关闭终端..."; exit $status'
-    )
-    candidates = [
-        (["xdg-terminal-exec", "bash", "-lc", shell_command], "xdg-terminal-exec"),
-        (["kgx", "--", "bash", "-lc", shell_command], "kgx"),
-        (["gnome-terminal", "--", "bash", "-lc", shell_command], "gnome-terminal"),
-        (["konsole", "-e", "bash", "-lc", shell_command], "konsole"),
-        (["kitty", "bash", "-lc", shell_command], "kitty"),
-        (["xterm", "-e", "bash", "-lc", shell_command], "xterm"),
-    ]
-    for argv, executable in candidates:
-        if shutil.which(executable):
-            subprocess.Popen(argv, cwd=root, env=os.environ.copy())
-            return True, "已在终端中启动 IBus 安装器"
-    return False, "未找到可用终端模拟器；请运行 bash scripts/install-ibus.sh"
+def restart_ibus() -> tuple[bool, str]:
+    executable = shutil.which("ibus")
+    if executable is None:
+        return False, "未检测到 ibus"
+    result = subprocess.run([executable, "restart"], capture_output=True, text=True, timeout=15, check=False)
+    message = (result.stdout + result.stderr).strip()
+    return result.returncode == 0, message or ("IBus 已重启" if result.returncode == 0 else "IBus 重启失败")

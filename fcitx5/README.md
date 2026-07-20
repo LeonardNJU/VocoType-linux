@@ -68,7 +68,7 @@ systemctl --user enable --now vocotype-fcitx5-backend.service
 fcitx5 -r
 ```
 
-安装脚本会：
+设置中心中的 Fcitx 安装器会在窗口内执行；缺少系统包时通过 Polkit 授权自动安装。安装后端会：
 
 1. 编译并安装 `vocotype.so` 全局 module。
 2. 安装 addon 元数据到 `~/.local/share/fcitx5/addon/vocotype.conf`。

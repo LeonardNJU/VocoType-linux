@@ -14,8 +14,14 @@ import pytest
 from app.slm_polisher import SLMPolisher
 from app.text_normalizer import normalize_text
 from settings_center import config_service
+from settings_center.doctor import run_doctor
 from settings_center.feedback import build_issue_url, submit_feedback
-from settings_center.setup_manager import installer_command
+from settings_center.setup_manager import (
+    InstallOptions,
+    fcitx_installer_command,
+    ibus_installer_command,
+    installer_command,
+)
 from settings_center.support_bundle import create_support_bundle
 
 
@@ -235,12 +241,25 @@ def test_support_bundle_redacts_config_and_omits_dictionary_contents(
         assert "<redacted>" in all_text
 
 
-def test_gui_installer_uses_noninteractive_preserving_mode():
-    command = installer_command(Path("/tmp/VocoType-linux"))
-    assert "--non-interactive" in command
-    assert "--preserve-config" in command
-    assert command[command.index("--python-choice") + 1] == "user"
-    assert command[command.index("--slm-provider") + 1] == "preserve"
+def test_gui_installers_use_noninteractive_polkit_ready_mode():
+    root = Path("/tmp/VocoType-linux")
+    fcitx = fcitx_installer_command(root)
+    ibus = ibus_installer_command(
+        root,
+        InstallOptions(rime_enabled=True, rime_schema="rime_ice", component_mode="system"),
+    )
+    assert installer_command(root) == fcitx
+    for command in (fcitx, ibus):
+        assert "--non-interactive" in command
+        assert "--preserve-config" in command
+        assert "--install-system-deps" in command
+        assert "--bootstrap-uv" in command
+        assert command[command.index("--python-choice") + 1] == "user"
+        assert command[command.index("--slm-provider") + 1] == "preserve"
+    assert ibus[1].endswith("scripts/install-ibus-gui.sh")
+    assert ibus[ibus.index("--rime") + 1] == "enabled"
+    assert ibus[ibus.index("--rime-schema") + 1] == "rime_ice"
+    assert ibus[ibus.index("--component-mode") + 1] == "system"
 
 
 def test_settings_desktop_entry_and_console_scripts_exist():
@@ -258,12 +277,14 @@ def test_settings_application_exposes_both_install_paths():
     source = Path("settings_center/application.py").read_text(encoding="utf-8")
     assert "安装 / 修复 Fcitx 5" in source
     assert "安装 / 修复 IBus" in source
-    assert "launch_ibus_installer" in source
+    assert "launch_ibus_installer" not in source
+    assert "Polkit" in source
+    assert "InstallOptions" in source
     assert "录音 2 秒测试" in source
     assert "save_audio_config" in source
 
 
-def test_installer_has_gui_noninteractive_path():
+def test_installers_have_gui_noninteractive_paths_without_terminal_password_prompts():
     script = Path("fcitx5/scripts/install-fcitx5.sh").read_text(encoding="utf-8")
     for fragment in (
         "--non-interactive",
@@ -273,6 +294,8 @@ def test_installer_has_gui_noninteractive_path():
         'io.github.LeonardNJU.VoCoType.Settings.desktop',
         '检测到已有本地 SLM 配置',
         'VOCOTYPE_PROJECT_DIR',
+        '--install-system-deps',
+        'pkexec',
     ):
         assert fragment in script
 
@@ -282,3 +305,44 @@ def test_ibus_uninstall_preserves_shared_user_configuration():
     assert 'rm -rf "$VOCOTYPE_CONFIG_DIR"' not in script
     assert "用户配置已保留" in script
     assert "FCITX_PRESENT" in script
+
+
+def test_ibus_gui_installer_uses_pkexec_and_never_reads_from_a_terminal():
+    script = Path("scripts/install-ibus-gui.sh").read_text(encoding="utf-8")
+    assert "--non-interactive" in script
+    assert "--component-mode" in script
+    assert "pkexec" in script
+    assert "AUTH_REQUIRED" in script
+    assert "read -r -p" not in script
+    assert "sudo " not in script
+    assert "xdg-terminal-exec" not in script
+    assert "gnome-terminal" not in script
+
+
+def test_system_dependency_helper_has_fixed_actions_and_no_arbitrary_package_arguments():
+    helper = Path("scripts/install-system-dependencies.sh").read_text(encoding="utf-8")
+    assert "fcitx5|ibus|ibus-rime" in helper
+    assert "apt-get install" in helper
+    assert "dnf install" in helper
+    assert "pacman -S --needed" in helper
+    assert 'PACKAGES=("$@")' not in helper
+
+
+def test_setup_manager_does_not_launch_terminal_emulators():
+    source = Path("settings_center/setup_manager.py").read_text(encoding="utf-8")
+    for terminal in ("gnome-terminal", "xdg-terminal-exec", "konsole", "kitty", "xterm"):
+        assert terminal not in source
+
+
+def test_doctor_reports_polkit_readiness(monkeypatch: pytest.MonkeyPatch):
+    import settings_center.doctor as doctor_module
+
+    original_which = doctor_module.shutil.which
+    monkeypatch.setattr(
+        doctor_module.shutil,
+        "which",
+        lambda command: "/usr/bin/pkexec" if command == "pkexec" else original_which(command),
+    )
+    check = next(item for item in run_doctor() if item.check_id == "polkit")
+    assert check.status == "pass"
+    assert "pkexec" in check.details

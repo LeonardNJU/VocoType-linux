@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Fcitx 5 and IBus now share a fully graphical install/repair workflow. All choices and logs stay in the settings window; missing system packages and system-level IBus component registration use desktop Polkit authorization dialogs through `pkexec`, with no terminal password prompt.
 - Fcitx 5 now installs a true global `Category=Module` addon: `F9` and its modifiers work with the user's existing Rime, Pinyin, Mozc, keyboard, or other Fcitx input method without proxying ordinary key events.
 - Added a shared `~/.config/vocotype/terms.yaml` terminology layer with deterministic canonical replacements, protected spans, live reload, legacy Geequlim dictionary compatibility, and native Contextual Paraformer hotwords.
 - Added guarded Chinese ITN with `WeTextProcessing==1.2.0`, an expanded numeric regression matrix, and independently configurable compact date, time, distance, and currency styles.

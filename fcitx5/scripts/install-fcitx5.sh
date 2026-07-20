@@ -4,6 +4,7 @@
 # 用法: install-fcitx5.sh [--device <id>] [--sample-rate <rate>] [--skip-audio]
 #                            [--non-interactive] [--python-choice user|project|system]
 #                            [--slm-provider preserve|disabled|remote|local]
+#                            [--install-system-deps] [--bootstrap-uv]
 #   --device <id>      指定音频设备ID，跳过交互式配置
 #   --sample-rate <rate>  指定采样率（默认44100）
 #   --skip-audio       跳过音频配置
@@ -11,6 +12,8 @@
 #   --preserve-config  保留已有 SLM/运行配置
 #   --python-choice    非交互环境选择；默认 user
 #   --slm-provider     非交互 SLM 选择；默认 preserve
+#   --install-system-deps  缺依赖时通过 pkexec 弹出桌面授权并自动安装
+#   --bootstrap-uv     缺少兼容 Python 时在用户目录安装 uv/Python 3.12
 #
 # 历史问题修复记录：
 # 1. FCITX_ADDON_DIRS 环境变量 - Fcitx5 默认不搜索 ~/.local/lib64/fcitx5
@@ -29,6 +32,8 @@ NON_INTERACTIVE=false
 PRESERVE_CONFIG=false
 PY_CHOICE_OVERRIDE="user"
 SLM_PROVIDER_OVERRIDE="preserve"
+INSTALL_SYSTEM_DEPS=false
+BOOTSTRAP_UV=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -60,6 +65,14 @@ while [[ $# -gt 0 ]]; do
             SLM_PROVIDER_OVERRIDE="$2"
             shift 2
             ;;
+        --install-system-deps)
+            INSTALL_SYSTEM_DEPS=true
+            shift
+            ;;
+        --bootstrap-uv)
+            BOOTSTRAP_UV=true
+            shift
+            ;;
         *)
             shift
             ;;
@@ -73,6 +86,7 @@ INSTALLED_SETUP_AUDIO_SCRIPT="$INSTALL_DIR/scripts/setup-audio.py"
 PYTHON_MIN_MINOR=11
 PYTHON_MAX_MINOR=12
 DEFAULT_UV_PYTHON="3.12"
+SYSTEM_DEPS_HELPER="$PROJECT_DIR/scripts/install-system-dependencies.sh"
 
 # SLM 可选配置（默认关闭）
 ENABLE_SLM=0
@@ -141,6 +155,40 @@ detect_system_python() {
         fi
     done
     return 1
+}
+
+bootstrap_uv() {
+    command -v uv >/dev/null 2>&1 && return 0
+    [ "$BOOTSTRAP_UV" = true ] || return 1
+    echo "正在用户目录安装 uv，以便自动准备 Python 3.12…"
+    mkdir -p "$HOME/.local/bin"
+    if command -v curl >/dev/null 2>&1; then
+        curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$HOME/.local/bin" UV_NO_MODIFY_PATH=1 sh
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO- https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$HOME/.local/bin" UV_NO_MODIFY_PATH=1 sh
+    else
+        echo "错误: 无法自动安装 uv，系统缺少 curl/wget。" >&2
+        return 1
+    fi
+    export PATH="$HOME/.local/bin:$PATH"
+    command -v uv >/dev/null 2>&1
+}
+
+install_system_dependencies() {
+    if [ "$INSTALL_SYSTEM_DEPS" != true ]; then
+        return 1
+    fi
+    if ! command -v pkexec >/dev/null 2>&1; then
+        echo "错误: 未检测到 pkexec，无法显示管理员授权窗口。" >&2
+        echo "请安装 polkit 后重试，或先手动安装系统依赖。" >&2
+        return 1
+    fi
+    if [ ! -r "$SYSTEM_DEPS_HELPER" ]; then
+        echo "错误: 系统依赖辅助程序不存在: $SYSTEM_DEPS_HELPER" >&2
+        return 1
+    fi
+    echo "AUTH_REQUIRED: 即将弹出管理员授权窗口以安装 Fcitx 5 系统依赖。"
+    pkexec "$(command -v bash)" "$SYSTEM_DEPS_HELPER" fcitx5
 }
 
 print_python_help() {
@@ -349,11 +397,14 @@ echo ""
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo "[1/8] 检查 Fcitx 5..."
 if ! command -v fcitx5 &>/dev/null; then
-    echo "错误: 未检测到 Fcitx 5"
-    echo "请先安装 Fcitx 5:"
-    echo "  Debian/Ubuntu: sudo apt install fcitx5 fcitx5-config-qt"
-    echo "  Fedora:        sudo dnf install fcitx5 fcitx5-configtool"
-    echo "  Arch:          sudo pacman -S fcitx5 fcitx5-configtool"
+    echo "未检测到 Fcitx 5。"
+    install_system_dependencies || {
+        echo "错误: Fcitx 5 尚未安装，且自动安装未完成。" >&2
+        exit 1
+    }
+fi
+if ! command -v fcitx5 &>/dev/null; then
+    echo "错误: 系统依赖安装完成后仍未检测到 fcitx5。" >&2
     exit 1
 fi
 echo "✓ Fcitx 5 已安装"
@@ -421,16 +472,24 @@ if [ "$json_found" = false ]; then
 fi
 
 if [ ${#missing_deps[@]} -gt 0 ]; then
-    echo "错误: 缺少以下依赖:"
+    echo "缺少以下编译依赖:"
     for dep in "${missing_deps[@]}"; do
         echo "  - $dep"
     done
-    echo ""
-    echo "安装命令参考:"
-    echo "  Debian/Ubuntu: sudo apt install cmake pkg-config libfcitx5-dev nlohmann-json3-dev"
-    echo "  Fedora:        sudo dnf install cmake pkgconfig fcitx5-devel json-devel"
-    echo "  Arch:          sudo pacman -S cmake pkgconfig fcitx5 nlohmann-json"
-    exit 1
+    install_system_dependencies || {
+        echo "错误: 自动安装系统依赖未完成。" >&2
+        exit 1
+    }
+    restart_args=(
+        --non-interactive
+        --skip-audio
+        --python-choice "$PY_CHOICE_OVERRIDE"
+        --slm-provider "$SLM_PROVIDER_OVERRIDE"
+    )
+    [ "$PRESERVE_CONFIG" = true ] && restart_args+=(--preserve-config)
+    [ "$INSTALL_SYSTEM_DEPS" = true ] && restart_args+=(--install-system-deps)
+    [ "$BOOTSTRAP_UV" = true ] && restart_args+=(--bootstrap-uv)
+    exec bash "$0" "${restart_args[@]}"
 fi
 echo "✓ 编译依赖已满足"
 
@@ -597,12 +656,12 @@ else
     if [ -n "$CUSTOM_PYTHON_CMD" ]; then
         PYTHON_CMD="$CUSTOM_PYTHON_CMD"
         echo "使用手动指定的 Python: $PYTHON_CMD ($(get_python_version "$PYTHON_CMD"))"
-    elif command -v uv &>/dev/null; then
+    elif command -v uv &>/dev/null || bootstrap_uv; then
         PYTHON_CMD="$DEFAULT_UV_PYTHON"
-        echo "检测到 uv，使用 uv 管理 Python: $PYTHON_CMD"
+        echo "使用 uv 管理 Python: $PYTHON_CMD"
     else
         PYTHON_CMD=$(detect_system_python) || {
-            echo "错误: 需要 Python 3.11-3.12"
+            echo "错误: 需要 Python 3.11-3.12，且 uv 自动安装未启用或失败。"
             print_python_help
             exit 1
         }
@@ -739,10 +798,8 @@ sample_rate = $SAMPLE_RATE
 EOF
     echo "✓ 音频配置已保存"
 elif [ "$SKIP_AUDIO" = true ]; then
-    # 跳过音频配置
-    echo "跳过音频配置（使用 --skip-audio）"
-    echo "请稍后运行以下命令配置音频："
-    echo "  $PYTHON $INSTALLED_SETUP_AUDIO_SCRIPT"
+    # 图形安装由设置中心的“语音识别与 ITN”页面管理麦克风。
+    echo "跳过命令行音频向导；可在设置中心选择并测试麦克风。"
 else
     # 交互式配置
     echo ""
@@ -877,8 +934,13 @@ WantedBy=default.target
 EOF
 
 if command -v systemctl >/dev/null 2>&1; then
-    systemctl --user daemon-reload >/dev/null 2>&1 || \
-        echo "⚠️  systemctl --user daemon-reload 失败，请手动执行"
+    if ! systemctl --user daemon-reload >/dev/null 2>&1; then
+        if [ "$NON_INTERACTIVE" = true ]; then
+            echo "⚠️  后台服务尚未重载，可在设置中心点击“重启后台服务”重试"
+        else
+            echo "⚠️  systemctl --user daemon-reload 失败，请手动执行"
+        fi
+    fi
 fi
 
 echo "✓ 后台服务启动器已创建"
@@ -898,32 +960,25 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "✅ VoCoType Fcitx 5 安装完成！"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "📝 接下来的步骤："
-echo ""
-echo "1. 【重要】设置环境变量（选择一种方式）："
-echo ""
-echo "   方式 A - 重新登录（推荐）"
-echo "     注销并重新登录桌面会话"
-echo ""
-echo "   方式 B - 当前终端临时设置"
-echo "     export FCITX_ADDON_DIRS=~/.local/lib64/fcitx5:~/.local/lib/fcitx5:/usr/lib64/fcitx5"
-echo ""
-echo "2. 启动后台服务："
-echo ""
-echo "   systemctl --user daemon-reload"
-echo "   systemctl --user enable --now vocotype-fcitx5-backend.service"
-echo ""
-echo "3. 重启 Fcitx 5："
-echo "     fcitx5 -r"
-echo ""
-echo "4. 确认 VoCoType 全局 Module 已启用："
-echo "     fcitx5-configtool"
-echo "   （在附加组件中启用 VoCoType Voice Input；无需添加新输入法）"
-echo ""
-echo "5. 使用方法："
-echo "   - 按住 F9 说话，松开识别（语音输入）"
-echo "   - 保持使用你原来的 Rime、拼音、Mozc 或其他 Fcitx 5 输入法"
-echo ""
-echo "🎤 VoCoType 已增强当前所有 Fcitx 5 输入法！"
+if [ "$NON_INTERACTIVE" = true ]; then
+    if command -v fcitx5 >/dev/null 2>&1; then
+        if command -v timeout >/dev/null 2>&1; then
+            timeout 8s fcitx5 -r >/dev/null 2>&1 || \
+                echo "⚠️  Fcitx 5 暂未重载，可在设置中心点击“重启 Fcitx 5”"
+        else
+            fcitx5 -r >/dev/null 2>&1 &
+        fi
+    fi
+    echo "安装器已尝试启动后台服务并重载 Fcitx 5。"
+    echo "若本次会话尚未加载用户 addon 路径，请注销并重新登录一次。"
+    echo "继续使用现有 Rime、拼音、Mozc 等输入法，直接按住 F9 说话。"
+else
+    echo "📝 接下来的步骤："
+    echo ""
+    echo "1. 注销并重新登录桌面会话，让 Fcitx 读取用户 addon 路径。"
+    echo "2. 启动后台服务并重启 Fcitx 5。"
+    echo "3. 在附加组件中确认 VoCoType Voice Input 已启用。"
+    echo "4. 继续使用现有输入法，按住 F9 说话。"
+fi
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
