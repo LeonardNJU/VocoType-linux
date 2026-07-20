@@ -33,6 +33,7 @@ def test_runtime_check_loads_the_actual_asr_entry_points():
         "soundfile",
         "librosa",
         "yaml",
+        "itn.chinese.inverse_normalizer",
         "modelscope.hub.snapshot_download",
         "funasr_onnx.paraformer_bin",
         "funasr_onnx.vad_bin",

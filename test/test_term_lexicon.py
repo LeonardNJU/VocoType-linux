@@ -90,7 +90,7 @@ protect:
     )
 
     assert normalize_text("hundred meter plan启动，一百米") == "一百米计划启动，100米"
-    assert normalize_text("三体问题有三个变量") == "三体问题有三个变量"
+    assert normalize_text("三体问题有三个变量") == "三体问题有3个变量"
 
 
 def test_native_hotwords_accept_explicit_values_and_filter_invalid(terms_path: Path):

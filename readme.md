@@ -85,6 +85,16 @@ ASR 后的确定性 alias → canonical 替换，并保护标准词不被 ITN/�
 
 ---
 
+## 强制 ITN 与数字格式
+
+每次中文转写都会运行 WeTextProcessing FST ITN，没有关闭开关。VoCoType 会先应用
+产品级数字规则，再保护术语、固定表达和已确定的格式，只接受语义安全的数字替换，
+避免把中文日期改成斜杠、把“米”改成 `m` 或把中文时间改成 `p.m.`。
+
+详见：[强制 ITN 与数字格式策略](docs/ITN.md)。
+
+---
+
 ## SLM 后处理配置（通用）
 
 `F9` 为极速模式（不走 SLM），`Shift+F9` 为长句模式（可选 SLM/LLM 润色）。
@@ -294,6 +304,7 @@ python scripts/benchmark_slm_pipeline.py ./samples \
 - [IBus 版本安装指南](ibus/README.md)
 - [Fcitx 5 版本安装指南](fcitx5/README.md)
 - [术语库与原生热词](docs/TERMS.md)
+- [强制 ITN 与数字格式策略](docs/ITN.md)
 - [Rime 拼音配置指南](RIME_CONFIG_GUIDE.md)（主要面向 IBus；Fcitx 版本直接使用现有 fcitx5-rime）
 
 ---

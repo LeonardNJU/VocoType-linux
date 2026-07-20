@@ -34,7 +34,6 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "asr": {
         "use_vad": False,
         "use_punc": True,
-        "normalize_chinese_numbers": True,
         "language": "zh",
         "hotword": "",
         "batch_size_s": 60.0,

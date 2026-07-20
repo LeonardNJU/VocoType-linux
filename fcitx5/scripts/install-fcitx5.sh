@@ -561,6 +561,7 @@ import jieba  # noqa: F401
 import librosa  # noqa: F401
 import modelscope  # noqa: F401
 import yaml  # noqa: F401
+from itn.chinese.inverse_normalizer import InverseNormalizer  # noqa: F401
 import sounddevice  # noqa: F401
 import soundfile  # noqa: F401
 import funasr_onnx  # noqa: F401
