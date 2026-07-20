@@ -148,7 +148,7 @@ def test_cpp_module_uses_async_start_poll_cancel_and_live_preview():
     source = (ROOT / "fcitx5" / "module" / "vocotype_module.cpp").read_text(
         encoding="utf-8"
     )
-    ipc_header = (ROOT / "fcitx5" / "addon" / "ipc_client.h").read_text(
+    ipc_header = (ROOT / "fcitx5" / "common" / "ipc_client.h").read_text(
         encoding="utf-8"
     )
 

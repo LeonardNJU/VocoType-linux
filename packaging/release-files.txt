@@ -9,8 +9,8 @@ fcitx5/backend/audio_recorder.py
 fcitx5/backend/fcitx5_server.py
 fcitx5/data/vocotype.conf
 fcitx5/module
-fcitx5/addon/ipc_client.cpp
-fcitx5/addon/ipc_client.h
+fcitx5/common/ipc_client.cpp
+fcitx5/common/ipc_client.h
 fcitx5/scripts/install-fcitx5.sh
 scripts/check-python-runtime.py
 scripts/install-ibus-gui.sh

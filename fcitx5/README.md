@@ -37,7 +37,6 @@ fcitx5/backend/audio_recorder.py
 fcitx5/data/vocotype.conf      Category=Module 的 addon 元数据
 ```
 
-旧的 `fcitx5/addon/` 输入法引擎源码暂时保留用于迁移参考，但安装器不再构建或安装它。
 
 ## 系统要求
 

@@ -16,5 +16,4 @@ recursive-include scripts *.py *.sh
 recursive-include site *.png *.svg *.ico *.webmanifest
 recursive-include test *.py
 
-prune fcitx5/addon/build
 prune fcitx5/module/build

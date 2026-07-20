@@ -565,6 +565,14 @@ def test_release_validator_accepts_complete_artifacts_and_rejects_corruption(tmp
 
 
 
+
+def test_legacy_fcitx_input_method_engine_is_not_kept_as_dead_source():
+    assert not (ROOT / "fcitx5/addon").exists()
+    assert (ROOT / "fcitx5/common/ipc_client.cpp").is_file()
+    cmake = (ROOT / "fcitx5/module/CMakeLists.txt").read_text(encoding="utf-8")
+    assert "../common/ipc_client.cpp" in cmake
+    assert "../addon" not in cmake
+
 def test_fcitx_module_uses_apis_available_since_fcitx_5014():
     header = (ROOT / "fcitx5/module/vocotype_module.h").read_text(encoding="utf-8")
     source = (ROOT / "fcitx5/module/vocotype_module.cpp").read_text(encoding="utf-8")

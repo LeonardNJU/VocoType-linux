@@ -23,9 +23,9 @@ endif()
 
 add_library(vocotype MODULE
     vocotype_module.cpp
-    ../addon/ipc_client.cpp
+    ../common/ipc_client.cpp
 )
-target_include_directories(vocotype PRIVATE ../addon)
+target_include_directories(vocotype PRIVATE ../common)
 target_link_libraries(vocotype Fcitx5::Core)
 if(nlohmann_json_FOUND)
     target_link_libraries(vocotype nlohmann_json::nlohmann_json)
