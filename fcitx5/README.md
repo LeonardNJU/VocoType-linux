@@ -249,9 +249,13 @@ Module 的“全局”范围是 Fcitx 5 的输入上下文，不是桌面 compos
 ### Module 未加载
 
 ```bash
-ls ~/.local/lib/fcitx5/vocotype.so ~/.local/share/fcitx5/addon/vocotype.conf
-fcitx5-diagnose | grep -i -A5 vocotype
+find /usr/lib /usr/lib64 -path '*/fcitx5/vocotype.so' -type f -print
+ls /usr/share/fcitx5/addon/vocotype.conf
+busctl --user --json=short call org.fcitx.Fcitx5 /controller \
+  org.fcitx.Fcitx.Controller1 GetAddons | grep -o 'vocotype'
 ```
+
+文件存在只表示 addon 被发现；当前 Fcitx 实例的 `GetAddons` 返回中包含 `vocotype`，才表示 module 已实际创建成功。设置中心的 Doctor 会执行同一运行态检查。
 
 不要设置 `FCITX_ADDON_DIRS`。该变量会覆盖 Fcitx 的标准 addon 搜索路径，可能导致
 D-Bus、Rime 和界面 addon 无法加载。若旧版本曾写入该变量，先清理并重启：
@@ -277,12 +281,12 @@ VoCoType module 不处理 Rime 普通按键。请直接按 `fcitx5-rime` 的方�
 
 ## 卸载
 
-图形设置中心提供 **卸载 VoCoType（Fcitx 5）**，会停止用户服务并清理用户级 module、addon、launcher 和服务定义。命令行使用：
+图形设置中心提供 **卸载 VoCoType（Fcitx 5）**。源码安装时，它会停止用户服务、清理用户运行代码与 launcher，并通过 Polkit 删除源码安装器写入 `/usr` 的 module、addon 元数据和 ownership marker。命令行使用：
 
 ```bash
 bash fcitx5/scripts/uninstall.sh
 ```
 
-默认保留 `~/.local/share/vocotype-fcitx5/.venv`、模型缓存和 `~/.config/vocotype/`。使用 `--purge-runtime` 删除整个 Fcitx 运行环境；只有明确使用 `--remove-user-data` 时才会删除 IBus 与 Fcitx 共用的术语、hotword、音频和 AI 配置。
+默认保留 `~/.local/share/vocotype-fcitx5/.venv`、共享 ModelScope 模型缓存和 `~/.config/vocotype/`。使用 `--purge-runtime` 删除 Fcitx 的虚拟环境与运行缓存；只有明确使用 `--remove-user-data` 时才会删除 IBus 与 Fcitx 共用的术语、hotword、音频和 AI 配置。使用 `--keep-system-integration` 才会显式保留源码安装器管理的系统 addon。
 
 若 module 来自 DEB、RPM 或 Arch 包，卸载脚本不会直接删除 `/usr/lib*/fcitx5/vocotype.so`；请按设置中心显示的命令卸载 `vocotype-linux` 软件包。

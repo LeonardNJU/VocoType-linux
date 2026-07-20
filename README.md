@@ -231,7 +231,7 @@ OpenRouter endpoint 会自动获得项目标识 header，并按其 API 映射 re
 
 ### 卸载
 
-推荐在 **VoCoType 设置 → 概览与安装** 中点击 **卸载 VoCoType（IBus）** 或 **卸载 VoCoType（Fcitx 5）**。GUI 默认只清理用户级程序与 integration 文件，并保留虚拟环境、模型以及 `~/.config/vocotype` 中的术语、音频和 AI 配置。
+推荐在 **VoCoType 设置 → 概览与安装** 中点击 **卸载 VoCoType（IBus）** 或 **卸载 VoCoType（Fcitx 5）**。源码安装时，GUI 会清理用户级运行代码，并通过 Polkit 一并移除源码安装器写入的系统 Fcitx addon 或 IBus component；默认保留 Python 虚拟环境、共享模型缓存以及 `~/.config/vocotype` 中的术语、音频和 AI 配置。
 
 命令行入口：
 
@@ -242,9 +242,9 @@ bash fcitx5/scripts/uninstall.sh
 
 可选参数：
 
-- `--purge-runtime`：同时删除该 integration 的虚拟环境、模型和缓存；
+- `--purge-runtime`：同时删除该 integration 的 Python 虚拟环境和运行缓存；共享的 ModelScope 模型缓存不会被隐式删除；
 - `--remove-user-data`：同时删除两套 integration 共享的 `~/.config/vocotype`，需谨慎使用；
-- IBus 的 `--remove-system-component`：通过 Polkit 删除旧版安装器留下、且不受原生软件包管理的系统 component。
+- `--keep-system-integration` / `--keep-system-component`：显式保留源码安装器写入的系统 Fcitx addon 或 IBus component。默认会在 Polkit 授权后移除。
 
 通过 DEB、RPM 或 Arch 安装的 `/usr` 文件始终由包管理器维护。设置中心只清理用户级运行环境，并显示 `pacman`、`dnf` 或 `apt` 的软件包卸载命令。
 

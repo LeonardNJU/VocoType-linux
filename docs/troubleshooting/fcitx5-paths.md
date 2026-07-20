@@ -30,7 +30,12 @@
 ```ini
 [audio]
 device_name = USB Composite Device
+device_id = 4
 sample_rate = 48000
+tested_at = 2026-07-21T00:00:00+00:00
+tested_device_id = 4
+test_peak = 0.02
+test_rms = 0.005
 ```
 
 或旧格式：
@@ -125,10 +130,13 @@ journalctl --user -u vocotype-fcitx5-backend.service --no-pager
 - 修改后需要运行 `systemctl --user daemon-reload`
 
 ### C++ Addon
-**路径**: `~/.local/lib64/fcitx5/vocotype.so`（或 `~/.local/lib/fcitx5/vocotype.so`）
+**路径**: `/usr/lib/fcitx5/vocotype.so`、`/usr/lib64/fcitx5/vocotype.so`，或发行版对应的 multiarch libdir
 
-- Fcitx5 加载的插件文件
-- Addon 配置：`~/.local/share/fcitx5/addon/vocotype.conf`
+- Fcitx 5 不会可靠扫描 `~/.local/lib*/fcitx5`，因此源码安装也通过 Polkit 写入系统标准 addon 路径。
+- Addon 配置：`/usr/share/fcitx5/addon/vocotype.conf`
+- 源码安装 ownership marker：`/usr/share/vocotype/.source-fcitx-integration`
+- 原生软件包 marker：`/usr/share/vocotype/.system-package`
+- 不要把 `vocotype_linux.egg-info/` 当作 pacman 包；它只是 Python 构建元数据，当前构建器会自动清理。
 
 ### Unix Socket
 **路径**: `/tmp/vocotype-fcitx5.sock`
