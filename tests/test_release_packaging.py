@@ -400,14 +400,23 @@ def test_uninstall_restarts_are_bounded_for_headless_package_smoke():
     assert "run_bounded_restart env -u FCITX_ADDON_DIRS fcitx5 -r -d" in script
 
 
-def test_native_package_smoke_runs_an_isolated_ibus_registry():
+def test_native_package_smoke_runs_isolated_input_method_registries():
     smoke = (ROOT / "packaging/tests/smoke-installed-package.sh").read_text(encoding="utf-8")
-    registry = (ROOT / "packaging/tests/smoke-ibus-registry.sh").read_text(encoding="utf-8")
+    ibus_registry = (ROOT / "packaging/tests/smoke-ibus-registry.sh").read_text(encoding="utf-8")
+    fcitx_registry = (ROOT / "packaging/tests/smoke-fcitx-addon.sh").read_text(encoding="utf-8")
     assert "smoke-ibus-registry.sh" in smoke
-    assert "dbus-run-session" in registry
-    assert "GIO_USE_VFS=local" in registry
-    assert "ibus-daemon" in registry
-    assert "IBUS_REGISTRY_SMOKE_OK" in registry
+    assert "smoke-fcitx-addon.sh" in smoke
+    assert "dbus-run-session" in ibus_registry
+    assert "GIO_USE_VFS=local" in ibus_registry
+    assert "ibus-daemon" in ibus_registry
+    assert "IBUS_REGISTRY_SMOKE_OK" in ibus_registry
+    assert "dbus-run-session" in fcitx_registry
+    assert "Loaded addon vocotype" in fcitx_registry
+    assert "FCITX_ADDON_LOAD_OK" in fcitx_registry
+
+    for workflow_name in ("ci.yml", "release.yml"):
+        workflow = (ROOT / ".github/workflows" / workflow_name).read_text(encoding="utf-8")
+        assert "dbus-daemon" in workflow
 
 def test_native_package_smoke_exercises_lifecycle_ownership_boundary():
     smoke = (ROOT / "packaging/tests/smoke-installed-package.sh").read_text(encoding="utf-8")

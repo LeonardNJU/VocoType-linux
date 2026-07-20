@@ -100,7 +100,7 @@ jobs:
     container: fedora:44
     steps:
       - name: Install build tools
-        run: dnf install -y git rpm-build cmake gcc-c++ pkgconf-pkg-config fcitx5-devel nlohmann-json-devel systemd-rpm-macros
+        run: dnf install -y git rpm-build cmake gcc-c++ pkgconf-pkg-config fcitx5-devel nlohmann-json-devel systemd-rpm-macros dbus-daemon
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
