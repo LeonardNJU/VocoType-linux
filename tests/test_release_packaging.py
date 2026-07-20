@@ -63,12 +63,24 @@ def test_repository_layout_groups_tools_by_responsibility():
         "installers/check-python-runtime.py",
         "packaging/tools/build-release.py",
         "packaging/tests/smoke-installed-package.sh",
+        "packaging/tests/smoke-ibus-registry.sh",
         "tools/diagnostics/analyze-rime-logs.sh",
+        "tools/diagnostics/validate-ibus-install.py",
         "tools/benchmarks/slm-pipeline.py",
         "docs/guides/settings-center.md",
         "docs/troubleshooting/faq.md",
     ):
         assert (ROOT / relative).is_file(), relative
+
+
+def test_live_ibus_install_validation_is_a_diagnostic_not_a_pytest_case():
+    assert not (ROOT / "tests/test_ibus_install.py").exists()
+    validator = ROOT / "tools/diagnostics/validate-ibus-install.py"
+    assert validator.is_file()
+    source = validator.read_text(encoding="utf-8")
+    assert "VOCOTYPE_VALIDATE_INSTALL" not in source
+    assert "pytest.skip" not in source
+    assert "Path.home()" in source
 
 def test_release_manifest_is_safe_complete_and_unique():
     entries = _release_entries()
@@ -86,6 +98,7 @@ def test_release_manifest_is_safe_complete_and_unique():
         "installers",
         "data",
         "docs",
+        "tools/diagnostics/validate-ibus-install.py",
         "pyproject.toml",
         "requirements.txt",
         "uv.lock",
@@ -362,7 +375,17 @@ def test_uninstall_restarts_are_bounded_for_headless_package_smoke():
     script = (ROOT / "installers/uninstall-integration.sh").read_text(encoding="utf-8")
     assert "VOCOTYPE_RESTART_TIMEOUT_SECONDS" in script
     assert "run_bounded_restart ibus restart" in script
-    assert "run_bounded_restart fcitx5 -r" in script
+    assert "run_bounded_restart env -u FCITX_ADDON_DIRS fcitx5 -r -d" in script
+
+
+def test_native_package_smoke_runs_an_isolated_ibus_registry():
+    smoke = (ROOT / "packaging/tests/smoke-installed-package.sh").read_text(encoding="utf-8")
+    registry = (ROOT / "packaging/tests/smoke-ibus-registry.sh").read_text(encoding="utf-8")
+    assert "smoke-ibus-registry.sh" in smoke
+    assert "dbus-run-session" in registry
+    assert "GIO_USE_VFS=local" in registry
+    assert "ibus-daemon" in registry
+    assert "IBUS_REGISTRY_SMOKE_OK" in registry
 
 def test_native_package_smoke_exercises_lifecycle_ownership_boundary():
     smoke = (ROOT / "packaging/tests/smoke-installed-package.sh").read_text(encoding="utf-8")
@@ -423,15 +446,23 @@ def test_installation_paths_cover_user_system_and_multiarch_layouts(tmp_path: Pa
     assert multiarch in paths.fcitx_modules
     assert prefix / "share/fcitx5/addon/vocotype.conf" in paths.fcitx_addons
     assert prefix / "lib/systemd/user/vocotype-fcitx5-backend.service" in paths.fcitx_services
+    assert prefix / "bin/vocotype-fcitx5-backend" in paths.fcitx_backend_launchers
+    assert prefix / "share/vocotype/fcitx5/backend/fcitx5_server.py" in paths.fcitx_runtime_entries
     assert prefix / "libexec/vocotype-ibus-engine" in paths.ibus_launchers
     assert prefix / "lib/vocotype/vocotype-ibus-engine" in paths.ibus_launchers
     assert prefix / "share/ibus/component/vocotype.xml" in paths.ibus_components
+    assert prefix / "share/vocotype/ibus/main.py" in paths.ibus_runtime_entries
+    assert home / ".local/share/vocotype-fcitx5/.venv/bin/python" in paths.python_runtimes
     for group in (
         paths.fcitx_modules,
         paths.fcitx_addons,
         paths.fcitx_services,
+        paths.fcitx_backend_launchers,
+        paths.fcitx_runtime_entries,
         paths.ibus_launchers,
         paths.ibus_components,
+        paths.ibus_runtime_entries,
+        paths.python_runtimes,
     ):
         assert len(group) == len(set(group))
 

@@ -51,6 +51,8 @@ grep -Fq 'PYTHONDONTWRITEBYTECODE=1' /usr/bin/vocotype-settings
 grep -Fq 'PYTHONDONTWRITEBYTECODE=1' "$ibus_exec"
 echo PACKAGE_METADATA_OK
 
+"$(dirname "$0")/smoke-ibus-registry.sh"
+
 find /usr/share/vocotype -type d -name __pycache__ -prune -exec rm -rf {} +
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/usr/share/vocotype python3 - "$expected_version" "$ibus_exec" <<'PY'
 import sys

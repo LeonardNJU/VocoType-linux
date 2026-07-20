@@ -57,7 +57,7 @@ cd VocoType-linux
 bash installers/launch-settings.sh
 ```
 
-在“概览与安装”点击 **安装 / 修复 Fcitx 5** 或 **卸载 Fcitx 5**。已安装用户可直接从应用菜单打开 **VoCoType 设置**。
+在“概览与安装”点击 **安装 / 修复 VoCoType（Fcitx 5）** 或 **卸载 VoCoType（Fcitx 5）**。已安装用户可直接从应用菜单打开 **VoCoType 设置**。
 
 ## 命令行安装
 
@@ -253,11 +253,12 @@ ls ~/.local/lib/fcitx5/vocotype.so ~/.local/share/fcitx5/addon/vocotype.conf
 fcitx5-diagnose | grep -i -A5 vocotype
 ```
 
-确认环境变量包含用户 addon 目录，然后重新登录或执行：
+不要设置 `FCITX_ADDON_DIRS`。该变量会覆盖 Fcitx 的标准 addon 搜索路径，可能导致
+D-Bus、Rime 和界面 addon 无法加载。若旧版本曾写入该变量，先清理并重启：
 
 ```bash
-export FCITX_ADDON_DIRS="$HOME/.local/lib64/fcitx5:$HOME/.local/lib/fcitx5:/usr/lib64/fcitx5:/usr/lib/x86_64-linux-gnu/fcitx5:/usr/lib/fcitx5"
-fcitx5 -r
+rm -f ~/.config/environment.d/fcitx5-vocotype.conf
+env -u FCITX_ADDON_DIRS fcitx5 -r -d
 ```
 
 ### 按 F9 无响应
@@ -276,7 +277,7 @@ VoCoType module 不处理 Rime 普通按键。请直接按 `fcitx5-rime` 的方�
 
 ## 卸载
 
-图形设置中心提供 **卸载 Fcitx 5**，会停止用户服务并清理用户级 module、addon、launcher 和服务定义。命令行使用：
+图形设置中心提供 **卸载 VoCoType（Fcitx 5）**，会停止用户服务并清理用户级 module、addon、launcher 和服务定义。命令行使用：
 
 ```bash
 bash fcitx5/scripts/uninstall.sh

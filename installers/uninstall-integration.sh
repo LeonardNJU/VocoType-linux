@@ -124,14 +124,21 @@ RESTART_TIMEOUT_SECONDS=${VOCOTYPE_RESTART_TIMEOUT_SECONDS:-8}
 
 run_bounded_restart() {
     if command -v timeout >/dev/null 2>&1; then
-        timeout "${RESTART_TIMEOUT_SECONDS}s" "$@" >/dev/null 2>&1 || true
+        timeout "${RESTART_TIMEOUT_SECONDS}s" "$@" >/dev/null 2>&1
     else
-        "$@" >/dev/null 2>&1 &
+        "$@" >/dev/null 2>&1
     fi
 }
 
+desktop_session_available() {
+    [[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]] &&
+        [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]
+}
+
 remove_ibus() {
+    echo "正在清理 VoCoType（IBus）用户级运行代码…"
     remove_runtime_code "$IBUS_RUNTIME"
+    echo "正在移除 VoCoType（IBus）component 与 launcher…"
     rm -f "$HOME/.local/share/ibus/component/vocotype.xml"
     rm -f "$HOME/.local/libexec/ibus-engine-vocotype"
 
@@ -149,18 +156,27 @@ remove_ibus() {
             echo "检测到旧的系统 IBus component，未请求删除：$SYSTEM_COMPONENT"
         fi
     fi
-    if command -v ibus >/dev/null 2>&1; then
-        run_bounded_restart ibus restart
+    if command -v ibus >/dev/null 2>&1 && desktop_session_available; then
+        echo "正在刷新 IBus 注册信息…"
+        if ! run_bounded_restart ibus restart; then
+            echo "RESTART_FAILED: VoCoType 文件已清理，但 IBus 重启失败。" >&2
+            return 1
+        fi
+    else
+        echo "未检测到可用桌面会话，跳过 IBus 重启。"
     fi
-    echo "IBus 用户级集成已卸载。"
+    echo "VoCoType（IBus）用户级集成已卸载。"
 }
 
 remove_fcitx() {
     if command -v systemctl >/dev/null 2>&1; then
+        echo "正在停止 VoCoType（Fcitx 5）后台服务…"
         systemctl --user disable --now vocotype-fcitx5-backend.service >/dev/null 2>&1 || true
     fi
 
+    echo "正在清理 VoCoType（Fcitx 5）用户级运行代码…"
     remove_runtime_code "$FCITX_RUNTIME"
+    echo "正在移除 VoCoType Fcitx 5 module、addon 与 launcher…"
     rm -f \
         "$HOME/.local/lib/fcitx5/vocotype.so" \
         "$HOME/.local/lib/fcitx5/libvocotype.so" \
@@ -174,18 +190,27 @@ remove_fcitx() {
         "$HOME/.local/bin/vocotype-fcitx5-recorder"
 
     if command -v systemctl >/dev/null 2>&1; then
+        echo "正在刷新 VoCoType 用户服务定义…"
         systemctl --user daemon-reload >/dev/null 2>&1 || true
     fi
-    if command -v fcitx5 >/dev/null 2>&1; then
-        run_bounded_restart fcitx5 -r
+    if command -v fcitx5 >/dev/null 2>&1 && desktop_session_available; then
+        echo "正在重启 Fcitx 5 以加载 VoCoType 变更…"
+        # `fcitx5 -r` remains in the foreground. Always daemonize the
+        # replacement so a timeout wrapper cannot kill the new instance.
+        if ! run_bounded_restart env -u FCITX_ADDON_DIRS fcitx5 -r -d; then
+            echo "RESTART_FAILED: VoCoType 文件已清理，但 Fcitx 5 重启失败。" >&2
+            return 1
+        fi
+    else
+        echo "未检测到可用桌面会话，跳过 Fcitx 5 重启。"
     fi
-    echo "Fcitx 5 用户级集成已卸载。"
+    echo "VoCoType（Fcitx 5）用户级集成已卸载。"
 }
 
 print_plan() {
     local name="IBus"
     [[ "$FRAMEWORK" == fcitx5 ]] && name="Fcitx 5"
-    echo "=== VoCoType $name 卸载 ==="
+    echo "=== 卸载 VoCoType（$name） ==="
     if [[ "$PURGE_RUNTIME" == true ]]; then
         echo "- 删除该 integration 的运行时、虚拟环境和缓存"
     else

@@ -5,12 +5,14 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Literal
 
 ProgressCallback = Callable[[str], None]
 Framework = Literal["fcitx5", "ibus"]
+InstallState = Literal["complete", "partial", "absent"]
 
 
 @dataclass(frozen=True)
@@ -36,8 +38,19 @@ class InstallationPaths:
     fcitx_modules: tuple[Path, ...]
     fcitx_addons: tuple[Path, ...]
     fcitx_services: tuple[Path, ...]
+    fcitx_backend_launchers: tuple[Path, ...]
+    fcitx_runtime_entries: tuple[Path, ...]
     ibus_launchers: tuple[Path, ...]
     ibus_components: tuple[Path, ...]
+    ibus_runtime_entries: tuple[Path, ...]
+    python_runtimes: tuple[Path, ...]
+
+
+@dataclass(frozen=True)
+class IntegrationStatus:
+    state: InstallState
+    present: tuple[str, ...]
+    missing: tuple[str, ...]
 
 
 def _unique_paths(paths: list[Path]) -> tuple[Path, ...]:
@@ -78,6 +91,18 @@ def installation_paths(
                 system_lib / "systemd/user/vocotype-fcitx5-backend.service",
             ]
         ),
+        fcitx_backend_launchers=_unique_paths(
+            [
+                user_home / ".local/bin/vocotype-fcitx5-backend",
+                system_prefix / "bin/vocotype-fcitx5-backend",
+            ]
+        ),
+        fcitx_runtime_entries=_unique_paths(
+            [
+                user_home / ".local/share/vocotype-fcitx5/backend/fcitx5_server.py",
+                system_prefix / "share/vocotype/fcitx5/backend/fcitx5_server.py",
+            ]
+        ),
         ibus_launchers=_unique_paths(
             [
                 user_home / ".local/libexec/ibus-engine-vocotype",
@@ -91,7 +116,75 @@ def installation_paths(
                 system_prefix / "share/ibus/component/vocotype.xml",
             ]
         ),
+        ibus_runtime_entries=_unique_paths(
+            [
+                user_home / ".local/share/vocotype/ibus/main.py",
+                system_prefix / "share/vocotype/ibus/main.py",
+            ]
+        ),
+        python_runtimes=_unique_paths(
+            [
+                user_home / ".local/share/vocotype-fcitx5/.venv/bin/python",
+                user_home / ".local/share/vocotype/.venv/bin/python",
+            ]
+        ),
     )
+
+
+def _group_present(paths: tuple[Path, ...]) -> bool:
+    return any(path.is_file() for path in paths)
+
+
+def integration_status(
+    framework: Framework,
+    *,
+    home: Path | None = None,
+    system_prefix: Path = Path("/usr"),
+    project_root: Path | None = None,
+) -> IntegrationStatus:
+    """Classify a framework integration as complete, partial, or absent."""
+
+    paths = installation_paths(home=home, system_prefix=system_prefix)
+    if framework == "fcitx5":
+        groups = {
+            "module": paths.fcitx_modules,
+            "addon": paths.fcitx_addons,
+            "后台服务": paths.fcitx_services,
+            "后端启动器": paths.fcitx_backend_launchers,
+            "后端代码": paths.fcitx_runtime_entries,
+        }
+        structural_groups = groups
+        user_launcher = (home or Path.home()) / ".local/bin/vocotype-fcitx5-backend"
+        python_candidates = list(paths.python_runtimes)
+        if user_launcher.is_file() and project_root is not None:
+            python_candidates.append(project_root / ".venv/bin/python")
+    elif framework == "ibus":
+        groups = {
+            "launcher": paths.ibus_launchers,
+            "component": paths.ibus_components,
+            "引擎代码": paths.ibus_runtime_entries,
+        }
+        structural_groups = groups
+        python_candidates = list(paths.python_runtimes)
+    else:
+        raise ValueError(f"unknown framework: {framework}")
+
+    present = [name for name, candidates in groups.items() if _group_present(candidates)]
+    missing = [name for name, candidates in groups.items() if not _group_present(candidates)]
+    python_ready = any(path.is_file() and os.access(path, os.X_OK) for path in python_candidates)
+    if python_ready:
+        present.append("Python 运行环境")
+    else:
+        missing.append("Python 运行环境")
+
+    any_structural_artifact = any(_group_present(candidates) for candidates in structural_groups.values())
+    if not any_structural_artifact:
+        state: InstallState = "absent"
+    elif missing:
+        state = "partial"
+    else:
+        state = "complete"
+    return IntegrationStatus(state, tuple(present), tuple(missing))
 
 
 def find_project_root(start: str | os.PathLike[str] | None = None) -> Path | None:
@@ -273,7 +366,7 @@ def uninstall_framework(
         command,
         root=root,
         progress=progress,
-        start_message="开始卸载用户级 integration；原生软件包文件仍由系统包管理器管理。",
+        start_message="开始卸载 VoCoType 用户级集成；原生软件包文件仍由系统包管理器管理。",
     )
 
 
@@ -319,9 +412,40 @@ def restart_fcitx() -> tuple[bool, str]:
     executable = shutil.which("fcitx5")
     if executable is None:
         return False, "未检测到 fcitx5"
-    result = subprocess.run([executable, "-r"], capture_output=True, text=True, timeout=10, check=False)
+
+    # `fcitx5 -r` stays in the foreground. Running it with subprocess.run and
+    # a timeout kills the replacement instance, which leaves the desktop with
+    # no input method. Daemonize the replacement before waiting for it.
+    environment = os.environ.copy()
+    environment.pop("FCITX_ADDON_DIRS", None)
+    result = subprocess.run(
+        [executable, "-r", "-d"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+        env=environment,
+    )
     message = (result.stdout + result.stderr).strip()
-    return result.returncode == 0, message or ("Fcitx 5 已重启" if result.returncode == 0 else "Fcitx 5 重启失败")
+    if result.returncode != 0:
+        return False, message or "Fcitx 5 重启失败"
+
+    remote = shutil.which("fcitx5-remote")
+    if remote is not None:
+        time.sleep(0.35)
+        probe = subprocess.run(
+            [remote],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+            env=environment,
+        )
+        if probe.returncode not in {0, 1, 2}:
+            probe_message = (probe.stdout + probe.stderr).strip()
+            return False, probe_message or "Fcitx 5 已启动，但无法连接到其 D-Bus 服务"
+
+    return True, message or "Fcitx 5 已重新启动"
 
 
 def restart_ibus() -> tuple[bool, str]:

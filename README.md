@@ -231,7 +231,7 @@ OpenRouter endpoint 会自动获得项目标识 header，并按其 API 映射 re
 
 ### 卸载
 
-推荐在 **VoCoType 设置 → 概览与安装** 中点击 **卸载 IBus** 或 **卸载 Fcitx 5**。GUI 默认只清理用户级程序与 integration 文件，并保留虚拟环境、模型以及 `~/.config/vocotype` 中的术语、音频和 AI 配置。
+推荐在 **VoCoType 设置 → 概览与安装** 中点击 **卸载 VoCoType（IBus）** 或 **卸载 VoCoType（Fcitx 5）**。GUI 默认只清理用户级程序与 integration 文件，并保留虚拟环境、模型以及 `~/.config/vocotype` 中的术语、音频和 AI 配置。
 
 命令行入口：
 

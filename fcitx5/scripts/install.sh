@@ -16,7 +16,7 @@
 #   --bootstrap-uv     缺少兼容 Python 时在用户目录安装 uv/Python 3.12
 #
 # 历史问题修复记录：
-# 1. FCITX_ADDON_DIRS 环境变量 - Fcitx5 默认不搜索 ~/.local/lib64/fcitx5
+# 1. 旧版 FCITX_ADDON_DIRS 覆盖会遮蔽系统 addon，必须清理
 # 2. 库文件前缀 - 需要创建 libvocotype.so 符号链接
 # 3. inputmethod 配置 - 文件扩展名应为 .conf（不是 .conf.in）
 # 4. listInputMethods() - C++ 代码必须实现此方法才能被 Fcitx5 发现
@@ -196,7 +196,7 @@ install_system_dependencies() {
         echo "错误: 系统依赖辅助程序不存在: $SYSTEM_DEPS_HELPER" >&2
         return 1
     fi
-    echo "AUTH_REQUIRED: 即将弹出管理员授权窗口以安装 Fcitx 5 系统依赖。"
+    echo "AUTH_REQUIRED: 即将弹出管理员授权窗口以安装 VoCoType（Fcitx 5）所需的系统依赖。"
     pkexec "$(command -v bash)" "$SYSTEM_DEPS_HELPER" fcitx5
 }
 
@@ -344,7 +344,9 @@ if [ "$REUSE_SYSTEM_MODULE" = true ]; then
     echo "✓ 保留系统包管理的文件"
     echo ""
     echo "[5/8] 使用系统标准 addon 路径"
-    echo "✓ 无需写入用户 FCITX_ADDON_DIRS"
+    rm -f "$HOME/.config/environment.d/fcitx5-vocotype.conf"
+    unset FCITX_ADDON_DIRS || true
+    echo "✓ 已清理旧版用户 FCITX_ADDON_DIRS 覆盖"
 else
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 2. 检查编译依赖
@@ -472,16 +474,13 @@ rm -f "$HOME/.local/share/fcitx5/inputmethod/vocotype.conf"
 echo "✓ C++ 全局 Module 已安装"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 5. 设置环境变量（关键：让 Fcitx5 找到用户插件）
+# 5. 清理旧版 addon 路径覆盖
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
-echo "[5/8] 配置环境变量..."
-mkdir -p "$HOME/.config/environment.d"
-cat > "$HOME/.config/environment.d/fcitx5-vocotype.conf" << 'EOF'
-FCITX_ADDON_DIRS=$HOME/.local/lib64/fcitx5:$HOME/.local/lib/fcitx5:/usr/lib64/fcitx5:/usr/lib/x86_64-linux-gnu/fcitx5:/usr/lib/fcitx5
-EOF
-echo "✓ 环境变量已配置"
-echo "  注意: 需要重新登录或设置环境变量才能生效"
+echo "[5/8] 清理旧版 Fcitx addon 路径覆盖..."
+rm -f "$HOME/.config/environment.d/fcitx5-vocotype.conf"
+unset FCITX_ADDON_DIRS || true
+echo "✓ 使用 Fcitx 5 标准 addon 搜索路径"
 
 fi
 
@@ -491,7 +490,7 @@ fi
 echo ""
 echo "[6/8] 安装 Python 后端..."
 mkdir -p "$INSTALL_DIR"
-mkdir -p "$INSTALL_DIR/scripts"
+mkdir -p "$INSTALL_DIR/scripts" "$INSTALL_DIR/installers"
 
 # 复制文件
 cp -r "$PROJECT_DIR/app" "$INSTALL_DIR/"
@@ -902,10 +901,10 @@ echo ""
 if [ "$NON_INTERACTIVE" = true ]; then
     if command -v fcitx5 >/dev/null 2>&1; then
         if command -v timeout >/dev/null 2>&1; then
-            timeout 8s fcitx5 -r >/dev/null 2>&1 || \
+            timeout 8s env -u FCITX_ADDON_DIRS fcitx5 -r -d >/dev/null 2>&1 || \
                 echo "⚠️  Fcitx 5 暂未重载，可在设置中心点击“重启 Fcitx 5”"
         else
-            fcitx5 -r >/dev/null 2>&1 &
+            env -u FCITX_ADDON_DIRS fcitx5 -r -d >/dev/null 2>&1 || true
         fi
     fi
     echo "安装器已尝试启动后台服务并重载 Fcitx 5。"

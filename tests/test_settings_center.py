@@ -6,6 +6,7 @@ import os
 import subprocess
 import tarfile
 import threading
+from types import SimpleNamespace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -25,7 +26,9 @@ from settings_center.setup_manager import (
     ibus_installer_command,
     ibus_uninstaller_command,
     installer_command,
+    integration_status,
     native_package_removal_command,
+    restart_fcitx,
 )
 from settings_center.support_bundle import create_support_bundle
 
@@ -347,7 +350,7 @@ def _run_uninstaller(
 
 
 
-def test_ibus_restart_is_bounded_in_headless_sessions(tmp_path: Path):
+def test_ibus_restart_timeout_is_reported_in_desktop_sessions(tmp_path: Path):
     home = tmp_path / "home"
     (home / ".local/share/vocotype/ibus").mkdir(parents=True, exist_ok=True)
     (home / ".local/share/vocotype/ibus/main.py").write_text("main", encoding="utf-8")
@@ -356,11 +359,16 @@ def test_ibus_restart_is_bounded_in_headless_sessions(tmp_path: Path):
         "ibus/scripts/uninstall-gui.sh",
         home,
         command_overrides={"ibus": "#!/bin/sh\nsleep 30\n"},
-        env_overrides={"VOCOTYPE_RESTART_TIMEOUT_SECONDS": "1"},
+        env_overrides={
+            "VOCOTYPE_RESTART_TIMEOUT_SECONDS": "1",
+            "DBUS_SESSION_BUS_ADDRESS": "unix:path=/tmp/fake-session-bus",
+            "DISPLAY": ":99",
+        },
         timeout=5,
     )
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "IBus 用户级集成已卸载" in result.stdout
+    assert result.returncode != 0
+    assert "RESTART_FAILED: VoCoType 文件已清理，但 IBus 重启失败" in result.stderr
+    assert not (home / ".local/share/vocotype/ibus").exists()
 
 def test_ibus_gui_uninstall_preserves_runtime_cache_config_and_shared_launcher(tmp_path: Path):
     home = tmp_path / "home"
@@ -433,7 +441,7 @@ def test_fcitx_gui_uninstall_purges_runtime_and_user_integration_only(tmp_path: 
     assert all(not artifact.exists() for artifact in artifacts)
     assert shared_launcher.exists()
     assert user_config.exists()
-    assert "Fcitx 5 用户级集成已卸载" in result.stdout
+    assert "VoCoType（Fcitx 5）用户级集成已卸载" in result.stdout
 
 
 
@@ -467,6 +475,81 @@ def test_gui_uninstall_can_explicitly_remove_shared_user_data(tmp_path: Path):
     assert not user_config.parent.exists()
 
 
+
+def _touch(path: Path, *, executable: bool = False) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("fixture", encoding="utf-8")
+    if executable:
+        path.chmod(0o755)
+
+
+def test_integration_status_distinguishes_absent_partial_and_complete(tmp_path: Path):
+    home = tmp_path / "home"
+    prefix = tmp_path / "usr"
+
+    absent = integration_status("fcitx5", home=home, system_prefix=prefix)
+    assert absent.state == "absent"
+    assert "module" in absent.missing
+
+    _touch(home / ".local/lib/fcitx5/vocotype.so")
+    _touch(home / ".local/share/fcitx5/addon/vocotype.conf")
+    partial = integration_status("fcitx5", home=home, system_prefix=prefix)
+    assert partial.state == "partial"
+    assert "module" in partial.present
+    assert "后端代码" in partial.missing
+    assert "Python 运行环境" in partial.missing
+
+    _touch(home / ".config/systemd/user/vocotype-fcitx5-backend.service")
+    _touch(home / ".local/bin/vocotype-fcitx5-backend", executable=True)
+    _touch(home / ".local/share/vocotype-fcitx5/backend/fcitx5_server.py")
+    _touch(home / ".local/share/vocotype-fcitx5/.venv/bin/python", executable=True)
+    complete = integration_status("fcitx5", home=home, system_prefix=prefix)
+    assert complete.state == "complete"
+    assert complete.missing == ()
+
+
+def test_ibus_status_requires_runtime_and_python_environment(tmp_path: Path):
+    home = tmp_path / "home"
+    prefix = tmp_path / "usr"
+    _touch(home / ".local/libexec/ibus-engine-vocotype", executable=True)
+    _touch(home / ".local/share/ibus/component/vocotype.xml")
+
+    partial = integration_status("ibus", home=home, system_prefix=prefix)
+    assert partial.state == "partial"
+    assert partial.missing == ("引擎代码", "Python 运行环境")
+
+    _touch(home / ".local/share/vocotype/ibus/main.py")
+    _touch(home / ".local/share/vocotype/.venv/bin/python", executable=True)
+    complete = integration_status("ibus", home=home, system_prefix=prefix)
+    assert complete.state == "complete"
+
+
+def test_restart_fcitx_daemonizes_replacement_and_probes_dbus(monkeypatch: pytest.MonkeyPatch):
+    calls: list[list[str]] = []
+
+    def fake_which(command: str) -> str | None:
+        return f"/usr/bin/{command}" if command in {"fcitx5", "fcitx5-remote"} else None
+
+    environments: list[dict[str, str]] = []
+
+    def fake_run(command: list[str], **kwargs):
+        calls.append(command)
+        environments.append(kwargs["env"])
+        if command[0].endswith("fcitx5-remote"):
+            return SimpleNamespace(returncode=0, stdout="2\n", stderr="")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("settings_center.setup_manager.shutil.which", fake_which)
+    monkeypatch.setattr("settings_center.setup_manager.subprocess.run", fake_run)
+    monkeypatch.setattr("settings_center.setup_manager.time.sleep", lambda _seconds: None)
+
+    ok, message = restart_fcitx()
+    assert ok, message
+    assert calls[0] == ["/usr/bin/fcitx5", "-r", "-d"]
+    assert calls[1] == ["/usr/bin/fcitx5-remote"]
+    assert all("FCITX_ADDON_DIRS" not in environment for environment in environments)
+
+
 def test_native_package_removal_command_uses_available_package_manager(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -493,13 +576,25 @@ def test_settings_desktop_entry_and_console_scripts_exist():
 
 def test_settings_application_exposes_both_install_paths():
     source = Path("settings_center/application.py").read_text(encoding="utf-8")
-    assert "安装 / 修复 Fcitx 5" in source
-    assert "安装 / 修复 IBus" in source
-    assert "卸载 Fcitx 5" in source
-    assert "卸载 IBus" in source
+    assert "安装 / 修复 VoCoType（Fcitx 5）" in source
+    assert "安装 / 修复 VoCoType（IBus）" in source
+    assert "卸载 VoCoType（Fcitx 5）" in source
+    assert "卸载 VoCoType（IBus）" in source
     assert "UninstallOptions" in source
     assert "uninstall_framework" in source
     assert "launch_ibus_installer" not in source
+    assert "Gtk.Grid()" in source
+    assert "lifecycle_actions.set_column_homogeneous(True)" in source
+    assert "Gtk.ProgressBar()" in source
+    assert "progress_bar.pulse()" in source
+    assert "正在准备卸载 VoCoType" in source
+    assert "Gtk.MessageDialog" not in source
+    assert "scroller.set_min_content_height(220)" in source
+    assert "output.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)" in source
+    assert "❌ 最近一次安装 / 修复 VoCoType" in source
+    assert "⚠️ VoCoType（{name}）：安装不完整" in source
+    assert "安装 / 修复 Fcitx 5" not in source
+    assert "安装 / 修复 IBus" not in source
     assert "Polkit" in source
     assert "InstallOptions" in source
     assert "录音 2 秒测试" in source
@@ -508,6 +603,12 @@ def test_settings_application_exposes_both_install_paths():
 
 def test_installers_have_gui_noninteractive_paths_without_terminal_password_prompts():
     script = Path("fcitx5/scripts/install.sh").read_text(encoding="utf-8")
+    assert 'mkdir -p "$INSTALL_DIR/scripts" "$INSTALL_DIR/installers"' in script
+    assert 'rm -f "$HOME/.config/environment.d/fcitx5-vocotype.conf"' in script
+    assert "FCITX_ADDON_DIRS=$HOME" not in script
+    assert script.index('mkdir -p "$INSTALL_DIR/scripts" "$INSTALL_DIR/installers"') < script.index(
+        'cp "$INSTALLER_DIR/setup-audio.py" "$INSTALLED_SETUP_AUDIO_SCRIPT"'
+    )
     for fragment in (
         "--non-interactive",
         "--preserve-config",
@@ -524,6 +625,9 @@ def test_installers_have_gui_noninteractive_paths_without_terminal_password_prom
 
 def test_shared_uninstaller_preserves_user_configuration_by_default():
     script = Path("installers/uninstall-integration.sh").read_text(encoding="utf-8")
+    assert "正在停止 VoCoType（Fcitx 5）后台服务" in script
+    assert "正在清理 VoCoType（IBus）用户级运行代码" in script
+    assert "正在重启 Fcitx 5 以加载 VoCoType 变更" in script
     assert "REMOVE_USER_DATA=false" in script
     assert 'rm -rf "$VOCOTYPE_CONFIG_DIR"' in script
     assert '[[ "$REMOVE_USER_DATA" == true ]]' in script

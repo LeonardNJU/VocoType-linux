@@ -207,7 +207,7 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
             "Fcitx 全局模块",
             "全局模块安装不完整",
             f"module={existing or 'missing'}\naddon={addons or 'missing'}",
-            "在设置中心点击“安装/修复 Fcitx 5”。",
+            "在设置中心点击“安装 / 修复 VoCoType（Fcitx 5）”。",
         )
 
     checks.append(_check("fcitx_module", "Fcitx 全局模块", module_check))
@@ -223,7 +223,7 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
                 "\n".join(str(path) for path in [*launchers, *components]),
             )
         if fcitx_vocotype_installed and not ibus_vocotype_installed:
-            return _info("ibus_engine", "IBus 引擎", "Fcitx-only 环境未安装 IBus 引擎")
+            return _info("ibus_engine", "IBus 引擎", "Fcitx-only 环境未安装 VoCoType（IBus）引擎")
         if ibus_installed:
             return _warn(
                 "ibus_engine",

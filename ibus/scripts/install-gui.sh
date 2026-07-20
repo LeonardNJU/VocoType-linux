@@ -241,7 +241,7 @@ else
 fi
 
 if [[ "$RIME_MODE" == enabled ]]; then
-    echo "安装 IBus Rime Python 绑定…"
+    echo "安装 VoCoType（IBus）的 Rime Python 绑定…"
     if command -v uv >/dev/null 2>&1 && [[ "$USE_SYSTEM_PYTHON" != 1 ]]; then
         uv pip install --python "$PYTHON" pyrime
     else

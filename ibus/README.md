@@ -43,7 +43,7 @@ IBus 与 Fcitx 5 共用 `~/.config/vocotype/terms.yaml`。默认 Contextual Para
 
 ## 图形安装
 
-从源码目录运行 `bash installers/launch-settings.sh`，在“概览与安装”选择 **安装 / 修复 IBus** 或 **卸载 IBus**。Python 环境、Rime、component 位置和系统依赖安装均在 GUI 中选择。需要系统权限时会弹出 Polkit 授权框，不会打开终端。
+从源码目录运行 `bash installers/launch-settings.sh`，在“概览与安装”选择 **安装 / 修复 VoCoType（IBus）** 或 **卸载 VoCoType（IBus）**。Python 环境、Rime、component 位置和系统依赖安装均在 GUI 中选择。需要系统权限时会弹出 Polkit 授权框，不会打开终端。
 
 传统交互脚本仍保留用于兼容和开发排障。
 
@@ -56,7 +56,7 @@ IBus 与 Fcitx 5 共用 `~/.config/vocotype/terms.yaml`。默认 Contextual Para
 ```bash
 cd VocoType-linux
 
-# 安装 IBus 引擎
+# 安装 VoCoType IBus 引擎
 ./ibus/scripts/install.sh
 
 # 重启 IBus
@@ -97,7 +97,7 @@ sudo pacman -S librime ibus-rime
 ```bash
 cd VocoType-linux
 
-# 安装 IBus 引擎
+# 安装 VoCoType IBus 引擎
 ./ibus/scripts/install.sh
 
 # 安装 pyrime（根据脚本提示的虚拟环境路径）
@@ -273,6 +273,16 @@ IBus 继续采用最终结果式 UI，不显示逐 token 面板预览；远程 S
 bash tools/diagnostics/test-surrounding-probe.sh
 ```
 
+## 安装后验证
+
+需要检查当前用户的真实 IBus 安装、Python 依赖、component，以及可选的 Rime/pyrime 集成时运行：
+
+```bash
+python tools/diagnostics/validate-ibus-install.py
+```
+
+该命令读取真实的 `~/.local` 与用户 Rime 配置，因此属于显式安装后诊断，不作为普通 pytest 用例运行。DEB、RPM、Arch 的可重复安装契约由 `packaging/tests/` 和 GitHub CI 验证。
+
 ## 常见问题 (FAQ)
 
 ### Q: 我的数据安全吗？
@@ -307,7 +317,7 @@ bash tools/diagnostics/test-surrounding-probe.sh
 
 ## 卸载
 
-图形设置中心提供 **卸载 IBus**，并在窗口内显示清理进度。命令行使用：
+图形设置中心提供 **卸载 VoCoType（IBus）**，并在窗口内显示清理进度。命令行使用：
 
 ```bash
 bash ibus/scripts/uninstall.sh

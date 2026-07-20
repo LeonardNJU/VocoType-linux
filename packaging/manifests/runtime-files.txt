@@ -22,3 +22,4 @@ THIRD_PARTY_NOTICES.md
 CHANGELOG.md
 README.md
 docs
+tools/diagnostics/validate-ibus-install.py

@@ -1,25 +1,14 @@
 #!/usr/bin/env python3
-"""VoCoType IBus 安装验证测试
+"""Validate the current user's installed VoCoType IBus integration.
 
-验证安装是否正确完成，特别是 Rime 集成部分。
+This is an explicit post-install diagnostic, not an isolated pytest test. It reads
+the real user installation under ``~/.local`` and optional Rime configuration.
 """
 
 import os
 import sys
 from pathlib import Path
 
-
-def _skip_unless_install_validation_enabled():
-    """这些用例用于安装后验证；默认在 pytest 中跳过。"""
-    if "PYTEST_CURRENT_TEST" not in os.environ:
-        return
-    if os.environ.get("VOCOTYPE_VALIDATE_INSTALL") == "1":
-        return
-    try:
-        import pytest
-        pytest.skip("安装验证测试默认跳过，设置 VOCOTYPE_VALIDATE_INSTALL=1 启用")
-    except ImportError:
-        pass
 
 
 def check_mark(ok: bool) -> str:
@@ -28,7 +17,6 @@ def check_mark(ok: bool) -> str:
 
 def test_directory_structure():
     """测试目录结构"""
-    _skip_unless_install_validation_enabled()
     print("\n[1] 检查目录结构...")
 
     home = Path.home()
@@ -59,7 +47,6 @@ def test_directory_structure():
 
 def test_python_deps():
     """测试 Python 依赖"""
-    _skip_unless_install_validation_enabled()
     print("\n[2] 检查 Python 依赖...")
 
     results = []
@@ -83,7 +70,6 @@ def test_python_deps():
 
 def test_rime_integration():
     """测试 Rime 集成"""
-    _skip_unless_install_validation_enabled()
     print("\n[3] 检查 Rime 集成...")
 
     home = Path.home()
@@ -139,7 +125,6 @@ def test_rime_integration():
 
 def test_rime_functionality():
     """测试 Rime 功能"""
-    _skip_unless_install_validation_enabled()
     print("\n[4] 测试 Rime 功能...")
 
     try:
@@ -244,7 +229,6 @@ def test_rime_functionality():
 
 def test_ibus_component():
     """测试 IBus 组件"""
-    _skip_unless_install_validation_enabled()
     print("\n[5] 检查 IBus 组件...")
 
     home = Path.home()

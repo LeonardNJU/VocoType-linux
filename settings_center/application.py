@@ -37,6 +37,7 @@ from .setup_manager import (
     find_project_root,
     install_or_repair,
     installation_paths,
+    integration_status,
     native_package_removal_command,
     polkit_available,
     restart_backend,
@@ -129,6 +130,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.last_bundle_path: Path | None = None
         self._install_dialog: Gtk.Dialog | None = None
         self._uninstall_dialog: Gtk.Dialog | None = None
+        self._last_lifecycle_notice: str | None = None
         self._build_header()
         self._build_layout()
         self._load_values()
@@ -220,20 +222,23 @@ class SettingsWindow(Gtk.ApplicationWindow):
         card = self._card()
         self.install_status = Gtk.Label(label="尚未检查安装状态", xalign=0)
         self.install_status.set_line_wrap(True)
-        lifecycle_actions = Gtk.Box(spacing=8)
-        install_button = Gtk.Button(label="安装 / 修复 Fcitx 5")
+        lifecycle_actions = Gtk.Grid()
+        lifecycle_actions.set_row_spacing(8)
+        lifecycle_actions.set_column_spacing(8)
+        lifecycle_actions.set_column_homogeneous(True)
+        install_button = Gtk.Button(label="安装 / 修复 VoCoType（Fcitx 5）")
         install_button.get_style_context().add_class("suggested-action")
         install_button.connect("clicked", lambda _b: self._open_install_dialog("fcitx5"))
-        ibus_install_button = Gtk.Button(label="安装 / 修复 IBus")
+        ibus_install_button = Gtk.Button(label="安装 / 修复 VoCoType（IBus）")
         ibus_install_button.connect("clicked", lambda _b: self._open_install_dialog("ibus"))
-        uninstall_fcitx_button = Gtk.Button(label="卸载 Fcitx 5")
+        uninstall_fcitx_button = Gtk.Button(label="卸载 VoCoType（Fcitx 5）")
         uninstall_fcitx_button.connect("clicked", lambda _b: self._open_uninstall_dialog("fcitx5"))
-        uninstall_ibus_button = Gtk.Button(label="卸载 IBus")
+        uninstall_ibus_button = Gtk.Button(label="卸载 VoCoType（IBus）")
         uninstall_ibus_button.connect("clicked", lambda _b: self._open_uninstall_dialog("ibus"))
-        lifecycle_actions.pack_start(install_button, False, False, 0)
-        lifecycle_actions.pack_start(ibus_install_button, False, False, 0)
-        lifecycle_actions.pack_start(uninstall_fcitx_button, False, False, 0)
-        lifecycle_actions.pack_start(uninstall_ibus_button, False, False, 0)
+        lifecycle_actions.attach(install_button, 0, 0, 1, 1)
+        lifecycle_actions.attach(ibus_install_button, 1, 0, 1, 1)
+        lifecycle_actions.attach(uninstall_fcitx_button, 0, 1, 1, 1)
+        lifecycle_actions.attach(uninstall_ibus_button, 1, 1, 1, 1)
 
         restart_actions = Gtk.Box(spacing=8)
         restart_service = Gtk.Button(label="重启后台服务")
@@ -807,16 +812,33 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
     def _refresh_install_status(self) -> bool:
         root = find_project_root()
-        paths = installation_paths()
-        lines = [
-            f"源码目录：{root or '未发现'}",
-            f"Polkit 授权：{'可用' if polkit_available() else '未检测到 pkexec'}",
-            f"原生软件包：{'已安装' if native_package_removal_command(root) else '未检测到'}",
-            f"Fcitx module：{'已安装' if any(path.is_file() for path in paths.fcitx_modules) else '未安装'}",
-            f"Fcitx addon：{'已安装' if any(path.is_file() for path in paths.fcitx_addons) else '未安装'}",
-            f"IBus launcher：{'已安装' if any(path.is_file() for path in paths.ibus_launchers) else '未安装'}",
-            f"IBus component：{'已安装' if any(path.is_file() for path in paths.ibus_components) else '未安装'}",
-        ]
+        fcitx_status = integration_status("fcitx5", project_root=root)
+        ibus_status = integration_status("ibus", project_root=root)
+
+        def framework_line(name: str, status) -> str:
+            if status.state == "complete":
+                return f"✅ VoCoType（{name}）：安装完整"
+            if status.state == "partial":
+                return f"⚠️ VoCoType（{name}）：安装不完整；缺少 {', '.join(status.missing)}"
+            return f"❌ VoCoType（{name}）：未安装"
+
+        package_command = native_package_removal_command(root)
+        lines = []
+        if self._last_lifecycle_notice:
+            lines.append(self._last_lifecycle_notice)
+        lines.extend(
+            [
+                f"{'✅' if root else '❌'} 源码目录：{root or '未发现'}",
+                f"{'✅' if polkit_available() else '⚠️'} Polkit 授权：{'可用' if polkit_available() else '未检测到 pkexec'}",
+                (
+                    "✅ 原生软件包：已安装"
+                    if package_command
+                    else "ℹ️ 原生软件包：未安装（当前可使用源码安装）"
+                ),
+                framework_line("Fcitx 5", fcitx_status),
+                framework_line("IBus", ibus_status),
+            ]
+        )
         self.install_status.set_text("\n".join(lines))
         return False
 
@@ -825,7 +847,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             self._install_dialog.present()
             return
         is_ibus = framework == "ibus"
-        title = "安装 / 修复 IBus" if is_ibus else "安装 / 修复 Fcitx 5"
+        title = "安装 / 修复 VoCoType（IBus）" if is_ibus else "安装 / 修复 VoCoType（Fcitx 5）"
         dialog = Gtk.Dialog(title=title, transient_for=self, modal=True)
         self._install_dialog = dialog
         dialog.connect("destroy", lambda _dialog: setattr(self, "_install_dialog", None))
@@ -902,6 +924,12 @@ class SettingsWindow(Gtk.ApplicationWindow):
         def mark_finished(ok: bool) -> bool:
             state["running"] = False
             state["done"] = True
+            framework_name = "IBus" if is_ibus else "Fcitx 5"
+            self._last_lifecycle_notice = (
+                f"✅ 最近一次安装 / 修复 VoCoType（{framework_name}）成功"
+                if ok
+                else f"❌ 最近一次安装 / 修复 VoCoType（{framework_name}）失败"
+            )
             close_button.set_sensitive(True)
             start_button.set_sensitive(False)
             self._refresh_install_status()
@@ -914,6 +942,10 @@ class SettingsWindow(Gtk.ApplicationWindow):
             if state["running"]:
                 return
             state["running"] = True
+            self._last_lifecycle_notice = (
+                f"⏳ 正在安装 / 修复 VoCoType（{'IBus' if is_ibus else 'Fcitx 5'}）"
+            )
+            self._refresh_install_status()
             close_button.set_sensitive(False)
             start_button.set_sensitive(False)
             for widget in option_widgets:
@@ -962,7 +994,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         is_ibus = framework == "ibus"
         framework_name = "IBus" if is_ibus else "Fcitx 5"
         dialog = Gtk.Dialog(
-            title=f"卸载 {framework_name}",
+            title=f"卸载 VoCoType（{framework_name}）",
             transient_for=self,
             modal=True,
         )
@@ -1022,11 +1054,23 @@ class SettingsWindow(Gtk.ApplicationWindow):
             f"检测到 vocotype-linux 原生软件包。本操作只清理用户级 {framework_name} 运行环境；"
             f"如需删除 /usr 下的程序，请使用：{package_command}"
             if package_command
-            else f"将卸载用户级 {framework_name} integration。默认保留 ~/.config/vocotype。"
+            else f"将卸载 VoCoType 的用户级 {framework_name} 集成。默认保留 ~/.config/vocotype。"
         )
         notice = Gtk.Label(label=warning, xalign=0)
         notice.set_line_wrap(True)
         content.pack_start(notice, False, False, 8)
+
+        progress_label = Gtk.Label(
+            label=f"等待开始卸载 VoCoType（{framework_name}）",
+            xalign=0,
+        )
+        progress_label.set_line_wrap(True)
+        progress_bar = Gtk.ProgressBar()
+        progress_bar.set_show_text(True)
+        progress_bar.set_text("等待开始")
+        progress_bar.set_pulse_step(0.06)
+        content.pack_start(progress_label, False, False, 4)
+        content.pack_start(progress_bar, False, False, 4)
 
         text_view = Gtk.TextView()
         text_view.set_editable(False)
@@ -1036,13 +1080,23 @@ class SettingsWindow(Gtk.ApplicationWindow):
         scroller.add(text_view)
         content.pack_start(scroller, True, True, 8)
         buffer = text_view.get_buffer()
-        state = {"running": False}
+        state = {"running": False, "pulse_source": 0}
         option_widgets = [purge_runtime, remove_user_data, remove_system_component]
+
+        def pulse_progress() -> bool:
+            if not state["running"] or not dialog.get_visible():
+                state["pulse_source"] = 0
+                return False
+            progress_bar.pulse()
+            return True
 
         def append(line: str) -> None:
             def update() -> bool:
                 if not dialog.get_visible():
                     return False
+                clean_line = line.strip()
+                if clean_line:
+                    progress_label.set_text(clean_line)
                 buffer.insert(buffer.get_end_iter(), line + "\n")
                 text_view.scroll_to_iter(buffer.get_end_iter(), 0.0, False, 0, 0)
                 return False
@@ -1051,6 +1105,22 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
         def mark_finished(ok: bool) -> bool:
             state["running"] = False
+            pulse_source = int(state["pulse_source"])
+            if pulse_source:
+                GLib.source_remove(pulse_source)
+                state["pulse_source"] = 0
+            progress_bar.set_fraction(1.0 if ok else 0.0)
+            progress_bar.set_text("✅ 卸载完成" if ok else "⚠️ 卸载未完全完成")
+            progress_label.set_text(
+                f"✅ VoCoType（{framework_name}）卸载完成"
+                if ok
+                else f"⚠️ VoCoType（{framework_name}）文件已清理，但恢复输入法失败；请查看下方日志"
+            )
+            self._last_lifecycle_notice = (
+                f"✅ 最近一次卸载 VoCoType（{framework_name}）成功"
+                if ok
+                else f"⚠️ 最近一次卸载 VoCoType（{framework_name}）未完全完成"
+            )
             close_button.set_sensitive(True)
             start_button.set_sensitive(False)
             self._refresh_install_status()
@@ -1062,6 +1132,12 @@ class SettingsWindow(Gtk.ApplicationWindow):
             if state["running"]:
                 return
             state["running"] = True
+            self._last_lifecycle_notice = f"⏳ 正在卸载 VoCoType（{framework_name}）"
+            self._refresh_install_status()
+            progress_bar.set_fraction(0.0)
+            progress_bar.set_text("⏳ 正在卸载…")
+            progress_label.set_text(f"⏳ 正在准备卸载 VoCoType（{framework_name}）…")
+            state["pulse_source"] = GLib.timeout_add(100, pulse_progress)
             close_button.set_sensitive(False)
             start_button.set_sensitive(False)
             for widget in option_widgets:
@@ -1080,7 +1156,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
                     options=options,
                     progress=append,
                 )
-                append("\n✅ 卸载完成" if ok else "\n❌ 卸载失败")
+                append("\n✅ 卸载完成" if ok else "\n⚠️ 文件清理完成，但输入法恢复失败")
                 if not ok and not output:
                     append("没有收到卸载后端输出")
                 GLib.idle_add(mark_finished, ok)
@@ -1181,14 +1257,38 @@ class SettingsWindow(Gtk.ApplicationWindow):
         threading.Thread(target=work, daemon=True).start()
 
     def _message(self, title: str, text: str, message_type: Gtk.MessageType = Gtk.MessageType.INFO) -> bool:
-        dialog = Gtk.MessageDialog(
-            transient_for=self,
-            modal=True,
-            message_type=message_type,
-            buttons=Gtk.ButtonsType.OK,
-            text=title,
+        """Show bounded, scrollable operation output instead of an unbounded label."""
+
+        dialog = Gtk.Dialog(title=title, transient_for=self, modal=True)
+        dialog.add_button("关闭", Gtk.ResponseType.CLOSE)
+        dialog.set_default_size(680, 420)
+        dialog.set_resizable(True)
+
+        content = dialog.get_content_area()
+        content.set_border_width(12)
+        content.set_spacing(10)
+
+        heading = Gtk.Label(label=title, xalign=0)
+        heading.set_line_wrap(True)
+        heading.get_style_context().add_class(
+            "status-fail" if message_type == Gtk.MessageType.ERROR else "row-title"
         )
-        dialog.format_secondary_text(text or "完成")
+        content.pack_start(heading, False, False, 0)
+
+        output = Gtk.TextView()
+        output.set_editable(False)
+        output.set_cursor_visible(False)
+        output.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        output.get_buffer().set_text(text or "完成")
+
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_min_content_height(220)
+        scroller.set_min_content_width(520)
+        scroller.add(output)
+        content.pack_start(scroller, True, True, 0)
+
+        dialog.show_all()
         dialog.run()
         dialog.destroy()
         return False
