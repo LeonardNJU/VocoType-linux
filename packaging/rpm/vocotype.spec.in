@@ -1,39 +1,29 @@
-Name:           vocotype-linux
+Name:           @PACKAGE_NAME@
 Version:        @VERSION@
-Release:        1%{?dist}
-Summary:        Offline voice input for IBus and Fcitx 5
+Release:        @RELEASE@%{?dist}
+Summary:        @SUMMARY@
 License:        GPL-3.0-or-later
 URL:            https://github.com/LeonardNJU/VocoType-linux
-Source0:        VocoType-linux-%{version}.tar.gz
+ExclusiveArch:  x86_64
+Source0:        VocoType-linux-@SOURCE_VERSION@.tar.gz
 
-BuildRequires:  cmake
-BuildRequires:  gcc-c++
-BuildRequires:  pkgconfig
-BuildRequires:  fcitx5-devel
-BuildRequires:  nlohmann-json-devel
-BuildRequires:  python3
-BuildRequires:  systemd-rpm-macros
-Requires:       python3 >= 3.11
-Requires:       python3-gobject
-Requires:       python3-pyyaml
-Requires:       gtk3
-Requires:       ibus
-Requires:       fcitx5
-Requires:       portaudio
-Requires:       polkit
+@BUILD_REQUIRES@
+@REQUIRES@
+@CONFLICTS@
+Provides:       vocotype-linux-runtime
 Recommends:     curl
 
 %description
 VoCoType provides push-to-talk offline speech input, terminology handling,
-inverse text normalization, and optional AI polishing. The package installs
-system desktop integration; per-user Python dependencies and models are
-configured from the graphical settings application.
+inverse text normalization, and optional AI polishing through an
+OpenAI-compatible API. This flavor installs the @TITLE@ integration,
+native streaming runtime, and a distro-compatible Python wheelhouse.
 
 %prep
-%autosetup -n VocoType-linux-%{version}
+%autosetup -n VocoType-linux-@SOURCE_VERSION@
 
 %build
-# The native 2-pass preview runtime is distributed separately.
+# Native streaming and Python wheels are injected by release CI.
 
 %install
 ./packaging/tools/stage-system-package.sh \
@@ -41,26 +31,25 @@ configured from the graphical settings application.
   --prefix /usr \
   --libdir "%{_lib}" \
   --libexecdir "%{_libexecdir}" \
-  --build-dir "%{_builddir}/vocotype-fcitx-build" \
-  --skip-streaming-bundle
+  --build-dir "%{_builddir}/vocotype-fcitx-build-@FLAVOR@" \
+  --flavor "@FLAVOR@" \
+  --require-streaming-bundle \
+  --require-wheelhouse
 
 %files
 %license %{_datadir}/licenses/vocotype-linux/LICENSE
 %doc %{_datadir}/doc/vocotype-linux/README.md
 %doc %{_datadir}/doc/vocotype-linux/CHANGELOG.md
 %{_bindir}/vocotype-settings
-%{_bindir}/vocotype-fcitx5-backend
-%{_bindir}/vocotype-fcitx5-recorder
-%{_libexecdir}/vocotype-ibus-engine
-%{_libdir}/fcitx5/vocotype.so
-%{_datadir}/fcitx5/addon/vocotype.conf
-%{_datadir}/ibus/component/vocotype.xml
+%{_libexecdir}/vocotype-streaming-worker
+%{_libdir}/vocotype/
 %{_datadir}/applications/io.github.LeonardNJU.VoCoType.Settings.desktop
 %{_datadir}/metainfo/io.github.LeonardNJU.VoCoType.metainfo.xml
 %{_datadir}/icons/hicolor/192x192/apps/vocotype.png
 %{_datadir}/vocotype/
-%{_userunitdir}/vocotype-fcitx5-backend.service
+%{_datadir}/licenses/vocotype-linux/native-streaming/
+@FRAMEWORK_FILES@
 
 %changelog
-* Mon Jul 20 2026 Leonard Li <leo@lsamc.website> - @VERSION@-1
-- Add system integration package with graphical per-user setup
+* Tue Jul 21 2026 Leonard Li <leo@lsamc.website> - @VERSION@-@RELEASE@
+- Ship complete @TITLE@ package with streaming runtime and binary wheelhouse

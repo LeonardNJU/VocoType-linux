@@ -470,16 +470,12 @@ def edit_recording(
     return response
 
 def slm_config_fingerprint(config: Mapping[str, Any]) -> str:
-    """Fingerprint endpoint/model choices without persisting credentials."""
+    """Fingerprint OpenAI-compatible endpoint/model choices without storing secrets."""
 
-    provider = str(config.get("provider", "remote")).strip().lower()
     payload = {
         "enabled": bool(config.get("enabled", False)),
-        "provider": provider,
         "endpoint": str(config.get("endpoint", "")).strip(),
         "model": str(config.get("model", "")).strip(),
-        "local_model": str(config.get("local_model", "")).strip(),
-        "local_python": str(config.get("local_python", "")).strip(),
         "api_key_env": str(config.get("api_key_env", "")).strip(),
     }
     api_key_env = payload["api_key_env"]
@@ -501,27 +497,18 @@ def slm_playground_gate(
     *,
     verified_fingerprint: str | None,
 ) -> tuple[bool, str]:
-    """Explain whether AI Playground actions may use the current config."""
+    """Explain whether AI Playground actions may use the current API config."""
 
     if not bool(config.get("enabled", False)):
-        return False, "请先在“AI 润色”页面打开 AI 润色功能。"
-    provider = str(config.get("provider", "remote")).strip().lower()
-    if provider in {"local", "ephemeral", "local_once", "local_ephemeral"}:
-        local_model = str(config.get("local_model", "")).strip()
-        model = str(config.get("model", "")).strip()
-        if not local_model and not model:
-            return False, "请先配置本地 AI 模型。"
-        probe_name = "AI 模型测活"
-    else:
-        endpoint = str(config.get("endpoint", "")).strip()
-        model = str(config.get("model", "")).strip()
-        if not endpoint:
-            return False, "请先配置 OpenAI-compatible AI 端点。"
-        if not model:
-            return False, "请先配置 AI 模型名称。"
-        probe_name = "AI 端点测活"
+        return False, "请先在“AI 功能”页面打开 AI 功能。"
+    endpoint = str(config.get("endpoint", "")).strip()
+    model = str(config.get("model", "")).strip()
+    if not endpoint:
+        return False, "请先配置 OpenAI-compatible API 端点。"
+    if not model:
+        return False, "请先配置模型名称。"
 
     current = slm_config_fingerprint(config)
     if verified_fingerprint != current:
-        return False, f"请先在“AI 润色”页面通过{probe_name}。"
-    return True, "当前 AI 配置已测活并持久保存，可以试用润色与编辑。"
+        return False, "请先在“AI 功能”页面通过 API 端点测活。"
+    return True, "当前 OpenAI-compatible API 配置已测活，可以试用润色与编辑。"

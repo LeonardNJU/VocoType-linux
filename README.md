@@ -19,7 +19,7 @@
 - **直接融入现有输入法**：Fcitx 5 版本是全局 Module，可继续使用 Rime、拼音、Mozc 等原有输入法。
 - **中文输入优化**：支持中英混合识别、原生热词、用户术语和数字格式化。
 - **按住即说**：`F9` 快速识别，`Shift+F9` 可选 AI 润色；可开启录音期间的实时 preedit 预览。
-- **语音编辑**：IBus 与 Fcitx 5 共用 `Ctrl+F9` 编辑核心，可替换、插入、删除、改写、导航和撤销重做。
+- **语音编辑**：IBus 与 Fcitx 5 的 `Ctrl+F9` 都由已配置的 SLM 结合 surrounding text 理解指令，可处理同音词替换、改写、导航和撤销重做。
 - **图形化管理**：安装、修复、麦克风测试、AI 配置、Doctor 和反馈均可在设置中心完成。
 - **纯 CPU 可用**：普通 Linux 笔记本和台式机即可运行，无需独立显卡。
 
@@ -64,7 +64,7 @@ sudo pacman -U ./vocotype-linux-*.pkg.tar.zst
 3. 点击安装 / 修复；
 4. 在 **Playground** 中选择麦克风，完成录音、回放和识别测试。
 
-设置中心会创建独立的用户级 Python 运行环境、下载模型，并在需要系统权限时使用标准 Polkit 授权窗口。
+Release 提供三种完整安装包：通用版、IBus 专用版和 Fcitx 5 专用版。每款都包含对应 integration、2-pass native worker、私有 ONNX Runtime / FunASR 动态库和锁定 Python 运行依赖；用户机器只创建 Python 3.12 环境并下载模型，不运行 CMake、GCC、Clang 或源码构建。AI 润色与语音编辑统一连接 OpenAI-compatible API；端点可位于本机、局域网或云端，VoCoType 不启动或管理模型进程。
 
 ### 2. 从源码启动图形安装器
 

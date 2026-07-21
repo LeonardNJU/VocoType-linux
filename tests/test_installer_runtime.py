@@ -63,7 +63,11 @@ def test_ibus_system_python_uses_runtime_check_and_bound_pip_command():
     source = IBUS_INSTALLER.read_text(encoding="utf-8")
 
     assert '"$PYTHON" "$PROJECT_DIR/installers/check-python-runtime.py"' in source
-    assert '$PYTHON -m pip install -r $PROJECT_DIR/requirements.txt' in source
+    assert 'install_runtime_requirements "$PYTHON" "$PROJECT_DIR"' in source
+    shared = Path("installers/runtime-common.sh").read_text(encoding="utf-8")
+    assert "--only-binary=:all:" in shared
+    assert '--no-index --find-links "$wheelhouse"' in shared
+    assert "拒绝在本机编译依赖" in shared
     assert "pip install -r $PROJECT_DIR/requirements.txt" not in source.replace(
         "$PYTHON -m pip install -r $PROJECT_DIR/requirements.txt",
         "",
@@ -117,8 +121,8 @@ def test_shared_runtime_helpers_are_sourced_once_and_keep_behavior(tmp_path: Pat
     command = (
         f'source "{library}"; '
         f'write_slm_config_json "{config}" "{sys.executable}" '
-        '1 remote "https://api.example/v1/chat/completions" model local-model "" '
-        '12000 4 256 30000 0 secret'
+        '1 "https://api.example/v1/chat/completions" model '
+        '12000 4 256 0 secret'
     )
     result = subprocess.run(
         ["bash", "-c", command],
@@ -129,9 +133,12 @@ def test_shared_runtime_helpers_are_sourced_once_and_keep_behavior(tmp_path: Pat
     assert result.returncode == 0, result.stderr
     payload = json.loads(config.read_text(encoding="utf-8"))
     assert payload["slm"]["enabled"] is True
-    assert payload["slm"]["provider"] == "remote"
+    assert "provider" not in payload["slm"]
     assert payload["slm"]["endpoint"] == "https://api.example/v1/chat/completions"
     assert payload["slm"]["api_key"] == "secret"
+    assert payload["slm"]["remote_stream"] is True
+    for obsolete in ("local_model", "local_python", "warmup_timeout_ms"):
+        assert obsolete not in payload["slm"]
 
 
 def test_native_streaming_bundle_helper_is_shared_and_installs_private_runtime(tmp_path: Path):

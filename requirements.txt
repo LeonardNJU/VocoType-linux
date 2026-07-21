@@ -14,9 +14,9 @@ PyYAML>=6.0,<7
 WeTextProcessing==1.2.0
 
 # IBus Python 绑定 (Linux 必需)
-# 3.52+ 改用 girepository-2.0，并要求 GLib >= 2.80；Ubuntu 22.04 不满足。
-# 3.46-3.50 同时支持 Python 3.12 与传统 gobject-introspection-1.0。
-PyGObject>=3.46,<3.52
+# Release CI 会针对 DEB/RPM/Arch 的系统 GI 库分别构建兼容 wheel。
+# 用户安装只消费包内 wheelhouse，不在本机编译 PyGObject。
+PyGObject>=3.46
 
 # 模型下载 (推荐)
 modelscope==1.30.0

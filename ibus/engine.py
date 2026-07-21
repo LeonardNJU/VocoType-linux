@@ -1142,14 +1142,12 @@ class VoCoTypeEngine(IBus.Engine):
         latest = load_ibus_config()
         if latest == self._runtime_config:
             return
-        previous_polisher = self._slm_polisher
         self._runtime_config = latest
         self._asr_options = dict(latest.get("asr", {}))
         self._asr_options["normalization"] = dict(
             latest.get("normalization", {})
         )
         self._slm_polisher = SLMPolisher(latest.get("slm", {}))
-        previous_polisher.release()
         self._configure_recording_limits(latest)
         self._configure_streaming_asr(latest)
         self._configure_panel_style(latest)
@@ -1538,12 +1536,8 @@ class VoCoTypeEngine(IBus.Engine):
             # 显示录音状态
             if edit_mode:
                 self._update_auxiliary_status(self._build_edit_env_status(self._edit_snapshot))
-                # 编辑模式也可能调用本地 SLM，录音期间预热减少松键后等待。
-                self._slm_polisher.prewarm(long_mode=True)
             elif long_mode:
                 self._start_recording_status()
-                # 录音期间并行预加载本地一次性 SLM，减少松键后的等待时间
-                self._slm_polisher.prewarm(long_mode=True)
             else:
                 self._start_recording_status()
             if edit_mode:
@@ -1595,8 +1589,6 @@ class VoCoTypeEngine(IBus.Engine):
         self._stop_streaming_preview()
         self._clear_recording_status()
         self._clear_preedit()
-        if long_mode or edit_mode:
-            self._slm_polisher.release()
         if edit_mode:
             self._edit_snapshot = None
         logger.info("录音已停止")
@@ -1636,15 +1628,11 @@ class VoCoTypeEngine(IBus.Engine):
         if edit_mode and not self._is_engine_active():
             self._clear_preedit()
             self._show_nonintrusive_error("当前输入法已非活动状态，已取消编辑")
-            if long_mode or edit_mode:
-                self._slm_polisher.release()
             return
 
         # 检查是否有音频数据
         if not self._audio_frames:
             self._clear_preedit()
-            if long_mode or edit_mode:
-                self._slm_polisher.release()
             return
 
         # 合并音频
@@ -1670,8 +1658,6 @@ class VoCoTypeEngine(IBus.Engine):
             self._show_nonintrusive_error(
                 f"录音过短（至少 {self._min_recording_ms} ms）"
             )
-            if long_mode or edit_mode:
-                self._slm_polisher.release()
             return
 
         # 显示识别中状态
@@ -1873,8 +1859,6 @@ class VoCoTypeEngine(IBus.Engine):
                         os.unlink(temp_path)
                     except:
                         pass
-                    if long_mode or edit_mode:
-                        self._slm_polisher.release()
 
             except Exception as e:
                 logger.error(f"转录失败: {e}")

@@ -256,7 +256,7 @@ def test_slm_playground_stays_disabled_until_current_endpoint_is_live():
         verified_fingerprint=fingerprint,
     )
     assert ready is False
-    assert "打开 AI 润色" in reason
+    assert "打开 AI 功能" in reason
 
     enabled = {**config, "enabled": True}
     ready, reason = playground_service.slm_playground_gate(
@@ -264,7 +264,7 @@ def test_slm_playground_stays_disabled_until_current_endpoint_is_live():
         verified_fingerprint=None,
     )
     assert ready is False
-    assert "AI 端点测活" in reason
+    assert "API 端点测活" in reason
 
     ready, reason = playground_service.slm_playground_gate(
         enabled,
@@ -279,7 +279,7 @@ def test_slm_playground_stays_disabled_until_current_endpoint_is_live():
         verified_fingerprint=fingerprint,
     )
     assert ready is False
-    assert "AI 端点测活" in reason
+    assert "API 端点测活" in reason
 
 
 def test_remote_slm_gate_requires_endpoint_and_model_before_health_check():
@@ -294,7 +294,7 @@ def test_remote_slm_gate_requires_endpoint_and_model_before_health_check():
         verified_fingerprint=None,
     )
     assert ready is False
-    assert "AI 端点" in reason
+    assert "API 端点" in reason
 
     ready, reason = playground_service.slm_playground_gate(
         {**base, "endpoint": "https://example.test", "model": ""},

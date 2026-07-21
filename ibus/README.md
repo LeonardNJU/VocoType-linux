@@ -69,11 +69,9 @@ ibus restart
 - 系统 Python（省空间，需自行安装依赖）
 - 手动指定 Python 解释器（例如 conda 环境的 `python`）
 
-安装脚本还会询问是否启用 `Shift+F9` 长句 SLM 润色：
-- 不启用（默认）：不安装/拉取 SLM 模型，`Shift+F9` 不会触发润色
-- 启用：写入 `~/.config/vocotype/ibus.json` 的 `slm` 配置，并可选择：
-  - 本地模型（`local_ephemeral`）：按下预热，润色后释放
-  - 远程 API（`remote`）：配置 `model`、`endpoint`、`api_key`
+安装脚本还会询问是否启用 AI 润色与语音编辑：
+- 不启用（默认）：`Shift+F9` 与 `Ctrl+F9` 不调用 AI；
+- 启用：填写 OpenAI-compatible `endpoint`、`model` 和可选 `api_key`。服务可运行在本机或远端，VoCoType 不负责启动模型。
 
 > **模型下载**：首次运行时，程序会自动下载约 1GB 的模型文件。
 
@@ -164,108 +162,40 @@ PTT_KEYVAL = IBus.KEY_F9  # 修改为其他按键
 
 可选按键：`IBus.KEY_F8`, `IBus.KEY_F10`, `IBus.KEY_Control_L` 等
 
-### 长句模式（Shift+F9）配置
+### AI 润色与语音编辑配置
 
-在 `~/.config/vocotype/ibus.json` 中配置 `slm`（默认关闭）。
-
-推荐使用本地一次性加载（按下 `Shift+F9` 预加载，润色后立即释放）：
+在 `~/.config/vocotype/ibus.json` 的 `slm` 区域配置 OpenAI-compatible API，推荐直接使用设置中心：
 
 ```json
 {
   "slm": {
     "enabled": true,
-    "provider": "local_ephemeral",
-    "model": "Qwen/Qwen3.5-0.8B",
-    "local_model": "Qwen/Qwen3.5-0.8B",
-    "warmup_timeout_ms": 90000,
-    "keepalive_ms": 60000,
-    "ready_wait_ms": 2000,
-    "timeout_ms": 12000,
-    "min_chars": 8,
-    "max_tokens": 96,
-    "edit_enabled": true,
-    "edit_max_tokens": 256,
-    "enable_thinking": false
-  }
-}
-```
-
-- `F9` 不会触发 SLM，保持低延迟
-- `Shift+F9` 才会触发 SLM
-- `local_ephemeral` 会在长句完成后按 `keepalive_ms` 保活并最终释放模型内存
-- 若 SLM 调用失败，会显示错误提示，不提交回退原文
-
-远程 API（OpenAI-compatible）示例：
-
-```json
-{
-  "slm": {
-    "enabled": true,
-    "provider": "remote",
-    "model": "gpt-4o-mini",
-    "endpoint": "https://example.com/v1/chat/completions",
-    "api_key": "sk-***",
+    "model": "qwen3",
+    "endpoint": "http://127.0.0.1:11434/v1/chat/completions",
+    "api_key": "",
     "remote_stream": true,
     "stream_idle_timeout_ms": 20000,
-    "transport_timeout_ms": 0,
     "remote_max_tokens": 0,
     "min_chars": 8,
     "enable_thinking": false,
     "edit_enabled": true,
-    "edit_max_tokens": 256,
-    "retry_without_proxy": true,
-    "extra_headers": {},
-    "extra_body": {}
+    "edit_max_tokens": 1024
   }
 }
 ```
 
-常用参数：
+端点可位于本机、局域网或云端。用户可自行使用 Ollama、llama.cpp、vLLM 等启动服务；VoCoType 只调用 API，不负责模型下载、加载、预热、保活或释放。无鉴权服务可以留空 API Key。
 
-- `provider`：`local_ephemeral` / `remote`。
-- `min_chars`：长句触发阈值，默认 `8`。
-- `max_tokens`：本地模型生成预算。
-- `remote_max_tokens`：远程输出上限；默认 `0`，不发送固定限制。
-- `stream_idle_timeout_ms`：远程流式事件空闲超时。
-- `enable_thinking`：是否允许模型 reasoning；最终提交会过滤 thinking。
-- `retry_without_proxy`：代理请求失败时尝试直连。
-- `edit_enabled` / `edit_max_tokens`：`Ctrl+F9` 编辑链路配置。
-
-IBus 继续采用最终结果式 UI，不显示逐 token 面板预览；远程 SSE 仍可用于更合理的空闲超时和
-取消固定 token 上限。Fcitx 5 的实时预览协议见
-[`docs/guides/slm-streaming.md`](../docs/guides/slm-streaming.md)。
+- `F9` 不调用 AI，保持低延迟。
+- `Shift+F9` 调用 API 润色。
+- `Ctrl+F9` 将指令与 surrounding text 交给同一 API，模型返回受限 JSON 编辑计划。
+- IBus 显示最终结果；Fcitx 5 可额外显示 SSE 流式预览。
 
 ### 语音编辑（Ctrl+F9）详解
 
-编辑命令解析、撤销状态和 AI 生成指令由 `app/voice_edit.py` 与 Fcitx 5 共用；本节仅说明 IBus 的 surrounding text 与按键执行适配。
+按住 `Ctrl+F9` 口述指令。VoCoType 会读取 surrounding text、光标和选区，将它们连同 ASR 指令发送给配置的 OpenAI-compatible API。模型负责同音词消歧、替换、翻译、LaTeX、撤销和导航等意图理解；IBus 适配层只校验并执行 `replace`、`key_actions` 或 `no_op` 计划。
 
-#### 触发流程
-
-1. 按下 `Ctrl+F9` 后先检测 surrounding 能力。
-2. 若不支持（`cap=0`），立即提示并结束，不启动录音。
-3. 若支持，录音并识别编辑指令。
-4. 优先执行确定性命令；未命中时交给 SLM 根据上下文完成整段编辑。
-
-#### 常用指令示例
-
-- 替换/删除：`把刚才那句话改成更正式一点`、`删除当前句`、`删除上一句`
-- 插入生成：`输入一段对海底捞商家的好评`、`输入一段关于天气的描写`
-- 导航/选择：`移动到开头`、`左移三次`、`下一个词`、`选中下一个词`、`全选`
-- 历史操作：`撤销`、`撤销修改`、`重做`
-- 诊断：`显示上下文信息`（输出 `[VT-SURR ...]`）
-
-#### 撤销与重做策略
-
-- 如果最近一次改动来自语音编辑，且文本状态匹配内部记录，执行内部撤销/重做。
-- 否则自动下发应用级快捷键：
-  - 撤销：`Ctrl+Z`
-  - 重做：`Ctrl+Shift+Z`
-
-#### 兼容性说明
-
-- 文本替换依赖 `delete_surrounding_text` 能力，状态会显示为 `del=ok/no/?`。
-- 导航命令通过 `forward_key_event` 下发；不同应用/Wayland 客户端可能有拦截差异。
-- 为避免错位编辑，录音结束执行前会校验输入框内容是否仍与快照一致；不一致会报 `输入框内容已变化，请重试`。
+语音编辑必须先启用并测活 AI API。应用不提供 surrounding text 时会明确提示不支持，不会退化为不安全的剪贴板或全局按键修改。
 
 ### surrounding 探针脚本
 

@@ -24,9 +24,7 @@
     sudo pacman -U ./vocotype-linux-*.pkg.tar.zst
     ```
 
-软件包只安装系统集成和应用入口，不会在包管理器事务中下载模型或修改用户配置。后续用户级初始化由图形设置中心完成。
-
-可选的 2-pass 实时识别预览依赖独立 native streaming runtime，不包含在基础包中；普通 `F9` 最终识别、`Shift+F9` 润色和语音编辑不受影响。
+v3 Release 同时提供通用版、IBus 专用版和 Fcitx 5 专用版。三者都包含预编译 2-pass native runtime 和发行版兼容 Python wheelhouse；专用版只安装所选输入法 integration 及其系统依赖。包管理器事务不下载模型或修改用户配置，设置中心只创建 Python 3.12 用户环境并按需下载模型。AI 功能只调用用户配置的 OpenAI-compatible API，不在本机启动模型。
 
 ## 在图形界面中完成初始化
 

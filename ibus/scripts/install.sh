@@ -114,40 +114,12 @@ print_python_help() {
     echo "    conda activate vocotype"
 }
 
-# 检测 IBus 引擎必需的系统构建依赖（用于编译 pycairo/pygobject）
-check_build_deps() {
+# IBus is a Python engine. Binary-only wheels remove any need for local
+# PyGObject/pycairo compilation; only runtime components are checked here.
+check_runtime_deps() {
     local missing=""
-
-    if ! command -v pkg-config >/dev/null 2>&1; then
-        missing="$missing pkg-config"
-    fi
-
-    # 检测 cairo 开发库
-    if ! pkg-config --exists cairo 2>/dev/null; then
-        missing="$missing libcairo2-dev"
-    fi
-
-    # PyGObject < 3.52 使用 gobject-introspection-1.0；该名称同时适用于
-    # Ubuntu 22.04 与 24.04 的 libgirepository1.0-dev。
-    if ! pkg-config --exists gobject-introspection-1.0 2>/dev/null; then
-        missing="$missing libgirepository1.0-dev"
-    fi
-
-    # 检测 PortAudio 运行时库（sounddevice 需要）
-    if ! ldconfig -p 2>/dev/null | grep -q libportaudio; then
-        missing="$missing libportaudio2"
-    fi
-
-    # 检测 Python 开发头文件（仅当使用系统 Python 或没有 uv 时需要）
-    if [ "$USE_SYSTEM_PYTHON" = "1" ] || ! command -v uv >/dev/null 2>&1; then
-        py_version=$("$PYTHON_CMD" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-        if ! pkg-config --exists "python-${py_version}-embed" 2>/dev/null && \
-           ! pkg-config --exists "python-${py_version}" 2>/dev/null && \
-           ! "$PYTHON_CMD" -c "import sysconfig; exit(0 if sysconfig.get_config_var('INCLUDEPY') and __import__('os').path.exists(sysconfig.get_config_var('INCLUDEPY') + '/Python.h') else 1)" 2>/dev/null; then
-            missing="$missing python${py_version}-dev"
-        fi
-    fi
-
+    command -v ibus >/dev/null 2>&1 || missing="$missing ibus"
+    ldconfig -p 2>/dev/null | grep -q libportaudio || missing="$missing libportaudio2"
     echo "$missing"
 }
 
@@ -164,20 +136,15 @@ INSTALL_DIR="$HOME/.local/share/vocotype"
 COMPONENT_DIR="$HOME/.local/share/ibus/component"
 LIBEXEC_DIR="$HOME/.local/libexec"
 
-# SLM 可选配置（默认关闭）
+# OpenAI-compatible API 配置（默认关闭）
 ENABLE_SLM=0
-SLM_PROVIDER="local_ephemeral"
 SLM_ENDPOINT="http://127.0.0.1:18080/v1/chat/completions"
 SLM_MODEL="Qwen/Qwen3.5-0.8B"
-SLM_LOCAL_MODEL="$SLM_MODEL"
-SLM_LOCAL_PYTHON=""
-SLM_TIMEOUT_MS=12000
-SLM_WARMUP_TIMEOUT_MS=90000
+SLM_TIMEOUT_MS=20000
 SLM_MIN_CHARS=8
-SLM_MAX_TOKENS=96
+SLM_MAX_TOKENS=128
 SLM_ENABLE_THINKING=0
 SLM_API_KEY=""
-SLM_INSTALL_LOCAL_DEPS=0
 
 echo "=== VoCoType IBus 语音输入法安装 ==="
 echo "项目目录: $PROJECT_DIR"
@@ -274,63 +241,35 @@ esac
 
 echo ""
 
-echo "是否启用长句 SLM 润色（Shift+F9）？"
-echo "  [1] 不启用（默认）- 不安装 SLM 模型，保持最低资源占用"
-echo "  [2] 启用 - 配置 SLM 润色"
+echo "是否启用 AI 润色与语音编辑？"
+echo "  [1] 不启用（默认）"
+echo "  [2] 启用 - 连接 OpenAI-compatible API"
 echo ""
 read -r -p "请输入选项 (默认 1): " SLM_CHOICE
 case "$SLM_CHOICE" in
     2)
         ENABLE_SLM=1
         echo ""
-        echo "您选择启用 SLM 润色。"
-        echo "请选择 SLM 运行方式："
-        echo "  [1] 本地一次性加载（推荐）：按下 Shift+F9 预加载，润色后释放"
-        echo "  [2] 远程 HTTP 服务：调用已有 endpoint（OpenAI 兼容）"
-        read -r -p "请输入选项 (默认 1): " SLM_PROVIDER_CHOICE
-
-        if [ "$SLM_PROVIDER_CHOICE" = "2" ]; then
-            SLM_PROVIDER="remote"
-            SLM_TIMEOUT_MS=20000
-            SLM_WARMUP_TIMEOUT_MS=12000
-            SLM_MAX_TOKENS=128
-            read -r -p "SLM 模型名 (默认 $SLM_MODEL): " SLM_MODEL_INPUT
-            if [ -n "$SLM_MODEL_INPUT" ]; then
-                SLM_MODEL="$SLM_MODEL_INPUT"
-            fi
-
-            read -r -p "SLM Endpoint (默认 $SLM_ENDPOINT): " SLM_ENDPOINT_INPUT
-            if [ -n "$SLM_ENDPOINT_INPUT" ]; then
-                SLM_ENDPOINT="$SLM_ENDPOINT_INPUT"
-            fi
-            read -r -s -p "SLM API Key（可留空，输入时不回显）: " SLM_API_KEY_INPUT
-            echo ""
-            if [ -n "$SLM_API_KEY_INPUT" ]; then
-                SLM_API_KEY="$SLM_API_KEY_INPUT"
-            fi
-        else
-            SLM_PROVIDER="local_ephemeral"
-            SLM_TIMEOUT_MS=12000
-            SLM_WARMUP_TIMEOUT_MS=90000
-            SLM_MAX_TOKENS=96
-            SLM_ENABLE_THINKING=0
-            SLM_API_KEY=""
-            read -r -p "本地模型名/路径 (默认 $SLM_LOCAL_MODEL): " SLM_LOCAL_MODEL_INPUT
-            if [ -n "$SLM_LOCAL_MODEL_INPUT" ]; then
-                SLM_LOCAL_MODEL="$SLM_LOCAL_MODEL_INPUT"
-                SLM_MODEL="$SLM_LOCAL_MODEL_INPUT"
-            fi
-            read -r -p "是否安装本地 SLM 依赖（torch/transformers/sentencepiece/socksio）? (Y/n): " INSTALL_SLM_DEPS
-            if [[ ! "$INSTALL_SLM_DEPS" =~ ^[Nn]$ ]]; then
-                SLM_INSTALL_LOCAL_DEPS=1
-            fi
+        echo "VoCoType 只调用 OpenAI-compatible API，不启动或管理模型进程。"
+        echo "本机 Ollama、llama.cpp、vLLM 与云端服务配置方式完全相同。"
+        read -r -p "模型名 (默认 $SLM_MODEL): " SLM_MODEL_INPUT
+        if [ -n "$SLM_MODEL_INPUT" ]; then
+            SLM_MODEL="$SLM_MODEL_INPUT"
+        fi
+        read -r -p "API Endpoint (默认 $SLM_ENDPOINT): " SLM_ENDPOINT_INPUT
+        if [ -n "$SLM_ENDPOINT_INPUT" ]; then
+            SLM_ENDPOINT="$SLM_ENDPOINT_INPUT"
+        fi
+        read -r -s -p "API Key（无鉴权服务可留空，输入时不回显）: " SLM_API_KEY_INPUT
+        echo ""
+        if [ -n "$SLM_API_KEY_INPUT" ]; then
+            SLM_API_KEY="$SLM_API_KEY_INPUT"
         fi
         ;;
     ""|1|*)
         ENABLE_SLM=0
-        SLM_API_KEY=""
         echo ""
-        echo "已禁用 SLM 润色（Shift+F9 不会触发润色）。"
+        echo "已禁用 AI 润色与语音编辑。"
         ;;
 esac
 
@@ -404,30 +343,21 @@ else
 fi
 
 if [ -f /etc/debian_version ]; then
-    MISSING_DEPS=$(check_build_deps)
+    MISSING_DEPS=$(check_runtime_deps)
     if [ -n "$MISSING_DEPS" ]; then
         echo ""
-        echo "⚠️  缺少编译 IBus 引擎依赖所需的系统库"
-        echo ""
+        echo "⚠️  缺少 IBus 运行时组件：$MISSING_DEPS"
         INSTALL_CMD="sudo apt install -y$MISSING_DEPS"
-        echo "需要安装：$MISSING_DEPS"
-        echo ""
         read -r -p "是否现在自动安装？(Y/n): " AUTO_INSTALL_DEPS
         if [[ ! "$AUTO_INSTALL_DEPS" =~ ^[Nn]$ ]]; then
-            echo "正在安装系统依赖..."
-            if eval "$INSTALL_CMD"; then
-                echo "✓ 系统依赖安装成功"
-            else
-                echo "❌ 系统依赖安装失败"
-                echo "   请手动执行: $INSTALL_CMD"
+            eval "$INSTALL_CMD" || {
+                echo "运行时依赖安装失败，请手动执行: $INSTALL_CMD" >&2
                 exit 1
-            fi
+            }
         else
-            echo "请先安装系统依赖："
-            echo "  $INSTALL_CMD"
+            echo "请先执行: $INSTALL_CMD" >&2
             exit 1
         fi
-        echo ""
     fi
 fi
 
@@ -479,32 +409,28 @@ if [ "$USE_SYSTEM_PYTHON" = "1" ]; then
         echo ""
         echo "系统 Python 无法加载完整的 VoCoType ASR 运行时。"
         echo "请把依赖安装到上面显示的同一个解释器："
-        echo "  $PYTHON -m pip install -r $PROJECT_DIR/requirements.txt"
+        echo "  请重新运行设置中心，让安装器从预构建 wheels 修复运行环境。"
         echo ""
         echo "也可以重新运行安装脚本并选择项目或用户级虚拟环境。"
         exit 1
     fi
 else
     echo "安装依赖到虚拟环境..."
-    if command -v uv >/dev/null 2>&1; then
-        uv pip install --python "$PYTHON" -r "$PROJECT_DIR/requirements.txt"
-    else
-        "$PYTHON" -m pip install -r "$PROJECT_DIR/requirements.txt"
-    fi
+    install_runtime_requirements "$PYTHON" "$PROJECT_DIR"
 
     # 如果启用 Rime，安装 pyrime
     if [ "$ENABLE_RIME" = "1" ]; then
         echo ""
         echo "安装 pyrime（Rime Python 绑定）..."
         if command -v uv >/dev/null 2>&1; then
-            if ! uv pip install --python "$PYTHON" pyrime; then
+            if ! install_binary_packages "$PYTHON" "$PROJECT_DIR" pyrime; then
                 echo "⚠️  pyrime 安装失败"
                 echo "   这可能是因为 librime-devel 未正确安装"
                 echo "   VoCoType 将以纯语音模式运行"
                 ENABLE_RIME=0
             fi
         else
-            if ! "$PYTHON" -m pip install pyrime; then
+            if ! install_binary_packages "$PYTHON" "$PROJECT_DIR" pyrime; then
                 echo "⚠️  pyrime 安装失败"
                 echo "   这可能是因为 librime-devel 未正确安装"
                 echo "   VoCoType 将以纯语音模式运行"
@@ -698,9 +624,9 @@ if ! check_ibus_import "$PYTHON"; then
     fi
 
     if command -v uv >/dev/null 2>&1; then
-        uv pip install --python "$PYTHON" -U "PyGObject>=3.56.0"
+        install_binary_packages "$PYTHON" "$PROJECT_DIR" "PyGObject>=3.46"
     else
-        "$PYTHON" -m pip install -U "PyGObject>=3.56.0"
+        install_binary_packages "$PYTHON" "$PROJECT_DIR" "PyGObject>=3.46"
     fi
 
     if ! check_ibus_import "$PYTHON"; then
@@ -710,24 +636,6 @@ if ! check_ibus_import "$PYTHON"; then
     fi
 
     echo "✓ IBus 绑定修复成功"
-fi
-
-if [ "$ENABLE_SLM" = "1" ] && [ "$SLM_PROVIDER" = "local_ephemeral" ] && [ "$SLM_INSTALL_LOCAL_DEPS" = "1" ]; then
-    echo ""
-    echo "安装本地 SLM 依赖（torch/transformers/sentencepiece/socksio）..."
-    if [ "$USE_SYSTEM_PYTHON" = "1" ]; then
-        if ! "$PYTHON" -c "import torch, transformers, sentencepiece, socksio" >/dev/null 2>&1; then
-            echo "⚠️  系统 Python 缺少本地 SLM 依赖，请手动安装："
-            echo "  $PYTHON -m pip install torch transformers sentencepiece socksio"
-            echo "   或改用虚拟环境重新安装。"
-        fi
-    else
-        if command -v uv >/dev/null 2>&1; then
-            uv pip install --python "$PYTHON" torch transformers sentencepiece socksio
-        else
-            "$PYTHON" -m pip install torch transformers sentencepiece socksio
-        fi
-    fi
 fi
 
 download_and_verify_asr_models "$PYTHON" "$PROJECT_DIR" || exit 1
@@ -775,15 +683,11 @@ write_slm_config_json \
     "$IBUS_RUNTIME_CONFIG" \
     "$PYTHON" \
     "$ENABLE_SLM" \
-    "$SLM_PROVIDER" \
     "$SLM_ENDPOINT" \
     "$SLM_MODEL" \
-    "$SLM_LOCAL_MODEL" \
-    "$SLM_LOCAL_PYTHON" \
     "$SLM_TIMEOUT_MS" \
     "$SLM_MIN_CHARS" \
     "$SLM_MAX_TOKENS" \
-    "$SLM_WARMUP_TIMEOUT_MS" \
     "$SLM_ENABLE_THINKING" \
     "$SLM_API_KEY"
 echo "✓ 已写入配置: $IBUS_RUNTIME_CONFIG"

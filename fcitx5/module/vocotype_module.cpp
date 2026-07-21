@@ -1018,7 +1018,6 @@ void VoCoTypeModule::startRecording(
         });
 
     if (long_mode || edit_mode) {
-        std::thread([this]() { (void)ipc_client_->prewarmSlm(); }).detach();
     }
     if (edit_mode) {
         const std::string replace_flag =
@@ -1134,7 +1133,6 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
                 std::remove(audio_path.c_str());
             }
             if (long_mode || edit_mode) {
-                (void)ipc_client_->releaseSlm();
             }
             return;
         }

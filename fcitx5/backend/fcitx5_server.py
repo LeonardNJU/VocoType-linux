@@ -563,8 +563,6 @@ class Fcitx5Backend:
             except OSError:
                 pass
             slm_ms = (time.perf_counter() - slm_start) * 1000.0 if slm_start else 0.0
-            if task.long_mode:
-                self._slm_polisher.release()
             logger.info(
                 "Fcitx 流式转录流水线 mode=%s asr_ms=%.2f slm_used=%s slm_ms=%.2f reason=%s status=%s",
                 "long" if task.long_mode else "normal",
@@ -736,7 +734,6 @@ class Fcitx5Backend:
         2. edit_start / edit_poll / edit_cancel: 异步共享语音编辑任务
         2b. edit_audio / edit_applied: 同步兼容路径与成功确认
 
-        3. slm_prewarm / slm_release: 本地模型生命周期兼容接口
 
         4. ping: 健康检查
            {"type": "ping"}
@@ -886,64 +883,51 @@ class Fcitx5Backend:
                 if not audio_path:
                     response = {"success": False, "error": "缺少 audio_path 参数"}
                 else:
-                    try:
-                        asr_start = time.perf_counter()
-                        with self._asr_lock:
-                            result = self.asr_server.transcribe_audio(
-                                audio_path,
-                                options=self._asr_options,
-                            )
-                        asr_ms = (time.perf_counter() - asr_start) * 1000.0
-                        slm_reason = "not_used"
-                        slm_ms = 0.0
-                        if result.get("success") and long_mode:
-                            original = str(result.get("text", "")).strip()
-                            if self._slm_polisher.should_polish(
+                    asr_start = time.perf_counter()
+                    with self._asr_lock:
+                        result = self.asr_server.transcribe_audio(
+                            audio_path,
+                            options=self._asr_options,
+                        )
+                    asr_ms = (time.perf_counter() - asr_start) * 1000.0
+                    slm_reason = "not_used"
+                    slm_ms = 0.0
+                    if result.get("success") and long_mode:
+                        original = str(result.get("text", "")).strip()
+                        if self._slm_polisher.should_polish(
+                            original,
+                            long_mode=True,
+                        ):
+                            polished, metrics = self._slm_polisher.polish(
                                 original,
                                 long_mode=True,
-                            ):
-                                polished, metrics = self._slm_polisher.polish(
-                                    original,
-                                    long_mode=True,
-                                )
-                                slm_reason = metrics.reason
-                                slm_ms = metrics.latency_ms
-                                if self._slm_polisher.is_failure_reason(metrics.reason):
-                                    result = {
-                                        "success": False,
-                                        "error": self._slm_polisher.format_failure_message(
-                                            metrics.reason
-                                        ),
-                                        "original_text": original,
-                                    }
-                                else:
-                                    result["text"] = polished
+                            )
+                            slm_reason = metrics.reason
+                            slm_ms = metrics.latency_ms
+                            if self._slm_polisher.is_failure_reason(metrics.reason):
+                                result = {
+                                    "success": False,
+                                    "error": self._slm_polisher.format_failure_message(
+                                        metrics.reason
+                                    ),
+                                    "original_text": original,
+                                }
                             else:
-                                slm_reason = (
-                                    "disabled"
-                                    if not self._slm_polisher.enabled
-                                    else "too_short"
-                                )
-                        logger.info(
-                            "Fcitx 同步转录流水线 mode=%s asr_ms=%.2f slm_ms=%.2f reason=%s",
-                            "long" if long_mode else "plain",
-                            asr_ms,
-                            slm_ms,
-                            slm_reason,
-                        )
-                        response = result
-                    finally:
-                        if long_mode:
-                            self._slm_polisher.release()
-
-            elif req_type == 'slm_prewarm':
-                self._slm_polisher.prewarm(long_mode=True)
-                response = {"success": True}
-
-            elif req_type == 'slm_release':
-                self._slm_polisher.release()
-                response = {"success": True}
-
+                                result["text"] = polished
+                        else:
+                            slm_reason = (
+                                "disabled"
+                                if not self._slm_polisher.enabled
+                                else "too_short"
+                            )
+                    logger.info(
+                        "Fcitx 同步转录流水线 mode=%s asr_ms=%.2f slm_ms=%.2f reason=%s",
+                        "long" if long_mode else "plain",
+                        asr_ms,
+                        slm_ms,
+                        slm_reason,
+                    )
+                    response = result
             elif req_type == 'ping':
                 # 健康检查
                 response = {"pong": True}

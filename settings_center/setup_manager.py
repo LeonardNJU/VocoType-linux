@@ -6,7 +6,7 @@ import os
 import signal
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Literal
 
@@ -56,6 +56,74 @@ class IntegrationStatus:
     state: InstallState
     present: tuple[str, ...]
     missing: tuple[str, ...]
+
+
+def _read_native_package_marker(path: Path) -> dict[str, str]:
+    if not path.is_file():
+        return {}
+    result: dict[str, str] = {}
+    try:
+        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if "=" not in raw:
+                continue
+            key, value = raw.split("=", 1)
+            key = key.strip()
+            if key:
+                result[key] = value.strip()
+    except OSError:
+        return {}
+    if not result:
+        return {}
+    flavor = result.get("flavor", "universal").lower()
+    if flavor not in {"universal", "ibus", "fcitx5"}:
+        flavor = "universal"
+    result["flavor"] = flavor
+    defaults = {
+        "universal": "vocotype-linux",
+        "ibus": "vocotype-linux-ibus",
+        "fcitx5": "vocotype-linux-fcitx5",
+    }
+    result.setdefault("package", defaults[flavor])
+    return result
+
+
+def native_package_metadata(project_root: Path | None = None) -> dict[str, str]:
+    candidates: list[Path] = []
+    if project_root is not None:
+        candidates.append(Path(project_root) / ".system-package")
+    runtime_root = Path(__file__).resolve().parents[1]
+    candidates.extend(
+        [
+            runtime_root / ".system-package",
+            Path("/usr/share/vocotype/.system-package"),
+        ]
+    )
+    for marker in dict.fromkeys(candidates):
+        metadata = _read_native_package_marker(marker)
+        if metadata:
+            metadata["marker"] = str(marker)
+            return metadata
+    return {}
+
+
+def native_package_flavor(project_root: Path | None = None) -> str | None:
+    metadata = native_package_metadata(project_root)
+    return metadata.get("flavor") if metadata else None
+
+
+def native_package_name(project_root: Path | None = None) -> str | None:
+    metadata = native_package_metadata(project_root)
+    return metadata.get("package") if metadata else None
+
+
+def package_supports_framework(
+    framework: Framework,
+    project_root: Path | None = None,
+) -> bool:
+    flavor = native_package_flavor(project_root)
+    if flavor in {None, "universal"}:
+        return True
+    return flavor == framework
 
 
 def preferred_installed_framework(
@@ -310,7 +378,28 @@ def find_project_root(start: str | os.PathLike[str] | None = None) -> Path | Non
             if path in seen:
                 continue
             seen.add(path)
-            if (
+            marker = _read_native_package_marker(path / ".system-package")
+            if marker:
+                flavor = marker["flavor"]
+                common = (
+                    (path / "pyproject.toml").is_file()
+                    and (path / "settings_center/application.py").is_file()
+                )
+                ibus_ready = (
+                    (path / "ibus/scripts/install-gui.sh").is_file()
+                    and (path / "ibus/scripts/uninstall-gui.sh").is_file()
+                )
+                fcitx_ready = (
+                    (path / "fcitx5/scripts/install-gui.sh").is_file()
+                    and (path / "fcitx5/scripts/uninstall-gui.sh").is_file()
+                )
+                if common and (
+                    (flavor == "universal" and ibus_ready and fcitx_ready)
+                    or (flavor == "ibus" and ibus_ready)
+                    or (flavor == "fcitx5" and fcitx_ready)
+                ):
+                    return path
+            elif (
                 (path / "fcitx5/scripts/install-gui.sh").is_file()
                 and (path / "fcitx5/scripts/uninstall-gui.sh").is_file()
                 and (path / "ibus/scripts/install-gui.sh").is_file()
@@ -332,25 +421,32 @@ def _common_flags(options: InstallOptions) -> list[str]:
     return flags
 
 
+
+def _effective_install_options(
+    project_root: Path,
+    options: InstallOptions | None,
+) -> InstallOptions:
+    resolved = options or InstallOptions()
+    if native_package_present(project_root):
+        return replace(resolved, python_choice="user", bootstrap_uv=True)
+    return resolved
+
+
 def fcitx_installer_command(project_root: Path, options: InstallOptions | None = None) -> list[str]:
-    opts = options or InstallOptions()
+    opts = _effective_install_options(project_root, options)
     return [
         "bash",
         str(project_root / "fcitx5/scripts/install-gui.sh"),
         *_common_flags(opts),
-        "--slm-provider",
-        "preserve" if opts.preserve_config else "disabled",
     ]
 
 
 def ibus_installer_command(project_root: Path, options: InstallOptions | None = None) -> list[str]:
-    opts = options or InstallOptions()
+    opts = _effective_install_options(project_root, options)
     return [
         "bash",
         str(project_root / "ibus/scripts/install-gui.sh"),
         *_common_flags(opts),
-        "--slm-provider",
-        "preserve" if opts.preserve_config else "disabled",
         "--rime",
         "enabled" if opts.rime_enabled else "disabled",
         "--rime-schema",
@@ -449,6 +545,9 @@ def install_or_repair(
     root = project_root or find_project_root()
     if root is None:
         return False, "找不到包含安装后端的 VoCoType 源码目录。"
+    if not package_supports_framework(framework, root):
+        flavor = native_package_flavor(root) or "universal"
+        return False, f"当前 {flavor} 软件包不包含 {framework} integration。"
     if framework == "fcitx5":
         command = fcitx_installer_command(root, options)
     elif framework == "ibus":
@@ -474,6 +573,9 @@ def uninstall_framework(
     root = project_root or find_project_root()
     if root is None:
         return False, "找不到包含卸载后端的 VoCoType 源码目录。"
+    if not package_supports_framework(framework, root):
+        flavor = native_package_flavor(root) or "universal"
+        return False, f"当前 {flavor} 软件包不包含 {framework} integration。"
     if framework == "fcitx5":
         command = fcitx_uninstaller_command(root, options)
     elif framework == "ibus":
@@ -489,23 +591,20 @@ def uninstall_framework(
 
 
 def native_package_present(project_root: Path | None = None) -> bool:
-    root = project_root or find_project_root()
-    markers = [Path("/usr/share/vocotype/.system-package")]
-    if root is not None:
-        markers.insert(0, root / ".system-package")
-    return any(marker.is_file() for marker in markers)
+    return bool(native_package_metadata(project_root))
 
 
 def native_package_removal_command(project_root: Path | None = None) -> str | None:
-    if not native_package_present(project_root):
+    package = native_package_name(project_root)
+    if not package:
         return None
     if shutil.which("pacman"):
-        return "sudo pacman -Rns vocotype-linux"
+        return f"sudo pacman -Rns {package}"
     if shutil.which("dnf"):
-        return "sudo dnf remove vocotype-linux"
+        return f"sudo dnf remove {package}"
     if shutil.which("apt-get"):
-        return "sudo apt remove vocotype-linux"
-    return "请使用系统包管理器卸载 vocotype-linux"
+        return f"sudo apt remove {package}"
+    return f"请使用系统包管理器卸载 {package}"
 
 
 def polkit_available() -> bool:

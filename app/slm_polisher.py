@@ -6,17 +6,13 @@ import json
 import logging
 import os
 import re
-import select
-import subprocess
-import sys
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Dict, Iterator, Optional, Tuple
+from typing import Any, Dict, Iterator, Tuple
 
 from app.voice_edit import VoiceEditPlan, VoiceEditPlanError
 
@@ -109,14 +105,12 @@ class PolisherMetrics:
 class SLMPolisher:
     """Best-effort SLM polishing with timeout and fallback.
 
-    Supported providers:
-    - remote: HTTP endpoint (OpenAI-compatible chat/completions)
-    - local_ephemeral: spawn local worker on demand, release after one polish
+    VoCoType only calls an OpenAI-compatible chat/completions endpoint.
+    Starting, warming, and stopping a local model server is outside this process.
     """
 
     _global_request_lock = threading.Lock()
-    PROVIDER_REMOTE = "remote"
-    PROVIDER_LOCAL_EPHEMERAL = "local_ephemeral"
+    PROVIDER_OPENAI_COMPATIBLE = "openai_compatible"
     _NON_FAILURE_REASONS = {
         "ok",
         "disabled",
@@ -145,40 +139,36 @@ class SLMPolisher:
 
     def __init__(self, config: Dict[str, Any] | None = None):
         cfg = dict(config or {})
-        self.enabled = bool(cfg.get("enabled", False))
-        provider = str(cfg.get("provider", self.PROVIDER_REMOTE)).strip().lower()
-        if provider in {"local", "ephemeral", "local_once", "local_ephemeral"}:
-            self.provider = self.PROVIDER_LOCAL_EPHEMERAL
-        else:
-            self.provider = self.PROVIDER_REMOTE
-
-        endpoint = str(cfg.get("endpoint", "http://127.0.0.1:18080/v1/chat/completions"))
-        if self.provider == self.PROVIDER_REMOTE:
-            self.endpoint = self._normalize_remote_endpoint(endpoint)
-        else:
-            # local_ephemeral communicates with slm_local_worker over stdio.
-            self.endpoint = ""
-        self.model = str(cfg.get("model", "Qwen/Qwen3.5-0.8B"))
-        default_timeout_ms = 12000 if self.provider == self.PROVIDER_LOCAL_EPHEMERAL else 20000
-        default_max_tokens = 96 if self.provider == self.PROVIDER_LOCAL_EPHEMERAL else 128
-        default_warmup_timeout_ms = (
-            90000 if self.provider == self.PROVIDER_LOCAL_EPHEMERAL else 12000
+        legacy_provider = str(cfg.get("provider", "")).strip().lower()
+        self.legacy_local_provider = legacy_provider in {
+            "local",
+            "ephemeral",
+            "local_once",
+            "local_ephemeral",
+        }
+        self.enabled = bool(cfg.get("enabled", False)) and not self.legacy_local_provider
+        self.provider = self.PROVIDER_OPENAI_COMPATIBLE
+        self.endpoint = self._normalize_remote_endpoint(
+            str(cfg.get("endpoint", "http://127.0.0.1:18080/v1/chat/completions"))
         )
-        self.timeout_ms = int(cfg.get("timeout_ms", default_timeout_ms))
+        self.model = str(cfg.get("model", "Qwen/Qwen3.5-0.8B")).strip()
+        self.timeout_ms = int(cfg.get("timeout_ms", 20000))
         self.min_chars = max(0, int(cfg.get("min_chars", 8)))
-        self.max_tokens = max(1, int(cfg.get("max_tokens", default_max_tokens)))
+        self.max_tokens = max(1, int(cfg.get("max_tokens", 128)))
         self.temperature = float(cfg.get("temperature", 0.0))
         self.top_p = float(cfg.get("top_p", 0.9))
         self.top_k = int(cfg.get("top_k", 20))
         enable_thinking_cfg = cfg.get("enable_thinking")
-        if enable_thinking_cfg is None:
-            self.enable_thinking = False
-        else:
-            self.enable_thinking = bool(enable_thinking_cfg)
+        self.enable_thinking = bool(enable_thinking_cfg) if enable_thinking_cfg is not None else False
         self.api_key_env = str(cfg.get("api_key_env", "")).strip()
         self.api_key = str(cfg.get("api_key", "")).strip()
         self.credential_warning = ""
-        if not self.api_key and looks_like_api_key(self.api_key_env):
+        if self.legacy_local_provider:
+            self.credential_warning = (
+                "旧版内置本地 SLM 已移除；请自行启动 OpenAI-compatible 服务，"
+                "填写 API 端点和模型后重新启用。"
+            )
+        elif not self.api_key and looks_like_api_key(self.api_key_env):
             self.api_key = self.api_key_env
             self.api_key_env = ""
             self.credential_warning = "检测到 API Key 被误填为环境变量名，已按直接密钥使用。"
@@ -186,9 +176,6 @@ class SLMPolisher:
             self.api_key = str(os.environ.get(self.api_key_env, "")).strip()
         self.system_prompt = str(cfg.get("system_prompt", DEFAULT_SYSTEM_PROMPT))
         self.edit_enabled = bool(cfg.get("edit_enabled", True))
-        # Voice-edit output is an executable protocol. Keep its system
-        # prompt fixed so stale/custom free-text prompts cannot bypass the
-        # validated JSON plan schema.
         self.edit_system_prompt = DEFAULT_EDIT_SYSTEM_PROMPT
         self.edit_max_tokens = max(
             self.max_tokens,
@@ -200,41 +187,12 @@ class SLMPolisher:
             1000,
             int(cfg.get("stream_idle_timeout_ms", self.timeout_ms)),
         )
-        self.transport_timeout_ms = max(
-            0,
-            int(cfg.get("transport_timeout_ms", 0)),
-        )
+        self.transport_timeout_ms = max(0, int(cfg.get("transport_timeout_ms", 0)))
         self.remote_max_tokens = max(0, int(cfg.get("remote_max_tokens", 0) or 0))
         extra_body = cfg.get("extra_body", {})
         self.extra_body = dict(extra_body) if isinstance(extra_body, dict) else {}
         extra_headers = cfg.get("extra_headers", cfg.get("headers", {}))
-        self.extra_headers = (
-            dict(extra_headers) if isinstance(extra_headers, dict) else {}
-        )
-
-        # Local ephemeral worker options.
-        self.local_model = str(cfg.get("local_model", self.model)).strip()
-        self.local_python = os.path.expanduser(
-            str(cfg.get("local_python", sys.executable)).strip() or sys.executable
-        )
-        self.local_device = str(cfg.get("local_device", "cpu")).strip() or "cpu"
-        self.local_dtype = str(cfg.get("local_dtype", "auto")).strip() or "auto"
-        self.warmup_timeout_ms = max(
-            200,
-            int(cfg.get("warmup_timeout_ms", default_warmup_timeout_ms)),
-        )
-        default_keepalive_ms = 60000 if self.provider == self.PROVIDER_LOCAL_EPHEMERAL else 0
-        self.keepalive_ms = max(0, int(cfg.get("keepalive_ms", default_keepalive_ms)))
-        default_ready_wait_ms = 2000 if self.provider == self.PROVIDER_LOCAL_EPHEMERAL else self.timeout_ms
-        self.ready_wait_ms = max(
-            50,
-            int(cfg.get("ready_wait_ms", default_ready_wait_ms)),
-        )
-
-        self._worker_lock = threading.Lock()
-        self._worker_proc: Optional[subprocess.Popen[str]] = None
-        self._worker_ready = False
-        self._release_timer: Optional[threading.Timer] = None
+        self.extra_headers = dict(extra_headers) if isinstance(extra_headers, dict) else {}
 
     def should_polish(
         self,
@@ -248,24 +206,6 @@ class SLMPolisher:
         threshold = self.min_chars if min_chars is None else max(0, int(min_chars))
         return len(text.strip()) >= threshold
 
-    def prewarm(self, *, long_mode: bool) -> None:
-        """Best-effort prewarm for local_ephemeral provider.
-
-        Key-down path should return quickly; only start worker process here and
-        defer model-ready waiting to key-up polish stage.
-        """
-        if not self.enabled or not long_mode:
-            return
-        if self.provider != self.PROVIDER_LOCAL_EPHEMERAL:
-            return
-        ok, reason = self._start_local_worker_if_needed()
-        if not ok:
-            logger.info("SLM 预加载失败或跳过: %s", reason)
-
-    def release(self) -> None:
-        """Release local worker to free memory."""
-        if self.provider == self.PROVIDER_LOCAL_EPHEMERAL:
-            self._schedule_or_shutdown_local_worker()
 
     def stream_polish(
         self,
@@ -277,9 +217,8 @@ class SLMPolisher:
     ) -> Iterator[Dict[str, Any]]:
         """Yield normalized status/delta/final/error events.
 
-        Remote providers use OpenAI-compatible SSE when enabled. Local
-        ephemeral providers keep their current final-result protocol while
-        still exposing the same event contract to callers.
+        OpenAI-compatible endpoints use SSE when enabled and otherwise return
+        a normal JSON completion; both paths expose one event contract.
         """
 
         original = text or ""
@@ -293,13 +232,12 @@ class SLMPolisher:
         stripped = original.strip()
         threshold = self.min_chars if min_chars is None else max(0, int(min_chars))
         if len(stripped) < threshold:
-            self.release()
             yield {"kind": "final", "text": original, "reason": "too_short"}
             return
 
         start = time.perf_counter()
         with self._global_request_lock:
-            if self.provider == self.PROVIDER_REMOTE and self.remote_stream:
+            if self.remote_stream:
                 yield from self._stream_remote(
                     original,
                     stripped,
@@ -313,10 +251,7 @@ class SLMPolisher:
             try:
                 if enable_thinking is not None:
                     self.enable_thinking = bool(enable_thinking)
-                if self.provider == self.PROVIDER_LOCAL_EPHEMERAL:
-                    polished, metrics = self._polish_local(original, stripped, start)
-                else:
-                    polished, metrics = self._polish_remote(original, stripped, start)
+                polished, metrics = self._polish_remote(original, stripped, start)
             finally:
                 self.enable_thinking = old_enable_thinking
 
@@ -349,13 +284,10 @@ class SLMPolisher:
 
         stripped = original.strip()
         if len(stripped) < self.min_chars:
-            self.release()
             return original, PolisherMetrics(False, False, 0.0, "too_short")
 
         # Single-flight lock across all polisher instances in this process.
         with self._global_request_lock:
-            if self.provider == self.PROVIDER_LOCAL_EPHEMERAL:
-                return self._polish_local(original, stripped, start)
             if self.remote_stream:
                 return self._polish_remote_streaming_final(
                     original,
@@ -387,8 +319,6 @@ class SLMPolisher:
                 self.max_tokens = edit_budget
                 self.remote_max_tokens = edit_budget
                 self.enable_thinking = False
-                if self.provider == self.PROVIDER_LOCAL_EPHEMERAL:
-                    return self._polish_local(original, request_text, start)
                 if self.remote_stream:
                     return self._polish_remote_streaming_final(
                         original,
@@ -532,16 +462,6 @@ class SLMPolisher:
             return "SLM 调用失败：润色结果为空"
         if normalized == "thinking_only":
             return "SLM 调用失败：仅返回思考内容"
-        if normalized == "local_timeout":
-            return "SLM 调用失败：本地推理超时"
-        if normalized == "local_warmup_timeout":
-            return "SLM 调用失败：模型未就绪（请延长按键时长后重试）"
-        if normalized == "local_model_not_set":
-            return "SLM 调用失败：未配置本地模型"
-        if normalized == "local_python_not_found":
-            return "SLM 调用失败：本地 Python 不可用"
-        if normalized.startswith("load_failed:"):
-            return "SLM 调用失败：模型加载失败"
         if normalized == "exception":
             return "SLM 调用失败：运行异常"
         return f"SLM 调用失败：{normalized}"
@@ -1065,281 +985,6 @@ class SLMPolisher:
             return urllib.request.urlopen(request, timeout=timeout_s)
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         return opener.open(request, timeout=timeout_s)
-
-    def _polish_local(
-        self,
-        original: str,
-        stripped: str,
-        start: float,
-    ) -> Tuple[str, PolisherMetrics]:
-        try:
-            ready_timeout_s = self._local_ready_timeout_s()
-            ok, reason = self._ensure_local_worker_ready(timeout_s=ready_timeout_s)
-            if not ok:
-                return self._fallback(original, start, reason)
-
-            # Warmup waiting and generation serve different phases; keep full
-            # generation budget instead of consuming it by readiness wait.
-            timeout_s = max(0.05, self.timeout_ms / 1000.0)
-            request_payload = {
-                "type": "polish",
-                "text": stripped,
-                "system_prompt": self.system_prompt,
-                "max_tokens": self.max_tokens,
-                "temperature": self.temperature,
-                "top_p": self.top_p,
-                "top_k": self.top_k,
-                "enable_thinking": self.enable_thinking,
-            }
-
-            if self.enable_thinking:
-                # Thinking may consume most tokens on tiny local models;
-                # probe with smaller budget, then retry once with thinking disabled.
-                request_payload["max_tokens"] = min(self.max_tokens, 96)
-
-            response = self._local_worker_request(
-                request_payload,
-                timeout_s=timeout_s,
-            )
-            if (
-                self.enable_thinking
-                and (not bool(response.get("ok", False)))
-                and str(response.get("reason", "")) == "thinking_only"
-            ):
-                retry_payload = dict(request_payload)
-                retry_payload["enable_thinking"] = False
-                retry_payload["max_tokens"] = self.max_tokens
-                retry_payload["temperature"] = 0.0
-                timeout_s = max(0.05, self.timeout_ms / 1000.0)
-                response = self._local_worker_request(
-                    retry_payload,
-                    timeout_s=timeout_s,
-                )
-            if not bool(response.get("ok", False)):
-                return self._fallback(
-                    original,
-                    start,
-                    str(response.get("reason", "local_worker_error")),
-                )
-
-            polished = str(response.get("text", "")).strip()
-            if not polished:
-                return self._fallback(original, start, "blank_content")
-
-            return polished, PolisherMetrics(
-                used=True,
-                applied=(polished != original),
-                latency_ms=(time.perf_counter() - start) * 1000.0,
-                reason="ok",
-            )
-        except TimeoutError:
-            return self._fallback(original, start, "local_timeout")
-        except json.JSONDecodeError:
-            return self._fallback(original, start, "bad_json")
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("SLM local polish failed: %s", exc)
-            return self._fallback(original, start, "exception")
-        finally:
-            # Release on idle; allow fast reuse within keepalive window.
-            self.release()
-
-    def _local_ready_timeout_s(self) -> float:
-        """Return ready-wait timeout for local worker.
-
-        Prefer `ready_wait_ms` for responsiveness, but honor the larger warmup
-        window when caller allows long local timeout.
-        """
-        ready_wait_s = max(0.05, self.ready_wait_ms / 1000.0)
-        warmup_wait_s = max(0.05, self.warmup_timeout_ms / 1000.0)
-        request_timeout_s = max(0.05, self.timeout_ms / 1000.0)
-        return min(request_timeout_s, max(ready_wait_s, warmup_wait_s))
-
-    def _remaining_timeout(self, start: float) -> float:
-        remaining = (self.timeout_ms / 1000.0) - (time.perf_counter() - start)
-        return max(0.0, remaining)
-
-    def _schedule_or_shutdown_local_worker(self) -> None:
-        with self._worker_lock:
-            self._cancel_release_timer_locked()
-            if self.keepalive_ms <= 0:
-                self._shutdown_local_worker_locked()
-                return
-
-            proc = self._worker_proc
-            if proc is None or proc.poll() is not None:
-                return
-
-            timer = threading.Timer(
-                max(0.05, self.keepalive_ms / 1000.0),
-                self._release_timer_fired,
-            )
-            timer.daemon = True
-            self._release_timer = timer
-            timer.start()
-
-    def _release_timer_fired(self) -> None:
-        with self._worker_lock:
-            self._release_timer = None
-            self._shutdown_local_worker_locked()
-
-    def _cancel_release_timer_locked(self) -> None:
-        timer = self._release_timer
-        self._release_timer = None
-        if timer is None:
-            return
-        try:
-            timer.cancel()
-        except Exception:
-            pass
-
-    def _start_local_worker_if_needed(self) -> Tuple[bool, str]:
-        with self._worker_lock:
-            self._cancel_release_timer_locked()
-            proc = self._worker_proc
-            if proc is not None and proc.poll() is None:
-                return True, "ok"
-            self._shutdown_local_worker_locked()
-            if not self.local_model:
-                return False, "local_model_not_set"
-
-            worker_script = str(Path(__file__).with_name("slm_local_worker.py"))
-            cmd = [
-                self.local_python,
-                worker_script,
-                "--model",
-                self.local_model,
-                "--device",
-                self.local_device,
-                "--dtype",
-                self.local_dtype,
-            ]
-            worker_env = os.environ.copy()
-            worker_env.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
-            worker_env.setdefault("TRANSFORMERS_VERBOSITY", "error")
-            worker_env.setdefault("TOKENIZERS_PARALLELISM", "false")
-            try:
-                proc = subprocess.Popen(
-                    cmd,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
-                    text=True,
-                    encoding="utf-8",
-                    bufsize=1,
-                    cwd=str(Path(__file__).resolve().parent.parent),
-                    env=worker_env,
-                )
-            except FileNotFoundError:
-                return False, "local_python_not_found"
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("启动本地 SLM worker 失败: %s", exc)
-                return False, "local_worker_spawn_error"
-
-            self._worker_proc = proc
-            self._worker_ready = False
-            return True, "ok"
-
-    def _ensure_local_worker_ready(self, timeout_s: float) -> Tuple[bool, str]:
-        ok, reason = self._start_local_worker_if_needed()
-        if not ok:
-            return False, reason
-
-        with self._worker_lock:
-            proc = self._worker_proc
-            if proc is None or proc.poll() is not None:
-                self._shutdown_local_worker_locked()
-                return False, "local_worker_not_ready"
-            if self._worker_ready:
-                return True, "ok"
-
-            try:
-                ready_msg = self._read_worker_json_line_locked(proc, timeout_s)
-            except TimeoutError:
-                return False, "local_warmup_timeout"
-            except Exception:  # noqa: BLE001
-                self._shutdown_local_worker_locked()
-                return False, "local_worker_init_error"
-
-            if not isinstance(ready_msg, dict):
-                self._shutdown_local_worker_locked()
-                return False, "local_worker_bad_ready"
-            if ready_msg.get("type") != "ready":
-                reason = str(ready_msg.get("reason", "local_worker_not_ready"))
-                self._shutdown_local_worker_locked()
-                return False, reason
-            if not bool(ready_msg.get("ok", False)):
-                reason = str(ready_msg.get("reason", "local_worker_not_ready"))
-                self._shutdown_local_worker_locked()
-                return False, reason
-
-            self._worker_ready = True
-            return True, "ok"
-
-    def _local_worker_request(self, payload: Dict[str, Any], timeout_s: float) -> Dict[str, Any]:
-        with self._worker_lock:
-            proc = self._worker_proc
-            if proc is None or proc.poll() is not None or not self._worker_ready:
-                raise RuntimeError("local_worker_not_ready")
-            if proc.stdin is None or proc.stdout is None:
-                raise RuntimeError("local_worker_pipe_unavailable")
-
-            proc.stdin.write(json.dumps(payload, ensure_ascii=False) + "\n")
-            proc.stdin.flush()
-            return self._read_worker_json_line_locked(proc, timeout_s)
-
-    @staticmethod
-    def _read_worker_json_line_locked(proc: subprocess.Popen[str], timeout_s: float) -> Dict[str, Any]:
-        if proc.stdout is None:
-            raise RuntimeError("worker_stdout_unavailable")
-
-        fd = proc.stdout.fileno()
-        ready, _, _ = select.select([fd], [], [], timeout_s)
-        if not ready:
-            raise TimeoutError("local_worker_timeout")
-
-        line = proc.stdout.readline()
-        if not line:
-            raise RuntimeError("local_worker_closed")
-        return json.loads(line)
-
-    def _shutdown_local_worker(self) -> None:
-        with self._worker_lock:
-            self._cancel_release_timer_locked()
-            self._shutdown_local_worker_locked()
-
-    def _shutdown_local_worker_locked(self) -> None:
-        proc = self._worker_proc
-        self._worker_proc = None
-        self._worker_ready = False
-        if proc is None:
-            return
-
-        if proc.poll() is None:
-            try:
-                if proc.stdin is not None:
-                    proc.stdin.write('{"type":"exit"}\n')
-                    proc.stdin.flush()
-            except Exception:
-                pass
-
-            try:
-                proc.wait(timeout=0.3)
-            except Exception:
-                try:
-                    proc.terminate()
-                except Exception:
-                    pass
-                try:
-                    proc.wait(timeout=0.5)
-                except Exception:
-                    try:
-                        proc.kill()
-                    except Exception:
-                        pass
-                    try:
-                        proc.wait(timeout=0.2)
-                    except Exception:
-                        pass
 
     def _fallback(
         self,

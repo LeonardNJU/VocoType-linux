@@ -30,7 +30,10 @@ from settings_center.setup_manager import (
     ibus_uninstaller_command,
     installer_command,
     integration_status,
+    native_package_flavor,
+    native_package_name,
     native_package_removal_command,
+    package_supports_framework,
     parse_install_progress,
     preferred_installed_framework,
     restart_fcitx,
@@ -379,7 +382,7 @@ def test_gui_installers_use_noninteractive_polkit_ready_mode():
         assert "--install-system-deps" in command
         assert "--bootstrap-uv" in command
         assert command[command.index("--python-choice") + 1] == "user"
-        assert command[command.index("--slm-provider") + 1] == "preserve"
+        assert "--slm-provider" not in command
     assert ibus[1].endswith("ibus/scripts/install-gui.sh")
     assert ibus[ibus.index("--rime") + 1] == "enabled"
     assert ibus[ibus.index("--rime-schema") + 1] == "rime_ice"
@@ -806,7 +809,7 @@ def test_native_package_removal_command_uses_available_package_manager(
 ):
     import settings_center.setup_manager as setup_manager
 
-    monkeypatch.setattr(setup_manager, "native_package_present", lambda _root=None: True)
+    monkeypatch.setattr(setup_manager, "native_package_name", lambda _root=None: "vocotype-linux")
     monkeypatch.setattr(
         setup_manager.shutil,
         "which",
@@ -874,7 +877,7 @@ def test_settings_application_exposes_both_install_paths():
     assert "测试 AI 润色" in source
     assert "测试语音编辑" in source
     assert "self.playground_ai_controls.set_sensitive(False)" in source
-    assert "请先在“AI 润色”页面" in (
+    assert "请先在“AI 功能”页面" in (
         Path("settings_center/playground_service.py")
     ).read_text(encoding="utf-8")
     assert "save_audio_config" in source
@@ -949,7 +952,7 @@ def test_installers_have_gui_noninteractive_paths_without_terminal_password_prom
         'cp -r "$PROJECT_DIR/settings_center"',
         'vocotype-settings',
         'io.github.LeonardNJU.VoCoType.Settings.desktop',
-        '检测到已有本地 SLM 配置',
+        'OpenAI-compatible API',
         'VOCOTYPE_PROJECT_DIR',
         '--install-system-deps',
         'pkexec',
@@ -1043,11 +1046,31 @@ def test_ibus_gui_installer_uses_pkexec_and_never_reads_from_a_terminal():
 
 def test_system_dependency_helper_has_fixed_actions_and_no_arbitrary_package_arguments():
     helper = Path("installers/install-system-dependencies.sh").read_text(encoding="utf-8")
-    assert "fcitx5|ibus|ibus-rime" in helper
+    assert "fcitx5|fcitx5-source|ibus|ibus-rime" in helper
     assert "apt-get install" in helper
     assert "dnf install" in helper
     assert "pacman -S --needed" in helper
     assert 'PACKAGES=("$@")' not in helper
+    for action in ("fcitx5", "ibus", "ibus-rime"):
+        result = subprocess.run(
+            ["bash", "installers/install-system-dependencies.sh", "--print-plan", action],
+            cwd=Path.cwd(),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        for forbidden in ("build-essential", "base-devel", "gcc", "cmake", "make", "-dev", "-devel"):
+            assert forbidden not in result.stdout
+    source_plan = subprocess.run(
+        ["bash", "installers/install-system-dependencies.sh", "--print-plan", "fcitx5-source"],
+        cwd=Path.cwd(),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert source_plan.returncode == 0
+    assert any(item in source_plan.stdout for item in ("base-devel", "build-essential", "gcc-c++"))
 
 
 def test_setup_manager_does_not_launch_terminal_emulators():
@@ -1141,7 +1164,7 @@ def test_settings_center_exposes_optional_two_pass_preview_toggle():
     assert "实时识别预览（2-pass）" in source
     assert 'streaming["enabled"] = self.asr_streaming_enabled.get_active()' in source
     assert "松键后仍由原高精度离线模型给出最终结果" in source
-    assert "需要另行安装 native streaming runtime" in source
+    assert "v3 Release 已内置 native streaming runtime" in source
     assert "本地 native worker 空闲后自动退出" in source
 
 
@@ -1172,3 +1195,116 @@ def test_tutorial_is_framework_specific_and_hidden_without_installation():
     assert "self.tutorial_page.hide()" in source
     assert "self.tutorial_page.show_all()" in source
     assert "Gtk.StackSwitcher" not in source
+
+
+def test_native_release_forces_python_312_user_runtime(monkeypatch: pytest.MonkeyPatch):
+    import settings_center.setup_manager as setup_manager
+
+    root = Path("/usr/share/vocotype")
+    monkeypatch.setattr(
+        setup_manager,
+        "native_package_present",
+        lambda _root=None: True,
+    )
+    requested = InstallOptions(
+        python_choice="system",
+        bootstrap_uv=False,
+        preserve_config=False,
+    )
+    for command in (
+        fcitx_installer_command(root, requested),
+        ibus_installer_command(root, requested),
+    ):
+        assert command[command.index("--python-choice") + 1] == "user"
+        assert "--bootstrap-uv" in command
+
+    application = Path("settings_center/application.py").read_text(encoding="utf-8")
+    assert "package_install = native_package_present()" in application
+    assert 'if not package_install:' in application
+    assert "Release 固定环境" in application
+    assert "Release 包只使用与内置 wheels 匹配的 Python 3.12" in application
+
+    ibus = Path("ibus/scripts/install-gui.sh").read_text(encoding="utf-8")
+    fcitx = Path("fcitx5/scripts/install.sh").read_text(encoding="utf-8")
+    for source in (ibus, fcitx):
+        assert "Release 包固定使用 Python 3.12 用户环境" in source
+        assert "未回退到不匹配的系统 Python" in source
+
+
+def test_native_package_flavor_marker_locks_framework_and_package_name(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    root = tmp_path / "vocotype"
+    root.mkdir()
+    (root / ".system-package").write_text(
+        "version=3.0.0rc1\nmanaged-by=native-package\n"
+        "flavor=ibus\npackage=vocotype-linux-ibus\n",
+        encoding="utf-8",
+    )
+    assert native_package_flavor(root) == "ibus"
+    assert native_package_name(root) == "vocotype-linux-ibus"
+    assert package_supports_framework("ibus", root) is True
+    assert package_supports_framework("fcitx5", root) is False
+
+    import settings_center.setup_manager as setup_manager
+    monkeypatch.setattr(
+        setup_manager.shutil,
+        "which",
+        lambda command: "/usr/bin/pacman" if command == "pacman" else None,
+    )
+    assert native_package_removal_command(root) == (
+        "sudo pacman -Rns vocotype-linux-ibus"
+    )
+
+
+def test_settings_center_source_locks_specialized_package_framework():
+    source = Path("settings_center/application.py").read_text(encoding="utf-8")
+    assert 'self.package_flavor = native_package_flavor() or "universal"' in source
+    assert 'if self.package_flavor == "ibus":' in source
+    assert 'elif self.package_flavor == "fcitx5":' in source
+    assert "self.fcitx_framework_choice.hide()" in source
+    assert "self.ibus_framework_choice.hide()" in source
+    assert 'return self.package_flavor' in source
+
+
+def test_shared_uninstaller_reports_flavor_specific_native_package_command(
+    tmp_path: Path,
+):
+    for flavor, package in (
+        ("ibus", "vocotype-linux-ibus"),
+        ("fcitx5", "vocotype-linux-fcitx5"),
+    ):
+        home = tmp_path / f"home-{flavor}"
+        prefix = tmp_path / f"prefix-{flavor}"
+        marker = prefix / "share/vocotype/.system-package"
+        marker.parent.mkdir(parents=True)
+        marker.write_text(
+            f"version=3.0.0rc1\nmanaged-by=native-package\n"
+            f"flavor={flavor}\npackage={package}\n",
+            encoding="utf-8",
+        )
+        home.mkdir()
+        env = {
+            **os.environ,
+            "HOME": str(home),
+            "XDG_CONFIG_HOME": str(home / ".config"),
+            "VOCOTYPE_SYSTEM_PREFIX": str(prefix),
+        }
+        result = subprocess.run(
+            [
+                "bash",
+                "installers/uninstall-integration.sh",
+                "--framework",
+                flavor,
+                "--non-interactive",
+                "--yes",
+                "--purge-runtime",
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert f"NATIVE_PACKAGE_COMMAND: sudo pacman -Rns {package}" in result.stdout

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from vocotype_version import __version__
 from settings_center.install_integrity import (
     KEY_FILES,
     build_integrity_manifest,
@@ -24,7 +25,7 @@ def _minimal_project(root: Path) -> None:
 def test_manifest_hashes_all_key_files(tmp_path: Path):
     _minimal_project(tmp_path)
     manifest = build_integrity_manifest(tmp_path)
-    assert manifest["version"] == "2.2.3"
+    assert manifest["version"] == __version__
     assert set(manifest["files"]) == set(KEY_FILES)
     assert manifest["files"]["app/config.py"] == sha256_file(
         tmp_path / "app/config.py"
@@ -107,3 +108,35 @@ def test_source_installers_copy_integrity_manifest():
         source = installer.read_text(encoding="utf-8")
         assert 'data/install-integrity.json' in source
         assert '$INSTALL_DIR/install-integrity.json' in source
+
+
+def test_integrity_probe_skips_files_excluded_by_ibus_package_flavor(tmp_path: Path):
+    home = tmp_path / "home"
+    root = tmp_path / "usr/share/vocotype"
+    (root / "ibus").mkdir(parents=True)
+    (root / "vocotype_version.py").write_text(
+        '__version__ = "3.0.0rc1"\n', encoding="utf-8"
+    )
+    (root / "ibus/engine.py").write_text("ibus\n", encoding="utf-8")
+    (root / ".system-package").write_text(
+        "version=3.0.0rc1\nflavor=ibus\npackage=vocotype-linux-ibus\n",
+        encoding="utf-8",
+    )
+    manifest = {
+        "schema_version": 1,
+        "version": "3.0.0rc1",
+        "files": {
+            "vocotype_version.py": sha256_file(root / "vocotype_version.py"),
+            "ibus/engine.py": sha256_file(root / "ibus/engine.py"),
+            "fcitx5/backend/fcitx5_server.py": "0" * 64,
+        },
+    }
+    report = probe_installation_integrity(
+        manifest,
+        home=home,
+        system_prefix=tmp_path / "usr",
+    )
+    assert report.status == "pass", report.details
+    assert report.missing_files == 0
+    assert "flavor=ibus" in report.details
+    assert "SKIP Fcitx module" in report.details

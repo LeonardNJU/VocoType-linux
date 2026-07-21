@@ -26,6 +26,51 @@ def _version() -> str:
     return str(namespace["__version__"])
 
 
+def _version_field(field: str, value: str | None = None) -> str:
+    return subprocess.check_output(
+        [
+            sys.executable,
+            str(ROOT / "packaging/tools/versioning.py"),
+            value or _version(),
+            "--field",
+            field,
+        ],
+        text=True,
+    ).strip()
+
+
+def _render_package_metadata(
+    format_name: str,
+    flavor: str,
+    tmp_path: Path,
+) -> str:
+    templates = {
+        "debian": ROOT / "packaging/debian/control",
+        "rpm": ROOT / "packaging/rpm/vocotype.spec.in",
+        "arch": ROOT / "packaging/arch/PKGBUILD.in",
+    }
+    output = tmp_path / f"{format_name}-{flavor}.txt"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "packaging/tools/render-package-metadata.py"),
+            "--format",
+            format_name,
+            "--flavor",
+            flavor,
+            "--template",
+            str(templates[format_name]),
+            "--output",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    return output.read_text(encoding="utf-8")
+
+
 def _release_entries() -> list[str]:
     entries: list[str] = []
     for raw in (ROOT / "packaging/manifests/runtime-files.txt").read_text(encoding="utf-8").splitlines():
@@ -318,11 +363,23 @@ def test_backend_launcher_fails_cleanly_before_gui_setup(tmp_path: Path):
 
 def test_version_is_consistent_across_package_metadata():
     version = _version()
+    assert version.startswith("3.0.0")
+    assert _version_field("tag") == "v3.0.0-rc.1"
+    assert _version_field("debian") == "3.0.0~rc1"
+    assert _version_field("rpm_version") == "3.0.0"
+    assert _version_field("rpm_release") == "0.rc1"
+    assert _version_field("arch") == "3.0.0rc1"
     changelog = (ROOT / "packaging/debian/changelog").read_text(encoding="utf-8")
-    assert changelog.startswith(f"vocotype-linux ({version}-1)")
+    assert changelog.startswith(
+        f"vocotype-linux ({_version_field('debian')}-1)"
+    )
     cmake = (ROOT / "fcitx5/module/CMakeLists.txt").read_text(encoding="utf-8")
+    stage = (ROOT / "packaging/tools/stage-system-package.sh").read_text(
+        encoding="utf-8"
+    )
     assert "vocotype_version.py" in cmake
-    assert "VERSION 2.3.0" not in cmake
+    assert 'CMAKE_VERSION=$(python3 "$PROJECT_DIR/packaging/tools/versioning.py"' in stage
+    assert '-DVOCOTYPE_VERSION="$CMAKE_VERSION"' in stage
     assert "@VERSION@" in (ROOT / "packaging/rpm/vocotype.spec.in").read_text(encoding="utf-8")
     assert "@VERSION@" in (ROOT / "packaging/arch/PKGBUILD.in").read_text(encoding="utf-8")
 
@@ -372,7 +429,7 @@ def test_release_builder_cleans_checkout_metadata(tmp_path: Path):
     assert not cache.exists()
 
 
-def test_native_package_recipes_share_one_staging_contract():
+def test_native_package_recipes_share_one_staging_contract(tmp_path: Path):
     recipes = [
         ROOT / "packaging/debian/rules",
         ROOT / "packaging/rpm/vocotype.spec.in",
@@ -381,19 +438,27 @@ def test_native_package_recipes_share_one_staging_contract():
     for recipe in recipes:
         source = recipe.read_text(encoding="utf-8")
         assert "packaging/tools/stage-system-package.sh" in source
+        assert "--flavor" in source
         assert "pip install" not in source
         assert "download_models" not in source
-    control = (ROOT / "packaging/debian/control").read_text(encoding="utf-8")
-    assert "Package: vocotype-linux" in control
-    assert "Architecture: any" in control
-    spec = (ROOT / "packaging/rpm/vocotype.spec.in").read_text(encoding="utf-8")
-    assert "License:        GPL-3.0-or-later" in spec
-    pkgbuild = (ROOT / "packaging/arch/PKGBUILD.in").read_text(encoding="utf-8")
-    assert "sha256sums=('@SOURCE_SHA256@')" in pkgbuild
-    assert "--libexecdir /usr/lib/vocotype" in pkgbuild
-    assert '--libexecdir "%{_libexecdir}"' in spec
-    assert "SKIP" not in pkgbuild
-
+    for flavor, package_name in (
+        ("universal", "vocotype-linux"),
+        ("ibus", "vocotype-linux-ibus"),
+        ("fcitx5", "vocotype-linux-fcitx5"),
+    ):
+        control = _render_package_metadata("debian", flavor, tmp_path)
+        spec = _render_package_metadata("rpm", flavor, tmp_path)
+        pkgbuild = _render_package_metadata("arch", flavor, tmp_path)
+        assert f"Package: {package_name}" in control
+        assert f"Name:           {package_name}" in spec
+        assert f"pkgname={package_name}" in pkgbuild
+        assert "Architecture: amd64" in control
+        assert "License:        GPL-3.0-or-later" in spec
+        assert "sha256sums=('@SOURCE_SHA256@')" in pkgbuild
+        assert "options=('!debug')" in pkgbuild
+        assert "--libexecdir /usr/lib/vocotype" in pkgbuild
+        assert '--libexecdir "%{_libexecdir}"' in spec
+        assert "SKIP" not in pkgbuild
 
 def test_debian_maintainer_scripts_are_noninteractive_and_offline():
     for name in ("postinst", "postrm"):
@@ -474,7 +539,16 @@ def test_workflows_parse_and_pin_current_major_actions():
     assert "actions/setup-python@v6" in ci_text
     assert "actions/download-artifact@v5" in release_text
     assert "softprops/action-gh-release@v3" in release_text
-    assert release["jobs"]["publish"]["needs"] == ["source-python-deb", "rpm", "arch"]
+    assert release["jobs"]["publish"]["needs"] == [
+        "validate-version",
+        "native-streaming",
+        "source-python-deb",
+        "rpm",
+        "arch",
+    ]
+    publish = release["jobs"]["publish"]["steps"][-1]["with"]
+    assert "prerelease" in publish
+    assert "draft" in publish
 
 
 def test_release_documentation_explains_all_distribution_layers():
@@ -559,23 +633,31 @@ def test_manual_release_dispatch_does_not_treat_branch_name_as_version():
     source = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
     assert "inputs.version || github.ref_name" not in source
     assert '"$GITHUB_REF_TYPE" == tag' in source
-    assert 'args+=(--expected-version "$expected")' in source
+    assert "INPUT_VERSION" in source
+    assert 'packaging/tools/versioning.py "$INPUT_VERSION"' in source
+    assert 'GITHUB_REF_NAME" != "$tag"' in source
 
 
 
-def test_native_packages_include_minimal_settings_runtime_dependencies():
-    control = (ROOT / "packaging/debian/control").read_text(encoding="utf-8")
-    spec = (ROOT / "packaging/rpm/vocotype.spec.in").read_text(encoding="utf-8")
-    pkgbuild = (ROOT / "packaging/arch/PKGBUILD.in").read_text(encoding="utf-8")
-    assert "python3-gi" in control and "python3-yaml" in control
-    assert "pkexec | policykit-1" in control
-    assert "python3-gobject" in spec and "python3-pyyaml" in spec
-    assert "python-gobject" in pkgbuild and "python-yaml" in pkgbuild
-    for source in (control, spec, pkgbuild):
-        assert "funasr" not in source.casefold()
-        assert "modelscope" not in source.casefold()
+def test_native_packages_include_minimal_settings_runtime_dependencies(tmp_path: Path):
+    for flavor in ("universal", "ibus", "fcitx5"):
+        control = _render_package_metadata("debian", flavor, tmp_path)
+        spec = _render_package_metadata("rpm", flavor, tmp_path)
+        pkgbuild = _render_package_metadata("arch", flavor, tmp_path)
+        assert "python3-gi" in control and "python3-yaml" in control
+        assert "pkexec | policykit-1" in control
+        assert "python3-gobject" in spec and "python3-pyyaml" in spec
+        assert "python-gobject" in pkgbuild and "python-yaml" in pkgbuild
+        for source in (control, spec, pkgbuild):
+            assert "funasr" not in source.casefold()
+            assert "modelscope" not in source.casefold()
 
-
+        includes_ibus = flavor in {"universal", "ibus"}
+        includes_fcitx = flavor in {"universal", "fcitx5"}
+        assert ("ibus" in control.split("\nDepends:", 1)[1].splitlines()[0]) == includes_ibus
+        assert ("fcitx5" in control.split("Depends:", 1)[1].splitlines()[0]) == includes_fcitx
+        assert ("Requires:       ibus" in spec) == includes_ibus
+        assert ("Requires:       fcitx5" in spec) == includes_fcitx
 
 def test_release_builder_removes_non_artifact_files_from_python_output(
     monkeypatch: pytest.MonkeyPatch,
@@ -745,26 +827,68 @@ def test_systemd_backend_disables_python_bytecode_writes():
     assert "Environment=PYTHONDONTWRITEBYTECODE=1" in source
 
 
-def test_base_native_packages_are_offline_and_streaming_runtime_is_optional():
+def test_release_packages_are_offline_but_require_complete_prebuilt_runtimes():
     debian = (ROOT / "packaging/debian/rules").read_text(encoding="utf-8")
     control = (ROOT / "packaging/debian/control").read_text(encoding="utf-8")
     rpm = (ROOT / "packaging/rpm/vocotype.spec.in").read_text(encoding="utf-8")
     arch = (ROOT / "packaging/arch/PKGBUILD.in").read_text(encoding="utf-8")
     for source in (debian, rpm, arch):
         assert "native/streaming_worker/build.sh" not in source
-        assert "--require-streaming-bundle" not in source
-        assert "--skip-streaming-bundle" in source
+        assert "--require-streaming-bundle" in source
+        assert "--require-wheelhouse" in source
+        assert "--skip-streaming-bundle" not in source
+        assert "--skip-wheelhouse" not in source
     assert "clang" not in control
     assert "curl" not in control.split("Package:", 1)[0]
     assert "BuildRequires:  clang" not in rpm
     assert "BuildRequires:  curl" not in rpm
-    assert "vocotype-streaming-worker" not in rpm
+    assert "Architecture: amd64" in control
+    assert "ExclusiveArch:  x86_64" in rpm
+    assert "%{_libexecdir}/vocotype-streaming-worker" in rpm
+    assert "%{_libdir}/vocotype/" in rpm
+    assert "arch=('x86_64')" in arch
     assert "'clang'" not in arch
     assert "'curl'" not in arch.split("optdepends", 1)[0]
-    smoke = (ROOT / "packaging/tests/smoke-installed-package.sh").read_text(encoding="utf-8")
-    assert "PACKAGE_STREAMING_RUNTIME_OPTIONAL_ABSENT" in smoke
+
+    for builder in ("build-deb.sh", "build-rpm.sh", "build-arch.sh"):
+        source = (ROOT / "packaging/tools" / builder).read_text(encoding="utf-8")
+        assert "VOCOTYPE_STREAMING_BUNDLE_DIR is required" in source
+        assert "VOCOTYPE_WHEELHOUSE_DIR is required" in source
+        assert "prepare-complete-source.py" in source
+    deb_builder = (ROOT / "packaging/tools/build-deb.sh").read_text(
+        encoding="utf-8"
+    )
+    assert 'renamed=${basename/#vocotype-linux_/${PACKAGE_NAME}_}' in deb_builder
+
+    smoke = (ROOT / "packaging/tests/smoke-installed-package.sh").read_text(
+        encoding="utf-8"
+    )
+    assert "PACKAGE_STREAMING_RUNTIME_OPTIONAL_ABSENT" not in smoke
     assert "PACKAGE_STREAMING_RUNTIME_OK" in smoke
+    assert "PACKAGE_WHEELHOUSE_OK" in smoke
+    assert '"$wheel_count" -ge 12' in smoke
+    for required in ("onnxruntime", "sentencepiece", "funasr_onnx"):
+        assert required in smoke
+    for optional in ("pyrime", "torch", "transformers", "socksio"):
+        assert optional in smoke
+    assert "non-core wheel leaked into package" in smoke
     assert '"$streaming_worker" --help' in smoke
+
+    release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    assert release.count("name: native-streaming-linux-x86_64") >= 4
+    assert "build-native-streaming-release.sh" in release
+    assert "build-runtime-wheelhouse.sh" in release
+    assert "smoke-binary-runtime.sh" in release
+    assert release.count("for flavor in universal ibus fcitx5") >= 3
+    assert 'smoke-installed-package.sh "${{ needs.validate-version.outputs.version }}" "$flavor"' in release
+    stage = (ROOT / "packaging/tools/stage-system-package.sh").read_text(encoding="utf-8")
+    assert '--flavor) FLAVOR=' in stage
+    assert 'flavor=%s' in stage and 'package=%s' in stage
+    assert 'rm -rf "$source_root/ibus"' in stage
+    assert 'rm -rf "$source_root/fcitx5"' in stage
+    assert "--only-binary :all:" in (
+        ROOT / "packaging/tests/smoke-binary-runtime.sh"
+    ).read_text(encoding="utf-8")
 
 
 def test_staging_skip_streaming_bundle_ignores_a_valid_cached_bundle(tmp_path: Path):
@@ -822,3 +946,127 @@ def test_native_build_pins_and_audits_official_onnxruntime():
     assert 'python "$SCRIPT_DIR/audit_bundle.py" "$BUNDLE_DIR"' in build
     assert "absolute RUNPATH" in audit
     assert "unbundled dependency" in audit
+
+
+def test_wheelhouse_builder_uses_locked_core_runtime_only():
+    source = (ROOT / "packaging/tools/build-runtime-wheelhouse.sh").read_text(
+        encoding="utf-8"
+    )
+    assert "https://pypi.org/simple" in source
+    assert '--index-url "$INDEX_URL"' in source
+    assert '"$UV" export --locked --no-dev --no-emit-project' in source
+    assert "--all-extras" not in source
+    assert '--constraint "$work/locked-constraints.txt"' in source
+    assert "'/^[Pp]y[Gg][Oo]bject==/d'" in source
+    assert "torch" not in source
+    assert "pyrime" not in source
+    assert "--wheel-dir" in source
+    assert "audit-wheelhouse.py" in source
+    runtime = (ROOT / "installers/runtime-common.sh").read_text(encoding="utf-8")
+    assert '--no-index --find-links "$wheelhouse"' in runtime
+    assert "--only-binary=:all:" in runtime
+
+
+def test_release_assets_are_flattened_before_checksums_and_publication(tmp_path: Path):
+    source = tmp_path / "downloaded"
+    (source / "one").mkdir(parents=True)
+    (source / "two").mkdir()
+    (source / "one/a.deb").write_bytes(b"deb")
+    (source / "two/b.rpm").write_bytes(b"rpm")
+    destination = tmp_path / "final"
+    result = _run(
+        sys.executable,
+        "packaging/tools/collect-release-assets.py",
+        str(source),
+        str(destination),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert sorted(path.name for path in destination.iterdir()) == ["a.deb", "b.rpm"]
+
+    (source / "two/a.deb").write_bytes(b"duplicate")
+    duplicate = _run(
+        sys.executable,
+        "packaging/tools/collect-release-assets.py",
+        str(source),
+        str(destination),
+    )
+    assert duplicate.returncode != 0
+    assert "duplicate release asset basename" in duplicate.stderr
+
+    workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    assert "collect-release-assets.py assets final-assets" in workflow
+    assert "cd final-assets" in workflow
+    assert "files: final-assets/*" in workflow
+
+
+def test_release_candidate_versions_sort_before_formal_versions():
+    assert _version_field("python", "v3.0.0-rc.1") == "3.0.0rc1"
+    assert _version_field("tag", "3.0.0rc1") == "v3.0.0-rc.1"
+    assert _version_field("debian", "3.0.0rc1") == "3.0.0~rc1"
+    assert _version_field("rpm_version", "3.0.0rc1") == "3.0.0"
+    assert _version_field("rpm_release", "3.0.0rc1") == "0.rc1"
+    assert _version_field("arch", "3.0.0rc1") == "3.0.0rc1"
+    assert _version_field("prerelease", "3.0.0rc1") == "true"
+    assert _version_field("tag", "3.0.0") == "v3.0.0"
+    assert _version_field("rpm_release", "3.0.0") == "1"
+    assert _version_field("prerelease", "3.0.0") == "false"
+
+    if shutil.which("vercmp"):
+        result = subprocess.run(
+            ["vercmp", "3.0.0rc1", "3.0.0"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert int(result.stdout.strip()) < 0
+    if shutil.which("dpkg"):
+        result = subprocess.run(
+            ["dpkg", "--compare-versions", "3.0.0~rc1", "lt", "3.0.0"],
+            check=False,
+        )
+        assert result.returncode == 0
+
+
+def test_core_wheelhouse_matches_default_runtime_subset(tmp_path: Path):
+    required = {
+        "funasr_onnx": "0.4.2-py3-none-any",
+        "jieba": "0.42.1-py3-none-any",
+        "modelscope": "1.30.0-py3-none-any",
+        "numpy": "1.26.4-cp312-cp312-linux_x86_64",
+        "onnxruntime": "1.23.2-cp312-cp312-linux_x86_64",
+        "PyGObject": "3.50.2-cp312-cp312-linux_x86_64",
+        "PyYAML": "6.0.3-cp312-cp312-linux_x86_64",
+        "scipy": "1.16.3-cp312-cp312-linux_x86_64",
+        "sentencepiece": "0.2.1-cp312-cp312-linux_x86_64",
+        "sounddevice": "0.5.2-py3-none-any",
+        "soundfile": "0.13.1-py3-none-any",
+        "WeTextProcessing": "1.2.0-py3-none-any",
+    }
+    for name, suffix in required.items():
+        (tmp_path / f"{name}-{suffix}.whl").write_bytes(b"wheel")
+    result = _run(
+        sys.executable,
+        "packaging/tools/audit-wheelhouse.py",
+        str(tmp_path),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    (tmp_path / "torch-2.9.1-cp312-cp312-linux_x86_64.whl").write_bytes(b"extra")
+    leaked = _run(
+        sys.executable,
+        "packaging/tools/audit-wheelhouse.py",
+        str(tmp_path),
+    )
+    assert leaked.returncode != 0
+    assert "optional backend wheels leaked into core package" in leaked.stderr
+
+    smoke = (ROOT / "packaging/tests/smoke-binary-runtime.sh").read_text(
+        encoding="utf-8"
+    )
+    assert 'for optional in ("torch", "transformers", "socksio", "pyrime")' in smoke
+    runtime = (ROOT / "installers/runtime-common.sh").read_text(encoding="utf-8")
+    optional_body = runtime.split("install_binary_packages()", 1)[1].split(
+        "install_native_streaming_bundle()", 1
+    )[0]
+    assert 'links=(--find-links "$wheelhouse")' in optional_body
+    assert "--only-binary" in optional_body

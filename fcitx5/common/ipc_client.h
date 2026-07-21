@@ -162,8 +162,6 @@ public:
                             const std::string& new_text,
                             bool record_history);
 
-    bool prewarmSlm();
-    bool releaseSlm();
 
     TranscribeStartResult startTranscription(const std::string& audio_path,
                                              bool polish_enabled = false,

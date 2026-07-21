@@ -13,7 +13,6 @@ PYTHON_CHOICE="user"
 RIME_MODE="disabled"
 RIME_SCHEMA="luna_pinyin"
 COMPONENT_MODE="auto"
-SLM_PROVIDER="preserve"
 AUDIO_DEVICE=""
 SAMPLE_RATE="44100"
 
@@ -28,7 +27,6 @@ while [[ $# -gt 0 ]]; do
         --rime) RIME_MODE="${2:?}"; shift 2 ;;
         --rime-schema) RIME_SCHEMA="${2:?}"; shift 2 ;;
         --component-mode) COMPONENT_MODE="${2:?}"; shift 2 ;;
-        --slm-provider) SLM_PROVIDER="${2:?}"; shift 2 ;;
         --device) AUDIO_DEVICE="${2:?}"; shift 2 ;;
         --sample-rate) SAMPLE_RATE="${2:?}"; shift 2 ;;
         *) echo "未知参数: $1" >&2; exit 2 ;;
@@ -42,7 +40,6 @@ fi
 case "$PYTHON_CHOICE" in user|project|system) ;; *) echo "无效 Python 选项: $PYTHON_CHOICE" >&2; exit 2 ;; esac
 case "$RIME_MODE" in enabled|disabled) ;; *) echo "无效 Rime 选项: $RIME_MODE" >&2; exit 2 ;; esac
 case "$COMPONENT_MODE" in auto|user|system) ;; *) echo "无效 component 选项: $COMPONENT_MODE" >&2; exit 2 ;; esac
-case "$SLM_PROVIDER" in preserve|disabled) ;; *) echo "无效 SLM 选项: $SLM_PROVIDER" >&2; exit 2 ;; esac
 if [[ ! "$RIME_SCHEMA" =~ ^[A-Za-z0-9_.-]+$ ]]; then
     echo "无效 Rime schema: $RIME_SCHEMA" >&2
     exit 2
@@ -50,6 +47,15 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+NATIVE_PACKAGE=false
+if [[ -f "$PROJECT_DIR/.system-package" || -f /usr/share/vocotype/.system-package ]]; then
+    NATIVE_PACKAGE=true
+    if [[ "$PYTHON_CHOICE" != user ]]; then
+        echo "Release 包固定使用 Python 3.12 用户环境；不支持 $PYTHON_CHOICE。" >&2
+        exit 2
+    fi
+    BOOTSTRAP_UV=true
+fi
 source "$PROJECT_DIR/installers/runtime-common.sh"
 INSTALL_DIR="$HOME/.local/share/vocotype"
 COMPONENT_DIR="$HOME/.local/share/ibus/component"
@@ -129,11 +135,19 @@ run_privileged_helper() {
 
 needs_ibus_system_deps() {
     command -v ibus >/dev/null 2>&1 || return 0
-    command -v pkg-config >/dev/null 2>&1 || return 0
-    pkg-config --exists cairo 2>/dev/null || return 0
-    pkg-config --exists gobject-introspection-1.0 2>/dev/null || return 0
     ldconfig -p 2>/dev/null | grep -F libportaudio >/dev/null || return 0
+    python3 - <<'PY_CHECK' >/dev/null 2>&1 || return 0
+import gi
+gi.require_version("Gtk", "3.0")
+gi.require_version("IBus", "1.0")
+from gi.repository import Gtk, IBus  # noqa: F401
+PY_CHECK
     return 1
+}
+
+rime_runtime_available() {
+    ldconfig -p 2>/dev/null | grep -E 'librime\.so' >/dev/null || return 1
+    [[ -f /usr/share/rime-data/default.yaml || -f /usr/local/share/rime-data/default.yaml ]]
 }
 
 install_settings_launcher() {
@@ -181,10 +195,8 @@ echo "项目目录: $PROJECT_DIR"
 emit_install_progress 8 "检查 IBus 与系统依赖"
 NEED_SYSTEM_DEPS=0
 needs_ibus_system_deps && NEED_SYSTEM_DEPS=1
-if [[ "$RIME_MODE" == enabled ]]; then
-    if ! command -v pkg-config >/dev/null 2>&1 ||        ! pkg-config --exists rime 2>/dev/null ||        [[ ! -f /usr/share/rime-data/default.yaml && ! -f /usr/local/share/rime-data/default.yaml ]]; then
-        NEED_SYSTEM_DEPS=1
-    fi
+if [[ "$RIME_MODE" == enabled ]] && ! rime_runtime_available; then
+    NEED_SYSTEM_DEPS=1
 fi
 
 if [[ "$NEED_SYSTEM_DEPS" == 1 ]]; then
@@ -197,15 +209,9 @@ if [[ "$NEED_SYSTEM_DEPS" == 1 ]]; then
     }
 fi
 command -v ibus >/dev/null 2>&1 || { echo "安装后仍未检测到 ibus。" >&2; exit 3; }
-if [[ "$RIME_MODE" == enabled ]]; then
-    command -v pkg-config >/dev/null 2>&1 && pkg-config --exists rime 2>/dev/null || {
-        echo "安装后仍未检测到 librime 开发库。" >&2
-        exit 3
-    }
-    [[ -f /usr/share/rime-data/default.yaml || -f /usr/local/share/rime-data/default.yaml ]] || {
-        echo "安装后仍未检测到 Rime 共享数据。" >&2
-        exit 3
-    }
+if [[ "$RIME_MODE" == enabled ]] && ! rime_runtime_available; then
+    echo "安装后仍未检测到 Rime 运行库或共享数据。" >&2
+    exit 3
 fi
 
 emit_install_progress 20 "准备 IBus 用户运行目录"
@@ -230,6 +236,10 @@ else
             echo "创建 Python 3.12 用户环境: $(dirname "$PYTHON")/.."
             uv venv --python "$DEFAULT_UV_PYTHON" "$(dirname "$PYTHON")/.."
         else
+            if [[ "$NATIVE_PACKAGE" == true ]]; then
+                echo "Release 安装需要 uv 提供 Python 3.12；自动下载失败，未回退到不匹配的系统 Python。" >&2
+                exit 4
+            fi
             PYTHON_CMD=$(detect_system_python) || {
                 echo "没有可用的 Python 3.11/3.12，且 uv 自动安装未启用或失败。" >&2
                 exit 4
@@ -238,11 +248,7 @@ else
         fi
     fi
     echo "安装 Python 依赖…"
-    if command -v uv >/dev/null 2>&1; then
-        uv pip install --python "$PYTHON" -r "$PROJECT_DIR/requirements.txt"
-    else
-        "$PYTHON" -m pip install -r "$PROJECT_DIR/requirements.txt"
-    fi
+    install_runtime_requirements "$PYTHON" "$PROJECT_DIR"
 fi
 
 emit_install_progress 55 "下载并校验 ASR、VAD 与标点模型"
@@ -250,11 +256,7 @@ download_and_verify_asr_models "$PYTHON" "$PROJECT_DIR" || exit 1
 
 if [[ "$RIME_MODE" == enabled ]]; then
     echo "安装 VoCoType（IBus）的 Rime Python 绑定…"
-    if command -v uv >/dev/null 2>&1 && [[ "$USE_SYSTEM_PYTHON" != 1 ]]; then
-        uv pip install --python "$PYTHON" pyrime
-    else
-        "$PYTHON" -m pip install pyrime
-    fi
+    install_binary_packages "$PYTHON" "$PROJECT_DIR" pyrime
 fi
 
 IBUS_RUNTIME_CONFIG="$HOME/.config/vocotype/ibus.json"
@@ -269,16 +271,20 @@ if [[ "$PRESERVE_CONFIG" == true ]]; then
         chmod 600 "$IBUS_RUNTIME_CONFIG"
     fi
 else
-    "$PYTHON" - "$IBUS_RUNTIME_CONFIG" "$SLM_PROVIDER" <<'PY'
+    "$PYTHON" - "$IBUS_RUNTIME_CONFIG" <<'PY'
 import json, os, sys
-path, provider = sys.argv[1:]
+path = sys.argv[1]
 try:
     data = json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {}
 except Exception:
     data = {}
 slm = data.get("slm") if isinstance(data.get("slm"), dict) else {}
-if provider == "disabled":
-    slm["enabled"] = False
+slm["enabled"] = False
+for obsolete in (
+    "provider", "local_model", "local_python", "local_device", "local_dtype",
+    "warmup_timeout_ms", "keepalive_ms", "ready_wait_ms",
+):
+    slm.pop(obsolete, None)
 data["slm"] = slm
 os.makedirs(os.path.dirname(path), exist_ok=True)
 with open(path, "w", encoding="utf-8") as handle:
@@ -286,23 +292,6 @@ with open(path, "w", encoding="utf-8") as handle:
     handle.write("\n")
 os.chmod(path, 0o600)
 PY
-fi
-
-if "$PYTHON" - "$IBUS_RUNTIME_CONFIG" <<'PY' >/dev/null 2>&1
-import json, sys
-try:
-    slm = json.load(open(sys.argv[1], encoding="utf-8")).get("slm", {})
-except Exception:
-    slm = {}
-raise SystemExit(0 if slm.get("enabled") and slm.get("provider") == "local_ephemeral" else 1)
-PY
-then
-    echo "检测到本地 AI 润色配置，安装本地模型依赖…"
-    if command -v uv >/dev/null 2>&1 && [[ "$USE_SYSTEM_PYTHON" != 1 ]]; then
-        uv pip install --python "$PYTHON" torch transformers sentencepiece socksio
-    else
-        "$PYTHON" -m pip install torch transformers sentencepiece socksio
-    fi
 fi
 
 if [[ -n "$AUDIO_DEVICE" ]]; then

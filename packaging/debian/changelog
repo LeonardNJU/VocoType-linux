@@ -1,6 +1,7 @@
-vocotype-linux (2.2.3-1) unstable; urgency=medium
+vocotype-linux (3.0.0~rc1-1) unstable; urgency=medium
 
-  * Add reproducible source, Python, DEB, RPM, and Arch packaging.
-  * Install the Fcitx global module and IBus component without interactive hooks.
+  * Ship the complete native 2-pass streaming runtime in every distro package.
+  * Ship a CI-built Python wheelhouse so user setup never compiles dependencies.
+  * Add SLM-planned voice editing and unified Fcitx 5 / IBus behavior.
 
- -- Leonard Li <leo@lsamc.website>  Mon, 20 Jul 2026 16:00:00 +0800
+ -- Leonard Li <leo@lsamc.website>  Tue, 21 Jul 2026 22:00:00 +0800

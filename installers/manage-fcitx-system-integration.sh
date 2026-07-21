@@ -80,7 +80,7 @@ refuse_package_owned_file() {
     owner=$(package_owner "$path")
     if [[ -n "$owner" ]]; then
         echo "拒绝修改软件包 $owner 管理的文件：$path" >&2
-        echo "请使用系统包管理器升级或卸载 vocotype-linux。" >&2
+        echo "请使用系统包管理器升级或卸载 $owner。" >&2
         exit 6
     fi
 }

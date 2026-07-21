@@ -23,7 +23,7 @@ from .config_service import (
 )
 from app.download_models import inspect_required_models
 from .install_integrity import local_reference_manifest, probe_installation_integrity
-from .setup_manager import find_project_root, installation_paths
+from .setup_manager import find_project_root, installation_paths, native_package_flavor
 from vocotype_version import __version__
 
 
@@ -99,6 +99,9 @@ def _fail(
 
 def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
     checks: list[DoctorCheck] = []
+    package_flavor = native_package_flavor() or "universal"
+    fcitx_in_scope = package_flavor != "ibus"
+    ibus_in_scope = package_flavor != "fcitx5"
     paths = installation_paths()
     fcitx_vocotype_installed = bool(
         any(path.is_file() for path in paths.fcitx_addons)
@@ -247,6 +250,8 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
     checks.append(_check("polkit", "管理员授权", polkit_check))
 
     def fcitx_binary_check() -> DoctorCheck:
+        if not fcitx_in_scope:
+            return _info("fcitx", "Fcitx 5", "当前 IBus 专用包不包含 Fcitx 5")
         executable = shutil.which("fcitx5")
         if executable:
             return _pass("fcitx", "Fcitx 5", "已检测到 Fcitx 5", executable)
@@ -262,6 +267,8 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
     checks.append(_check("fcitx", "Fcitx 5", fcitx_binary_check))
 
     def module_check() -> DoctorCheck:
+        if not fcitx_in_scope:
+            return _info("fcitx_module", "Fcitx 全局模块", "当前 IBus 专用包无需该模块")
         existing = [path for path in paths.fcitx_modules if path.is_file()]
         addons = [path for path in paths.fcitx_addons if path.is_file()]
         if existing and addons:
@@ -288,6 +295,8 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
     checks.append(_check("fcitx_module", "Fcitx 全局模块", module_check))
 
     def fcitx_loaded_check() -> DoctorCheck:
+        if not fcitx_in_scope:
+            return _info("fcitx_loaded", "Fcitx addon 加载", "当前 IBus 专用包无需检查")
         if ibus_vocotype_installed and not fcitx_vocotype_installed:
             return _info("fcitx_loaded", "Fcitx addon 加载", "IBus-only 环境无需检查")
         if not fcitx_vocotype_installed:
@@ -372,6 +381,8 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
     checks.append(_check("fcitx_loaded", "Fcitx addon 加载", fcitx_loaded_check))
 
     def ibus_check() -> DoctorCheck:
+        if not ibus_in_scope:
+            return _info("ibus_engine", "IBus 引擎", "当前 Fcitx 5 专用包不包含 IBus")
         components = [path for path in paths.ibus_components if path.is_file()]
         launchers = [path for path in paths.ibus_launchers if path.is_file()]
         if launchers and components:
@@ -396,6 +407,8 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
     checks.append(_check("ibus_engine", "IBus 引擎", ibus_check))
 
     def legacy_check() -> DoctorCheck:
+        if not fcitx_in_scope:
+            return _info("legacy_entry", "旧版输入法条目", "当前 IBus 专用包无需检查")
         legacy = Path.home() / ".local/share/fcitx5/inputmethod/vocotype.conf"
         if ibus_vocotype_installed and not fcitx_vocotype_installed:
             return _info("legacy_entry", "旧版输入法条目", "IBus-only 环境无需检查")
@@ -412,6 +425,8 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
     checks.append(_check("legacy_entry", "旧版输入法条目", legacy_check))
 
     def service_check() -> DoctorCheck:
+        if not fcitx_in_scope:
+            return _info("service", "Fcitx 后台服务", "当前 IBus 专用包无需该服务")
         if ibus_vocotype_installed and not fcitx_vocotype_installed:
             return _info("service", "Fcitx 后台服务", "IBus-only 环境无需该服务")
         if shutil.which("systemctl") is None:
@@ -495,6 +510,8 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
     checks.append(_check("service", "后台服务", service_check))
 
     def socket_check() -> DoctorCheck:
+        if not fcitx_in_scope:
+            return _info("socket", "Fcitx 后端 IPC", "当前 IBus 专用包无需该 socket")
         path = "/tmp/vocotype-fcitx5.sock"
         if ibus_vocotype_installed and not fcitx_vocotype_installed:
             return _info("socket", "Fcitx 后端 IPC", "IBus-only 环境无需该 socket")
@@ -558,7 +575,12 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
     def config_check() -> DoctorCheck:
         problems: list[str] = []
         valid: list[str] = []
-        for path in (fcitx_backend_path(), ibus_config_path()):
+        config_paths = []
+        if fcitx_in_scope:
+            config_paths.append(fcitx_backend_path())
+        if ibus_in_scope:
+            config_paths.append(ibus_config_path())
+        for path in config_paths:
             if not path.exists():
                 continue
             try:
@@ -678,7 +700,7 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
             polisher = SLMPolisher({**config, "min_chars": 1})
             output, metrics = polisher.polish("这是一次连接测试。", long_mode=True)
             if metrics.reason == "ok":
-                return _pass("slm", "AI 润色", "远程/本地模型调用成功", output)
+                return _pass("slm", "AI 润色", "OpenAI-compatible API 调用成功", output)
             return _fail("slm", "AI 润色", f"调用失败：{metrics.reason}")
 
         checks.append(_check("slm", "AI 润色", slm_check))

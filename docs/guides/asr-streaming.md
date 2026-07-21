@@ -17,19 +17,17 @@ VoCoType 仍把完整 PCM 交给原来的 Contextual Paraformer，并继续使�
 在线通道初始化失败、处理过慢或 IPC 中断时，本次录音会自动退化为原来的
 “录完后识别”模式，最终离线识别不受影响。
 
-## 安装可选 runtime
+## Release 安装方式
 
-基础 DEB、RPM 与 Arch 包只安装稳定的最终识别链路，不捆绑体积较大的 native streaming runtime，也不会在包管理器构建阶段联网下载第三方源码。开发者可在源码树运行：
+v3 的 DEB、RPM 与 Arch Release 包已经包含预编译的 `vocotype-streaming-worker`、FunASR runtime、ONNX Runtime 私有动态库和第三方许可证。用户不需要克隆源码或运行 CMake；在线 Paraformer 模型仍在首次启用该功能时按需下载。
 
-```bash
-./native/streaming_worker/build.sh
-```
+Release CI 在 Ubuntu 22.04 上独立构建并审计 portable bundle，检查相对 RUNPATH、未打包动态依赖和许可证。三个发行版软件包消费同一份 CI artifact，并以 `--require-streaming-bundle` 构建；缺少 runtime 时整次 Release 失败。
 
-随后重新运行 VoCoType 的 IBus 或 Fcitx 5 安装 / 修复流程；安装器会检测预构建 bundle 并复制到用户目录。未来也可以安装单独发布的 native streaming bundle。
+源码开发者仍可运行 `./native/streaming_worker/build.sh` 生成本地 bundle，但这不是发行包用户的安装步骤。
 
 ## 开启方式
 
-安装上述可选 runtime 后，在设置中心的“逆文本标准化（ITN）”页面开启“实时识别预览（2-pass）”，保存后：
+安装 v3 Release 包后，在设置中心的“通用设置”页面开启“实时识别预览（2-pass）”，保存后：
 
 - Fcitx 5 后端会自动重启，但不会立即加载在线模型；
 - IBus 会在下一次开始录音前重新载入配置；
