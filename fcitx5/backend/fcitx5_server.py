@@ -23,6 +23,7 @@ from app.config import DEFAULT_CONFIG, ensure_logging_dir, load_config
 from app.funasr_server import FunASRServer
 from app.logging_config import setup_logging
 from app.slm_polisher import SLMPolisher
+from app.voice_edit import EditEnvironment, SurroundingSnapshot, VoiceEditCore
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ MAX_REQUEST_BYTES = 1024 * 1024
 REQUEST_TIMEOUT_S = 2.0
 DEFAULT_CONFIG_PATH = "~/.config/vocotype/fcitx5-backend.json"
 TASK_TTL_S = 300.0
+EDIT_TASK_TIMEOUT_S = 30.0
 
 
 @dataclass
@@ -158,6 +160,101 @@ class StreamTask:
         self.last_event_at = time.monotonic()
 
 
+@dataclass
+class EditTask:
+    task_id: str
+    created_at: float = field(default_factory=time.monotonic)
+    status: str = "running"
+    phase: str = "asr"
+    instruction: str = ""
+    result: dict = field(default_factory=dict)
+    error: str = ""
+    reason: str = ""
+    cancelled: bool = False
+    done_at: float | None = None
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def set_instruction(self, instruction: str) -> None:
+        with self.lock:
+            if self.cancelled or self.status != "running":
+                return
+            self.instruction = instruction
+            self.phase = "editing"
+
+    def is_cancelled(self) -> bool:
+        with self.lock:
+            return self.cancelled
+
+    def mark_final(self, result: dict) -> None:
+        with self.lock:
+            if self.cancelled or self.status != "running":
+                return
+            self.status = "final"
+            self.phase = "done"
+            self.result = dict(result)
+            self.instruction = str(result.get("instruction", self.instruction))
+            self.reason = str(result.get("reason", "ok"))
+            self.done_at = time.monotonic()
+
+    def mark_error(
+        self,
+        message: str,
+        reason: str = "error",
+        instruction: str = "",
+    ) -> None:
+        with self.lock:
+            if self.cancelled or self.status != "running":
+                return
+            self._mark_error_locked(message, reason, instruction)
+
+    def cancel(self) -> None:
+        with self.lock:
+            self.cancelled = True
+            if self.status == "running":
+                self.status = "cancelled"
+                self.phase = "done"
+                self.error = "已取消语音编辑"
+                self.reason = "cancelled"
+                self.done_at = time.monotonic()
+
+    def snapshot(self) -> dict:
+        with self.lock:
+            if (
+                self.status == "running"
+                and time.monotonic() - self.created_at > EDIT_TASK_TIMEOUT_S
+            ):
+                self.cancelled = True
+                self._mark_error_locked(
+                    "AI 编辑超过 30 秒，已停止等待",
+                    "timeout",
+                    self.instruction,
+                )
+            return {
+                "success": True,
+                "task_id": self.task_id,
+                "status": self.status,
+                "phase": self.phase,
+                "instruction": self.instruction,
+                "result": dict(self.result),
+                "error": self.error,
+                "reason": self.reason,
+            }
+
+    def _mark_error_locked(
+        self,
+        message: str,
+        reason: str,
+        instruction: str = "",
+    ) -> None:
+        self.status = "error"
+        self.phase = "done"
+        self.error = message
+        self.reason = reason
+        if instruction:
+            self.instruction = instruction
+        self.done_at = time.monotonic()
+
+
 def load_backend_config() -> tuple[dict, str]:
     """Load backend config from user config file if present."""
     config_path = os.environ.get("VOCOTYPE_FCITX5_CONFIG", DEFAULT_CONFIG_PATH)
@@ -226,6 +323,11 @@ class Fcitx5Backend:
         self._asr_lock = threading.Lock()
         self._stream_tasks: dict[str, StreamTask] = {}
         self._stream_tasks_lock = threading.Lock()
+        self._edit_tasks: dict[str, EditTask] = {}
+        self._edit_tasks_lock = threading.Lock()
+        self._voice_edit_cores: dict[str, VoiceEditCore] = {}
+        self._voice_edit_cores_lock = threading.Lock()
+        self._voice_edit_run_lock = threading.Lock()
 
         # 注册信号处理
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -456,6 +558,181 @@ class Fcitx5Backend:
                 task.status,
             )
 
+    def _start_edit_task(self, request: dict) -> EditTask:
+        task = EditTask(task_id=uuid.uuid4().hex)
+        with self._edit_tasks_lock:
+            self._cleanup_edit_tasks_locked()
+            self._edit_tasks[task.task_id] = task
+        threading.Thread(
+            target=self._run_edit_task,
+            args=(task, dict(request)),
+            daemon=True,
+            name=f"VoCoTypeEditTask-{task.task_id[:8]}",
+        ).start()
+        return task
+
+    def _get_edit_task(self, task_id: str) -> EditTask | None:
+        with self._edit_tasks_lock:
+            self._cleanup_edit_tasks_locked()
+            return self._edit_tasks.get(task_id)
+
+    def _cleanup_edit_tasks_locked(self) -> None:
+        now = time.monotonic()
+        expired = [
+            task_id
+            for task_id, task in self._edit_tasks.items()
+            if task.done_at is not None and now - task.done_at > TASK_TTL_S
+        ]
+        for task_id in expired:
+            self._edit_tasks.pop(task_id, None)
+
+    def _run_edit_task(self, task: EditTask, request: dict) -> None:
+        audio_path = str(request.get("audio_path", "")).strip()
+        try:
+            result = self._edit_audio(request, on_instruction=task.set_instruction)
+            if task.is_cancelled():
+                return
+            if result.get("success"):
+                task.mark_final(result)
+            else:
+                task.mark_error(
+                    str(result.get("error", "语音编辑失败")),
+                    str(result.get("reason", "edit_failed")),
+                    str(result.get("instruction", task.instruction)),
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("语音编辑任务失败")
+            task.mark_error(str(exc), "exception", task.instruction)
+        finally:
+            if audio_path:
+                try:
+                    os.remove(audio_path)
+                except OSError:
+                    pass
+
+    def _voice_edit_core(self, context_id: str) -> VoiceEditCore:
+        key = context_id.strip() or "default"
+        with self._voice_edit_cores_lock:
+            core = self._voice_edit_cores.get(key)
+            if core is None:
+                core = VoiceEditCore()
+                self._voice_edit_cores[key] = core
+            return core
+
+    def _edit_audio(
+        self,
+        request: dict,
+        on_instruction=None,
+    ) -> dict:
+        audio_path = str(request.get("audio_path", "")).strip()
+        context_id = str(request.get("context_id", "default")).strip() or "default"
+        snapshot = SurroundingSnapshot.from_mapping(request.get("snapshot", {}))
+        replace_state = str(request.get("replace_state", "unknown"))
+        supports_surrounding = bool(request.get("supports_surrounding", True))
+        if not audio_path:
+            return {"success": False, "error": "缺少 audio_path 参数"}
+
+        with self._asr_lock:
+            transcribed = self.asr_server.transcribe_audio(
+                audio_path,
+                options=self._asr_options,
+            )
+        if not transcribed.get("success"):
+            return {
+                "success": False,
+                "error": str(transcribed.get("error", "编辑指令识别失败")),
+            }
+        instruction = str(transcribed.get("text", "")).strip()
+        if not instruction:
+            return {
+                "success": False,
+                "error": "未识别到编辑指令，请靠近麦克风后重试",
+                "reason": "empty_instruction",
+            }
+        if on_instruction is not None:
+            on_instruction(instruction)
+
+        core = self._voice_edit_core(context_id)
+        direct = core.apply_direct_command(
+            snapshot,
+            instruction,
+            EditEnvironment(
+                supports_surrounding=supports_surrounding,
+                active=True,
+                replace_state=replace_state,
+            ),
+        )
+        if direct.handled:
+            payload = direct.to_dict()
+            expected_text = ""
+            if direct.mode == "replace" and direct.new_text is not None:
+                expected_text = direct.new_text
+            elif direct.mode == "commit_only" and direct.new_text:
+                expected_text = core.predict_commit_result(snapshot, direct.new_text)
+            payload.update(
+                {
+                    "success": True,
+                    "instruction": instruction,
+                    "expected_text": expected_text,
+                }
+            )
+            return payload
+
+        if not self._slm_polisher.enabled or not self._slm_polisher.edit_enabled:
+            return {
+                "success": False,
+                "error": "该指令需要 AI 编辑，请先在设置中心启用 AI 润色",
+                "instruction": instruction,
+            }
+
+        rewritten = core.rewrite_insert_generation_instruction(instruction)
+        with self._voice_edit_run_lock:
+            edited_text, metrics = self._slm_polisher.edit_with_instruction(
+                context_text=snapshot.text,
+                instruction=rewritten or instruction,
+                cursor_pos=snapshot.cursor_pos,
+                anchor_pos=snapshot.anchor_pos,
+                selected_text=snapshot.selected_text,
+            )
+        if self._slm_polisher.is_failure_reason(metrics.reason):
+            return {
+                "success": False,
+                "error": self._slm_polisher.format_failure_message(metrics.reason),
+                "instruction": instruction,
+                "reason": metrics.reason,
+            }
+        if not str(edited_text or "").strip():
+            return {
+                "success": False,
+                "error": "AI 已收到指令，但没有返回编辑结果",
+                "instruction": instruction,
+                "reason": "blank_content",
+            }
+        return {
+            "success": True,
+            "handled": True,
+            "mode": "replace",
+            "new_text": edited_text,
+            "expected_text": edited_text,
+            "record_history": True,
+            "hint": "",
+            "key_actions": [],
+            "instruction": instruction,
+            "reason": metrics.reason,
+        }
+
+    def _confirm_edit_applied(self, request: dict) -> dict:
+        context_id = str(request.get("context_id", "default")).strip() or "default"
+        original_text = str(request.get("original_text", ""))
+        new_text = str(request.get("new_text", ""))
+        record_history = bool(request.get("record_history", True))
+        self._voice_edit_core(context_id).mark_voice_edit_applied(
+            original_text,
+            new_text,
+            record_history=record_history,
+        )
+        return {"success": True}
+
     def handle_client(self, conn: socket.socket):
         """处理客户端请求
 
@@ -480,9 +757,12 @@ class Fcitx5Backend:
            {"type": "polish_cancel", "task_id": "..."}
            -> {"success": true}
 
-        2. slm_prewarm / slm_release: 本地模型生命周期兼容接口
+        2. edit_start / edit_poll / edit_cancel: 异步共享语音编辑任务
+        2b. edit_audio / edit_applied: 同步兼容路径与成功确认
 
-        3. ping: 健康检查
+        3. slm_prewarm / slm_release: 本地模型生命周期兼容接口
+
+        4. ping: 健康检查
            {"type": "ping"}
            -> {"pong": true}
         """
@@ -511,7 +791,39 @@ class Fcitx5Backend:
             logger.debug("收到请求: type=%s", req_type)
 
             # 处理请求
-            if req_type == 'transcribe_start':
+            if req_type == 'edit_start':
+                if not str(request.get("audio_path", "")).strip():
+                    response = {"success": False, "error": "缺少 audio_path 参数"}
+                else:
+                    task = self._start_edit_task(request)
+                    response = {
+                        "success": True,
+                        "task_id": task.task_id,
+                        "status": task.status,
+                    }
+
+            elif req_type == 'edit_poll':
+                task_id = str(request.get("task_id", "")).strip()
+                task = self._get_edit_task(task_id)
+                if task is None:
+                    response = {"success": False, "error": "编辑任务不存在或已过期"}
+                else:
+                    response = task.snapshot()
+
+            elif req_type == 'edit_cancel':
+                task_id = str(request.get("task_id", "")).strip()
+                task = self._get_edit_task(task_id)
+                if task is not None:
+                    task.cancel()
+                response = {"success": True}
+
+            elif req_type == 'edit_audio':
+                response = self._edit_audio(request)
+
+            elif req_type == 'edit_applied':
+                response = self._confirm_edit_applied(request)
+
+            elif req_type == 'transcribe_start':
                 audio_path = request.get('audio_path')
                 long_mode = bool(request.get('long_mode', False))
                 polish_min_chars = int(request.get("polish_min_chars", 0) or 0)

@@ -5,7 +5,7 @@ VoCoType 保留两种 SLM provider：
 - `remote`：OpenAI-compatible HTTP API；默认使用 SSE 流式输出。
 - `local_ephemeral`：按需加载本地模型，录音时预热，空闲后释放。
 
-IBus 的 `Ctrl+F9` 语音编辑、远程 provider、本地 provider 和失败回退均保留。
+IBus 与 Fcitx 5 的 `Ctrl+F9` 语音编辑共用 `app/voice_edit.py` 的命令语义；远程 provider、本地 provider 和失败回退均保留。
 Fcitx 5 在此基础上增加异步任务与输入面板实时预览。
 
 > 推荐使用 `vocotype-settings` 的“AI 润色”页面配置 endpoint、模型、凭据、阈值、thinking 和连接测试。
@@ -99,5 +99,4 @@ thinking-only 重试和释放策略不变。
 
 ## IBus
 
-IBus 保持最终结果式 UI，不显示逐 token 预览；现有 `F9`、`Shift+F9` 和 `Ctrl+F9`
-语音编辑行为不变。共享 `SLMPolisher` 仍保留远程非流式兼容路径，便于旧服务和编辑链路使用。
+IBus 保持最终结果式 UI，不显示逐 token 预览；Fcitx 5 继续为普通润色显示流式预览。两套 integration 的 `Ctrl+F9` 都使用共享编辑核心和 `SLMPolisher` 的编辑路径。

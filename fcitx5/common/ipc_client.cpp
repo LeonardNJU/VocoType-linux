@@ -3,6 +3,7 @@
  */
 
 #include "ipc_client.h"
+#include <algorithm>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/time.h>
@@ -24,16 +25,25 @@ IPCClient::IPCClient(const std::string& socket_path)
 IPCClient::~IPCClient() {
 }
 
-std::string IPCClient::sendRequest(const std::string& request) {
+std::string IPCClient::sendRequest(const std::string& request,
+                                   int receive_timeout_ms) {
     // 创建 Unix Socket
     int sock = socket(AF_UNIX, SOCK_STREAM, 0);
     if (sock < 0) {
         throw std::runtime_error("Failed to create socket");
     }
 
-    const struct timeval timeout = {2, 0};
-    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    const struct timeval send_timeout = {2, 0};
+    const int bounded_receive_timeout_ms =
+        std::max(1, receive_timeout_ms);
+    const struct timeval receive_timeout = {
+        bounded_receive_timeout_ms / 1000,
+        (bounded_receive_timeout_ms % 1000) * 1000,
+    };
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO,
+               &receive_timeout, sizeof(receive_timeout));
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO,
+               &send_timeout, sizeof(send_timeout));
 
     // 连接到服务器
     struct sockaddr_un addr;
@@ -116,6 +126,196 @@ TranscribeResult IPCClient::transcribeAudio(const std::string& audio_path, bool 
     }
 
     return result;
+}
+
+VoiceEditResult IPCClient::editAudio(
+    const std::string& audio_path,
+    const std::string& context_id,
+    const std::string& surrounding_text,
+    unsigned int cursor_pos,
+    unsigned int anchor_pos,
+    const std::string& selected_text,
+    const std::string& replace_state,
+    bool supports_surrounding) {
+    VoiceEditResult result;
+    try {
+        json request = {
+            {"type", "edit_audio"},
+            {"audio_path", audio_path},
+            {"context_id", context_id},
+            {"replace_state", replace_state},
+            {"supports_surrounding", supports_surrounding},
+            {"snapshot", {
+                {"text", surrounding_text},
+                {"cursor_pos", cursor_pos},
+                {"anchor_pos", anchor_pos},
+                {"selected_text", selected_text}
+            }}
+        };
+        // ASR plus a remote editing model routinely exceeds the 2-second
+        // control-request timeout. This method is called from a worker thread,
+        // so waiting here does not block Fcitx's event loop.
+        const std::string response_str = sendRequest(request.dump(), 30000);
+        const json response = json::parse(response_str);
+        result.success = response.value("success", false);
+        result.handled = response.value("handled", false);
+        result.record_history = response.value("record_history", true);
+        result.mode = response.value("mode", "");
+        result.new_text = response.value("new_text", "");
+        result.expected_text = response.value("expected_text", "");
+        result.hint = response.value("hint", "");
+        result.error = response.value("error", "");
+        result.instruction = response.value("instruction", "");
+        result.reason = response.value("reason", "");
+        if (response.contains("key_actions") && response["key_actions"].is_array()) {
+            for (const auto& item : response["key_actions"]) {
+                EditKeyAction action;
+                action.key = item.value("key", "");
+                action.repeat = item.value("repeat", 1);
+                if (item.contains("modifiers") && item["modifiers"].is_array()) {
+                    for (const auto& modifier : item["modifiers"]) {
+                        if (modifier.is_string()) {
+                            action.modifiers.push_back(modifier.get<std::string>());
+                        }
+                    }
+                }
+                result.key_actions.push_back(std::move(action));
+            }
+        }
+        if (!result.success && result.error.empty()) {
+            result.error = "Unknown edit error";
+        }
+    } catch (const std::exception& e) {
+        result.success = false;
+        result.error = e.what();
+    }
+    return result;
+}
+
+
+VoiceEditStartResult IPCClient::startVoiceEdit(
+    const std::string& audio_path,
+    const std::string& context_id,
+    const std::string& surrounding_text,
+    unsigned int cursor_pos,
+    unsigned int anchor_pos,
+    const std::string& selected_text,
+    const std::string& replace_state,
+    bool supports_surrounding) {
+    VoiceEditStartResult result;
+    try {
+        json request = {
+            {"type", "edit_start"},
+            {"audio_path", audio_path},
+            {"context_id", context_id},
+            {"replace_state", replace_state},
+            {"supports_surrounding", supports_surrounding},
+            {"snapshot", {
+                {"text", surrounding_text},
+                {"cursor_pos", cursor_pos},
+                {"anchor_pos", anchor_pos},
+                {"selected_text", selected_text}
+            }}
+        };
+        const json response = json::parse(sendRequest(request.dump()));
+        result.success = response.value("success", false);
+        result.task_id = response.value("task_id", "");
+        result.status = response.value("status", "");
+        result.error = response.value("error", "");
+        if (!result.success && result.error.empty()) {
+            result.error = "Unknown edit start error";
+        }
+    } catch (const std::exception& e) {
+        result.success = false;
+        result.error = e.what();
+    }
+    return result;
+}
+
+VoiceEditPollResult IPCClient::pollVoiceEditTask(const std::string& task_id) {
+    VoiceEditPollResult result;
+    try {
+        const json request = {
+            {"type", "edit_poll"},
+            {"task_id", task_id}
+        };
+        const json response = json::parse(sendRequest(request.dump()));
+        result.success = response.value("success", false);
+        result.task_id = response.value("task_id", task_id);
+        result.status = response.value("status", "");
+        result.phase = response.value("phase", "");
+        result.instruction = response.value("instruction", "");
+        result.error = response.value("error", "");
+        result.reason = response.value("reason", "");
+        if (response.contains("result") && response["result"].is_object()) {
+            const auto& value = response["result"];
+            auto& edit = result.result;
+            edit.success = value.value("success", false);
+            edit.handled = value.value("handled", false);
+            edit.record_history = value.value("record_history", true);
+            edit.mode = value.value("mode", "");
+            edit.new_text = value.value("new_text", "");
+            edit.expected_text = value.value("expected_text", "");
+            edit.hint = value.value("hint", "");
+            edit.error = value.value("error", "");
+            edit.instruction = value.value("instruction", result.instruction);
+            edit.reason = value.value("reason", result.reason);
+            if (value.contains("key_actions") && value["key_actions"].is_array()) {
+                for (const auto& item : value["key_actions"]) {
+                    EditKeyAction action;
+                    action.key = item.value("key", "");
+                    action.repeat = item.value("repeat", 1);
+                    if (item.contains("modifiers") && item["modifiers"].is_array()) {
+                        for (const auto& modifier : item["modifiers"]) {
+                            if (modifier.is_string()) {
+                                action.modifiers.push_back(modifier.get<std::string>());
+                            }
+                        }
+                    }
+                    edit.key_actions.push_back(std::move(action));
+                }
+            }
+        }
+        if (!result.success && result.error.empty()) {
+            result.error = "Unknown edit poll error";
+        }
+    } catch (const std::exception& e) {
+        result.success = false;
+        result.error = e.what();
+    }
+    return result;
+}
+
+bool IPCClient::cancelVoiceEditTask(const std::string& task_id) {
+    try {
+        const json request = {
+            {"type", "edit_cancel"},
+            {"task_id", task_id}
+        };
+        const json response = json::parse(sendRequest(request.dump()));
+        return response.value("success", false);
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+
+bool IPCClient::confirmEditApplied(const std::string& context_id,
+                                   const std::string& original_text,
+                                   const std::string& new_text,
+                                   bool record_history) {
+    try {
+        json request = {
+            {"type", "edit_applied"},
+            {"context_id", context_id},
+            {"original_text", original_text},
+            {"new_text", new_text},
+            {"record_history", record_history}
+        };
+        const json response = json::parse(sendRequest(request.dump()));
+        return response.value("success", false);
+    } catch (const std::exception&) {
+        return false;
+    }
 }
 
 bool IPCClient::prewarmSlm() {

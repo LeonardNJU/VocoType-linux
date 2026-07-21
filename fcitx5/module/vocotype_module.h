@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <memory>
 #include <string>
+#include <vector>
 #include <sys/types.h>
 
 #include <fcitx-config/option.h>
@@ -18,6 +19,15 @@
 #include "ipc_client.h"
 
 namespace vocotype {
+
+struct VoiceEditSnapshot {
+    bool valid = false;
+    std::string context_id;
+    std::string text;
+    std::string selected_text;
+    unsigned int cursor = 0;
+    unsigned int anchor = 0;
+};
 
 FCITX_CONFIGURATION(
     VoCoTypeModuleConfig,
@@ -93,12 +103,64 @@ private:
         Polishing,
     };
 
+
+
     void applyConfig();
     void handleKeyEvent(fcitx::KeyEvent &event);
     void handleFocusOut(fcitx::InputContextEvent &event);
     bool hasActiveComposition(fcitx::InputContext *ic) const;
 
     bool polishModeForStates(fcitx::KeyStates states) const;
+    bool editModeForStates(fcitx::KeyStates states) const;
+    bool captureVoiceEditSnapshot(fcitx::InputContext *ic,
+                                  VoiceEditSnapshot &snapshot,
+                                  std::string &error) const;
+    void launchVoiceEditTask(
+        fcitx::TrackableObjectReference<fcitx::InputContext> ic_ref,
+        const std::string &audio_path,
+        const VoiceEditSnapshot &snapshot,
+        uint64_t session_id);
+    void showVoiceEditStatusBar(fcitx::InputContext *ic,
+                                const std::string &title,
+                                const std::string &detail = {});
+    static std::string inputContextId(fcitx::InputContext *ic);
+    bool voiceEditSnapshotStillMatches(
+        fcitx::InputContext *ic,
+        const VoiceEditSnapshot &snapshot) const;
+    void applyVoiceEditResult(fcitx::InputContext *ic,
+                              const VoiceEditSnapshot &snapshot,
+                              const VoiceEditResult &result);
+    void runVoiceEditKeyActions(fcitx::InputContext *ic,
+                                const std::vector<EditKeyAction> &actions);
+    void replaceSurroundingText(fcitx::InputContext *ic,
+                                const VoiceEditSnapshot &snapshot,
+                                const std::string &new_text,
+                                bool record_history,
+                                const std::string &hint);
+    void scheduleEditReplacementCheck();
+    void finalizeEditReplacement();
+    void clearPendingEditReplacement();
+    void confirmVoiceEditApplied(const VoiceEditSnapshot &snapshot,
+                                 const std::string &new_text,
+                                 bool record_history);
+    void showTemporaryMessage(fcitx::InputContext *ic,
+                              const std::string &message);
+    void startVoiceEditPolling(fcitx::InputContext *ic,
+                               const std::string &task_id,
+                               const VoiceEditSnapshot &snapshot,
+                               uint64_t session_id);
+    void scheduleVoiceEditPoll(
+        fcitx::TrackableObjectReference<fcitx::InputContext> ic_ref);
+    void handleVoiceEditPollResult(fcitx::InputContext *ic,
+                                   const VoiceEditPollResult &result);
+    void showVoiceEditProgress(fcitx::InputContext *ic,
+                               const std::string &phase,
+                               const std::string &instruction);
+    void showVoiceEditFailure(fcitx::InputContext *ic,
+                              const std::string &error,
+                              const std::string &instruction);
+    void cancelActiveVoiceEditTask();
+
     void startPolishPolling(fcitx::InputContext *ic, const std::string &task_id);
     void schedulePolishPoll(
         fcitx::TrackableObjectReference<fcitx::InputContext> ic_ref);
@@ -110,11 +172,19 @@ private:
                             const std::string &original_text);
     void cancelActivePolishTask();
 
-    void armPendingRecordingStart(fcitx::InputContext *ic, bool long_mode);
+    void armPendingRecordingStart(fcitx::InputContext *ic,
+                                  bool long_mode,
+                                  bool edit_mode,
+                                  const VoiceEditSnapshot &edit_snapshot);
     void cancelPendingRecordingStart();
+    void armPendingPttRelease(fcitx::InputContext *ic);
+    void cancelPendingPttRelease();
     void replayShortTapAsRegularKey(fcitx::InputContext *ic);
 
-    void startRecording(fcitx::InputContext *ic, bool long_mode);
+    void startRecording(fcitx::InputContext *ic,
+                        bool long_mode,
+                        bool edit_mode,
+                        const VoiceEditSnapshot &edit_snapshot);
     void stopRecording(bool transcribe);
     void stopAndTranscribe();
 
@@ -147,6 +217,7 @@ private:
 
     fcitx::Instance *instance_;
     fcitx::EventDispatcher event_dispatcher_;
+    std::string backend_socket_path_;
     std::unique_ptr<IPCClient> ipc_client_;
     VoCoTypeModuleConfig config_;
     std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> key_handler_;
@@ -167,8 +238,12 @@ private:
     bool ptt_pressed_ = false;
     bool is_recording_ = false;
     bool recording_long_mode_ = false;
+    bool recording_edit_mode_ = false;
     bool pending_long_mode_ = false;
+    bool pending_edit_mode_ = false;
     bool ui_owned_ = false;
+    VoiceEditSnapshot pending_edit_snapshot_;
+    VoiceEditSnapshot recording_edit_snapshot_;
     fcitx::KeyStates pending_ptt_states_ = fcitx::KeyState::NoState;
     fcitx::TrackableObjectReference<fcitx::InputContext> active_ic_;
 
@@ -177,10 +252,23 @@ private:
     FILE *recorder_stdout_ = nullptr;
 
     std::unique_ptr<fcitx::EventSourceTime> ptt_hold_timer_;
+    std::unique_ptr<fcitx::EventSourceTime> ptt_release_timer_;
     std::unique_ptr<fcitx::EventSourceTime> recording_animation_timer_;
     std::unique_ptr<fcitx::EventSourceTime> polish_poll_timer_;
+    std::unique_ptr<fcitx::EventSourceTime> edit_replace_timer_;
+    std::unique_ptr<fcitx::EventSourceTime> edit_hint_timer_;
+    std::unique_ptr<fcitx::EventSourceTime> voice_edit_poll_timer_;
     size_t recording_animation_frame_index_ = 0;
     PanelAnimationKind panel_animation_kind_ = PanelAnimationKind::None;
+
+    uint64_t voice_session_counter_ = 0;
+    uint64_t active_voice_session_id_ = 0;
+    uint64_t recording_voice_session_id_ = 0;
+    uint64_t active_voice_edit_session_id_ = 0;
+    bool voice_edit_poll_in_flight_ = false;
+    std::string active_voice_edit_task_id_;
+    std::string active_voice_edit_instruction_;
+    VoiceEditSnapshot active_voice_edit_snapshot_;
 
     bool polish_poll_in_flight_ = false;
     std::string active_polish_task_id_;
@@ -189,6 +277,13 @@ private:
     int active_polish_after_seq_ = 0;
 
     std::string pending_fallback_text_;
+    bool edit_replace_pending_ = false;
+    VoiceEditSnapshot edit_replace_snapshot_;
+    std::string edit_replace_new_text_;
+    std::string edit_replace_hint_;
+    bool edit_replace_record_history_ = true;
+    int edit_replace_retries_left_ = 0;
+    std::string edit_replace_state_ = "unknown";
     fcitx::InputContext *last_committed_ic_ = nullptr;
     std::string last_committed_program_;
     std::string last_committed_frontend_;

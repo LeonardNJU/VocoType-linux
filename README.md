@@ -19,6 +19,7 @@
 - **直接融入现有输入法**：Fcitx 5 版本是全局 Module，可继续使用 Rime、拼音、Mozc 等原有输入法。
 - **中文输入优化**：支持中英混合识别、原生热词、用户术语和数字格式化。
 - **按住即说**：`F9` 快速识别，`Shift+F9` 可选 AI 润色。
+- **语音编辑**：IBus 与 Fcitx 5 共用 `Ctrl+F9` 编辑核心，可替换、插入、删除、改写、导航和撤销重做。
 - **图形化管理**：安装、修复、麦克风测试、AI 配置、Doctor 和反馈均可在设置中心完成。
 - **纯 CPU 可用**：普通 Linux 笔记本和台式机即可运行，无需独立显卡。
 
@@ -34,7 +35,7 @@ https://github.com/user-attachments/assets/4b936014-9477-4794-8d04-aa31d34577a0
 
 - **全图形化配置**：安装、修复、模型下载、术语、ITN 和 AI 配置均可在设置中心完成。
 - **自动诊断与反馈**：Doctor、Playground、脱敏支持包和 GitHub 反馈入口已经集成。
-- **正在开发**：Fcitx 5 语音编辑，以及会动态修正整段 preedit 的真正流式识别。
+- **共享语音编辑**：IBus 与 Fcitx 5 已统一 `Ctrl+F9` 编辑语义，并显示识别到的编辑指令。
 
 [查看全部项目进展 →](https://vocotype-linux.lsamc.website/zh-news.html)
 
@@ -93,15 +94,15 @@ bash installers/launch-settings.sh
 |---|---|
 | `F9` | 按住录音，松开后执行本地语音识别并输入 |
 | `Shift+F9` | 识别后使用已配置的 AI 模型润色 |
-| `Ctrl+F9` | IBus 语音编辑：改写、替换、插入、删除、撤销等 |
+| `Ctrl+F9` | IBus / Fcitx 5 语音编辑：改写、替换、插入、删除、导航、撤销等 |
 
 ### Fcitx 5
 
-VoCoType 作为全局 Module 工作，安装后**无需把 VoCoType 添加到输入法列表**。继续使用现有的 Rime、拼音、Mozc 或键盘布局，直接按 `F9` 即可。
+VoCoType 作为全局 Module 工作，安装后**无需把 VoCoType 添加到输入法列表**。继续使用现有的 Rime、拼音、Mozc 或键盘布局，直接按 `F9` 即可；应用提供 surrounding text 时，也可使用 `Ctrl+F9` 语音编辑。
 
 ### IBus
 
-VoCoType 作为独立 IBus 引擎运行，并额外提供 `Ctrl+F9` 语音编辑。编辑能力取决于当前应用是否支持 IBus surrounding text。
+VoCoType 作为独立 IBus 引擎运行，并提供与 Fcitx 5 相同的 `Ctrl+F9` 语音编辑。编辑能力取决于当前应用是否提供 surrounding text。
 
 ## 功能
 
@@ -140,9 +141,9 @@ VoCoType 作为独立 IBus 引擎运行，并额外提供 `Ctrl+F9` 语音编辑
 - reasoning / thinking 过滤；
 - 失败时保留原始识别文本。
 
-AI 功能默认关闭；只有用户主动配置远程接口时，文本才会发送到该服务。
+AI 功能默认关闭；只有用户主动配置远程接口时，文本才会发送到该服务。IBus 与 Fcitx 5 的 `Ctrl+F9` 共用同一套确定性命令、AI 编辑提示和历史状态。
 
-### IBus 语音编辑
+### 语音编辑
 
 在支持 surrounding text 的应用中，按 `Ctrl+F9` 后可以直接说：
 
@@ -168,7 +169,7 @@ AI 功能默认关闭；只有用户主动配置远程接口时，文本才会�
 
 | 输入法框架 | 支持方式 | 适合场景 |
 |---|---|---|
-| **Fcitx 5** | 全局 Module | KDE、Fcitx 5 + Rime / 拼音 / Mozc 用户 |
+| **Fcitx 5** | 全局 Module | KDE、Fcitx 5 + Rime / 拼音 / Mozc 用户；支持语音编辑 |
 | **IBus** | 独立输入法引擎 | GNOME、默认使用 IBus 的发行版；支持语音编辑 |
 
 两种集成可以同时安装，并共享术语、ITN 和 AI 配置。
