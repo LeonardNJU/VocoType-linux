@@ -1308,3 +1308,21 @@ def test_shared_uninstaller_reports_flavor_specific_native_package_command(
         )
         assert result.returncode == 0, result.stdout + result.stderr
         assert f"NATIVE_PACKAGE_COMMAND: sudo pacman -Rns {package}" in result.stdout
+
+
+def test_settings_window_models_construction_state_explicitly():
+    source = Path("settings_center/application.py").read_text(encoding="utf-8")
+    for declaration in (
+        "self.tutorial_page: Gtk.Widget | None = None",
+        "self.audio_status: Gtk.Label | None = None",
+        "self.playground_audio_status: Gtk.Label | None = None",
+        "self.playground_record_button: Gtk.Button | None = None",
+        "self.playground_ai_controls: Gtk.Box | None = None",
+        "self._audio_devices: dict[int, dict[str, Any]] = {}",
+        "self._audio_outputs: dict[str, OutputDevice] = {}",
+    ):
+        assert declaration in source
+    assert 'hasattr(self, "tutorial_page")' not in source
+    assert 'hasattr(self, "playground_ai_controls")' not in source
+    assert 'getattr(self, "_audio_devices", {})' not in source
+    assert 'getattr(self, "_audio_outputs", {})' not in source

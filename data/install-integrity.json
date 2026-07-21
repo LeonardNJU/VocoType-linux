@@ -15,7 +15,7 @@
     "fcitx5/backend/audio_recorder.py": "ebbad692b0261944543ac08cfb3e97ec48468c12c919dfbaea7c8d16fd88bcae",
     "fcitx5/backend/fcitx5_server.py": "b67888386ed36cb819438b704c91e3780f3e07c6267a9d18b1698715e2f913c8",
     "ibus/engine.py": "5c6b8b7da841cf0dccd344bffe018a5a53104c6a7bf9e5b13baa1aff6732c0dd",
-    "settings_center/application.py": "f05364d1672df9e2a2a362ec28b957a6c8dd34d6b6d6fd685af9d04d342ede8a",
+    "settings_center/application.py": "b7bd84fa2c658c0491be39270cbbaa028e476a7d0826be2deaee8c35d9236322",
     "settings_center/config_service.py": "cd4c4e0ec15bc3635c4e23e97c7914b662a5d5a2c8e9d2fb95f43e3537005e63",
     "settings_center/doctor.py": "f99b6d3d8c00adcc4eaca1ea409704facdc828f3821088151bc55a91a206d27b",
     "settings_center/install_integrity.py": "546dfdc0d20407de849e3245a1d76cb2a47b82d7edaf8cd480193cb0ec2a8689",
