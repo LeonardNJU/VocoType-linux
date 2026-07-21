@@ -122,55 +122,6 @@ SLM_MAX_TOKENS=128
 SLM_ENABLE_THINKING=0
 SLM_API_KEY=""
 
-resolve_python_cmd() {
-    local py="$1"
-
-    if [[ "$py" == "~/"* ]]; then
-        py="$HOME/${py#~/}"
-    fi
-
-    if [[ "$py" == */* ]]; then
-        [ -x "$py" ] || return 1
-        echo "$py"
-        return 0
-    fi
-
-    command -v "$py" 2>/dev/null || return 1
-}
-
-escape_sed_replacement() {
-    local value="$1"
-    value=${value//\\/\\\\}
-    value=${value//&/\\&}
-    printf '%s' "$value"
-}
-
-is_supported_python() {
-    local py="$1"
-    local py_version
-    local major
-    local minor
-
-    py_version=$(get_python_version "$py") || return 1
-    major=$(echo "$py_version" | cut -d. -f1)
-    minor=$(echo "$py_version" | cut -d. -f2)
-    [ "$major" -eq 3 ] && [ "$minor" -ge "$PYTHON_MIN_MINOR" ] && [ "$minor" -le "$PYTHON_MAX_MINOR" ]
-}
-
-detect_system_python() {
-    local py
-    local resolved_py
-
-    for py in python3.12 python3.11 python3; do
-        if resolved_py=$(resolve_python_cmd "$py"); then
-            if is_supported_python "$resolved_py"; then
-                echo "$resolved_py"
-                return 0
-            fi
-        fi
-    done
-    return 1
-}
 
 bootstrap_uv() {
     command -v uv >/dev/null 2>&1 && return 0

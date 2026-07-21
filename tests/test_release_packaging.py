@@ -429,6 +429,38 @@ def test_release_builder_cleans_checkout_metadata(tmp_path: Path):
     assert not cache.exists()
 
 
+
+def test_package_metadata_renderer_rejects_placeholders_next_to_punctuation(
+    tmp_path: Path,
+):
+    template = tmp_path / "control.in"
+    output = tmp_path / "control"
+    template.write_text(
+        "Package: @PACKAGE_NAME@\nDescription: unresolved (@UNKNOWN_TOKEN@),\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "packaging/tools/render-package-metadata.py"),
+            "--format",
+            "debian",
+            "--flavor",
+            "ibus",
+            "--template",
+            str(template),
+            "--output",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "@UNKNOWN_TOKEN@" in result.stderr
+    assert not output.exists()
+
+
 def test_native_package_recipes_share_one_staging_contract(tmp_path: Path):
     recipes = [
         ROOT / "packaging/debian/rules",
@@ -644,6 +676,8 @@ def test_native_packages_include_minimal_settings_runtime_dependencies(tmp_path:
         control = _render_package_metadata("debian", flavor, tmp_path)
         spec = _render_package_metadata("rpm", flavor, tmp_path)
         pkgbuild = _render_package_metadata("arch", flavor, tmp_path)
+        assert "python3 (>= 3.11)" in control
+        assert "python3 (>= 3.10)" not in control
         assert "python3-gi" in control and "python3-yaml" in control
         assert "pkexec | policykit-1" in control
         assert "python3-gobject" in spec and "python3-pyyaml" in spec
@@ -708,6 +742,7 @@ def test_release_validator_accepts_complete_artifacts_and_rejects_corruption(tmp
         for suffix in (
             "README.md",
             "MANIFEST.in",
+            "vocotype_package.py",
             ".github/workflows/release.yml",
             "packaging/tools/stage-system-package.sh",
             "fcitx5/module/vocotype_module.cpp",
@@ -724,6 +759,7 @@ def test_release_validator_accepts_complete_artifacts_and_rejects_corruption(tmp
             "ibus/main.py",
             "settings_center/application.py",
             "settings_center/playground_service.py",
+            "vocotype_package.py",
             "vocotype_version.py",
             "vocotype_linux.data/share/vocotype/terms.yaml",
             "vocotype_linux.data/share/vocotype/ibus/vocotype.xml.in",
@@ -738,6 +774,7 @@ def test_release_validator_accepts_complete_artifacts_and_rejects_corruption(tmp
             for suffix in (
                 "README.md",
                 "MANIFEST.in",
+                "vocotype_package.py",
                 "packaging/tools/stage-system-package.sh",
                 "fcitx5/module/vocotype_module.cpp",
                 "ibus/scripts/install-gui.sh",

@@ -9,9 +9,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from vocotype_package import read_system_package_marker
 from vocotype_version import __version__
 
 KEY_FILES = (
+    "vocotype_package.py",
     "vocotype_version.py",
     "app/config.py",
     "app/funasr_server.py",
@@ -123,15 +125,9 @@ def local_reference_manifest(project_root: Path | None) -> dict[str, Any] | None
 def _runtime_root_flavor(root: RuntimeRoot) -> str:
     if root.kind != "system":
         return "fcitx5" if root.kind == "fcitx-user" else "ibus"
-    marker = root.path / ".system-package"
-    try:
-        for raw in marker.read_text(encoding="utf-8", errors="replace").splitlines():
-            if raw.startswith("flavor="):
-                value = raw.split("=", 1)[1].strip().lower()
-                return value if value in {"universal", "ibus", "fcitx5"} else "universal"
-    except OSError:
-        pass
-    return "universal"
+    return read_system_package_marker(root.path / ".system-package").get(
+        "flavor", "universal"
+    )
 
 
 def _file_in_flavor(relative: str, flavor: str) -> bool:

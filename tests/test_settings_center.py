@@ -1308,3 +1308,101 @@ def test_shared_uninstaller_reports_flavor_specific_native_package_command(
         )
         assert result.returncode == 0, result.stdout + result.stderr
         assert f"NATIVE_PACKAGE_COMMAND: sudo pacman -Rns {package}" in result.stdout
+
+
+def test_settings_window_models_construction_state_explicitly():
+    source = Path("settings_center/application.py").read_text(encoding="utf-8")
+    for declaration in (
+        "self.tutorial_page: Gtk.Widget | None = None",
+        "self.audio_status: Gtk.Label | None = None",
+        "self.playground_audio_status: Gtk.Label | None = None",
+        "self.playground_record_button: Gtk.Button | None = None",
+        "self.playground_ai_controls: Gtk.Box | None = None",
+        "self._audio_devices: dict[int, dict[str, Any]] = {}",
+        "self._audio_outputs: dict[str, OutputDevice] = {}",
+    ):
+        assert declaration in source
+    assert 'hasattr(self, "tutorial_page")' not in source
+    assert 'hasattr(self, "playground_ai_controls")' not in source
+    assert 'getattr(self, "_audio_devices", {})' not in source
+    assert 'getattr(self, "_audio_outputs", {})' not in source
+
+
+class _FakeSwitch:
+    def __init__(self, active: bool):
+        self.active = active
+
+    def get_active(self) -> bool:
+        return self.active
+
+
+class _FakeLabel:
+    def __init__(self):
+        self.text = ""
+
+    def set_text(self, text: str) -> None:
+        self.text = text
+
+
+def _slm_config_change_window(*, persist_error: Exception | None = None):
+    calls: list[tuple[str, object]] = []
+    status = _FakeLabel()
+    config = {
+        "enabled": True,
+        "endpoint": "https://new.example/v1/chat/completions",
+        "model": "new-model",
+        "verified_fingerprint": "old",
+        "verified_at": 1,
+    }
+
+    def persist(value: dict[str, object]) -> None:
+        calls.append(("persist", dict(value)))
+        if persist_error is not None:
+            raise persist_error
+
+    window = SimpleNamespace(
+        _loading_values=False,
+        _slm_toggle_guard=False,
+        slm_enabled=_FakeSwitch(True),
+        _slm_probe_in_flight=False,
+        _slm_health_fingerprint="old-fingerprint",
+        _current_slm=lambda: dict(config),
+        _set_slm_enabled_silently=lambda active: calls.append(("switch", active)),
+        _persist_slm_config=persist,
+        _reload_backend_after_slm_change=lambda: calls.append(("reload", True)),
+        slm_test_status=status,
+        playground_ai_controls=object(),
+        _update_playground_slm_gate=lambda: calls.append(("gate", True)),
+    )
+    return window, calls, status
+
+
+def test_slm_config_change_persists_disable_and_reloads_backend():
+    from settings_center.application import SettingsWindow
+
+    window, calls, status = _slm_config_change_window()
+    SettingsWindow._on_slm_config_changed(window)
+
+    persisted = next(value for action, value in calls if action == "persist")
+    assert persisted["enabled"] is False
+    assert "verified_fingerprint" not in persisted
+    assert "verified_at" not in persisted
+    assert ("switch", False) in calls
+    assert ("reload", True) in calls
+    assert calls[-1] == ("gate", True)
+    assert "已自动关闭" in status.text
+
+
+def test_slm_config_change_reports_persistence_failure_without_reload():
+    from settings_center.application import SettingsWindow
+
+    window, calls, status = _slm_config_change_window(
+        persist_error=OSError("read-only filesystem")
+    )
+    SettingsWindow._on_slm_config_changed(window)
+
+    assert ("switch", False) in calls
+    assert not any(action == "reload" for action, _value in calls)
+    assert calls[-1] == ("gate", True)
+    assert "无法保存自动关闭状态" in status.text
+    assert "read-only filesystem" in status.text

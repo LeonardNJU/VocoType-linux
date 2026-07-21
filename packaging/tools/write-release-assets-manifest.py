@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from pathlib import Path
+import sys
 
-
-def digest(path: Path) -> str:
-    value = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            value.update(block)
-    return value.hexdigest()
+TOOLS_DIR = Path(__file__).resolve().parent
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
+from release_common import file_sha256
 
 
 def main() -> int:
@@ -34,7 +31,7 @@ def main() -> int:
             {
                 "path": path.relative_to(root).as_posix(),
                 "size": path.stat().st_size,
-                "sha256": digest(path),
+                "sha256": file_sha256(path),
             }
         )
     payload = {

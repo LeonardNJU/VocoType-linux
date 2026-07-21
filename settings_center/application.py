@@ -187,6 +187,22 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self._slm_probe_in_flight = False
         self._loading_values = True
         self._restoring_lifecycle_framework = True
+        self._saved_audio_config: dict[str, Any] = {
+            "device_name": "",
+            "device_id": None,
+            "sample_rate": 0,
+        }
+        self._rendering_audio_devices = False
+        self._audio_devices: dict[int, dict[str, Any]] = {}
+        self._audio_outputs: dict[str, OutputDevice] = {}
+        self.tutorial_page: Gtk.Widget | None = None
+        self.audio_status: Gtk.Label | None = None
+        self.playground_audio_status: Gtk.Label | None = None
+        self.playground_record_button: Gtk.Button | None = None
+        self.playground_ai_gate_status: Gtk.Label | None = None
+        self.playground_ai_controls: Gtk.Box | None = None
+        self.playground_polish_status: Gtk.Label | None = None
+        self.playground_edit_status: Gtk.Label | None = None
         self._playground_waveform: deque[tuple[float, float]] = deque(maxlen=240)
         self._build_header()
         self._build_layout()
@@ -607,7 +623,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             )
         )
         self._preferred_framework = preferred
-        if not hasattr(self, "tutorial_page"):
+        if self.tutorial_page is None:
             return
         if preferred is None:
             if self.stack.get_visible_child_name() == "tutorial":
@@ -1542,7 +1558,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 device_name = self.audio_device.get_active_text() or ""
                 # The displayed item starts with “[id] ”; persist the original
                 # PortAudio name for stable lookup across reboots.
-                device_name = getattr(self, "_audio_devices", {}).get(
+                device_name = self._audio_devices.get(
                     device_id, {}
                 ).get("name", device_name)
                 save_audio_config(
@@ -1627,9 +1643,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
         threading.Thread(target=reload_services, daemon=True).start()
 
     def _set_audio_status(self, message: str) -> None:
-        if hasattr(self, "audio_status"):
+        if self.audio_status is not None:
             self.audio_status.set_text(message)
-        if hasattr(self, "playground_audio_status"):
+        if self.playground_audio_status is not None:
             self.playground_audio_status.set_text(message)
 
     def _start_audio_refresh(self) -> bool:
@@ -1640,7 +1656,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self._set_audio_status("正在枚举输入与输出设备…")
         self._playground_audio_busy = True
         self._update_playground_recording_actions()
-        saved = getattr(self, "_saved_audio_config", {})
+        saved = self._saved_audio_config
 
         def work() -> None:
             errors: list[str] = []
@@ -1770,14 +1786,14 @@ class SettingsWindow(Gtk.ApplicationWindow):
     def _apply_selected_audio_device(
         self, source: Gtk.ComboBoxText, target: Gtk.ComboBoxText
     ) -> None:
-        if getattr(self, "_rendering_audio_devices", False):
+        if self._rendering_audio_devices:
             return
         self._sync_audio_device(source, target)
         active_id = source.get_active_id()
         if active_id is None:
             self._update_playground_recording_actions()
             return
-        selected = getattr(self, "_audio_devices", {}).get(int(active_id), {})
+        selected = self._audio_devices.get(int(active_id), {})
         if selected.get("sample_rate"):
             rate = int(selected["sample_rate"])
             self._syncing_audio_controls = True
@@ -1901,7 +1917,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         threading.Thread(target=work, daemon=True).start()
 
     def _on_audio_output_changed(self, _widget: Gtk.ComboBoxText) -> None:
-        if getattr(self, "_rendering_audio_devices", False):
+        if self._rendering_audio_devices:
             return
         output = self._selected_audio_output()
         if output is not None:
@@ -1912,7 +1928,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         active_id = self.audio_output.get_active_id()
         if active_id is None:
             return None
-        return getattr(self, "_audio_outputs", {}).get(active_id)
+        return self._audio_outputs.get(active_id)
 
     def _draw_playground_waveform(self, widget: Gtk.DrawingArea, context: Any) -> bool:
         width = max(1, widget.get_allocated_width())
@@ -1953,7 +1969,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         return False
 
     def _update_playground_recording_actions(self) -> bool:
-        if not hasattr(self, "playground_record_button"):
+        if self.playground_record_button is None:
             return False
         has_device = self.playground_audio_device.get_active_id() is not None
         has_output = self._selected_audio_output() is not None
@@ -1976,7 +1992,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         device_id = int(active_id)
         sample_rate = int(self.playground_audio_sample_rate.get_value())
         device_name = str(
-            getattr(self, "_audio_devices", {}).get(device_id, {}).get(
+            self._audio_devices.get(device_id, {}).get(
                 "name", self.playground_audio_device.get_active_text() or ""
             )
         )
@@ -2325,16 +2341,23 @@ class SettingsWindow(Gtk.ApplicationWindow):
                     config.pop("verified_fingerprint", None)
                     config.pop("verified_at", None)
                     self._persist_slm_config(config)
-                except Exception:
-                    pass
-                self.slm_test_status.set_text(
-                    "⚠️ AI 配置已更改，功能已自动关闭；重新打开开关即可测活。"
-                )
-        if hasattr(self, "playground_ai_controls"):
+                except Exception as exc:  # noqa: BLE001
+                    self.slm_test_status.set_text(
+                        f"❌ AI 配置已更改，但无法保存自动关闭状态：{exc}"
+                    )
+                else:
+                    self._reload_backend_after_slm_change()
+                    self.slm_test_status.set_text(
+                        "⚠️ AI 配置已更改，功能已自动关闭；重新打开开关即可测活。"
+                    )
+        if self.playground_ai_controls is not None:
             self._update_playground_slm_gate()
 
     def _update_playground_slm_gate(self) -> bool:
-        if not hasattr(self, "playground_ai_controls"):
+        if (
+            self.playground_ai_controls is None
+            or self.playground_ai_gate_status is None
+        ):
             return False
         try:
             config = self._current_slm()
@@ -2363,9 +2386,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
         )
 
     def _set_playground_ai_status(self, message: str) -> None:
-        if hasattr(self, "playground_polish_status"):
+        if self.playground_polish_status is not None:
             self.playground_polish_status.set_text(message)
-        if hasattr(self, "playground_edit_status"):
+        if self.playground_edit_status is not None:
             self.playground_edit_status.set_text(message)
 
     def _set_playground_ai_busy(self, busy: bool) -> None:
@@ -2489,7 +2512,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         device_id = int(active_id)
         sample_rate = int(self.playground_audio_sample_rate.get_value())
         device_name = str(
-            getattr(self, "_audio_devices", {}).get(device_id, {}).get(
+            self._audio_devices.get(device_id, {}).get(
                 "name", self.playground_audio_device.get_active_text() or ""
             )
         )

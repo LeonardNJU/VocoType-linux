@@ -37,59 +37,6 @@ PYTHON_MIN_MINOR=11
 PYTHON_MAX_MINOR=12
 DEFAULT_UV_PYTHON="3.12"
 
-resolve_python_cmd() {
-    local py="$1"
-
-    if [[ "$py" == "~/"* ]]; then
-        py="$HOME/${py#~/}"
-    fi
-
-    if [[ "$py" == */* ]]; then
-        [ -x "$py" ] || return 1
-        echo "$py"
-        return 0
-    fi
-
-    command -v "$py" 2>/dev/null || return 1
-}
-
-escape_sed_replacement() {
-    local value="$1"
-    value=${value//\/\\}
-    value=${value//&/\&}
-    value=${value//|/\|}
-    printf '%s' "$value"
-}
-
-
-is_supported_python() {
-    local py="$1"
-    local py_version
-    local major
-    local minor
-
-    py_version=$(get_python_version "$py") || return 1
-    major=$(echo "$py_version" | cut -d. -f1)
-    minor=$(echo "$py_version" | cut -d. -f2)
-
-    [ "$major" -eq 3 ] && [ "$minor" -ge "$PYTHON_MIN_MINOR" ] && [ "$minor" -le "$PYTHON_MAX_MINOR" ]
-}
-
-# 检测系统可用的 Python 版本（需要 3.11-3.12）
-detect_system_python() {
-    local py
-    local resolved_py
-
-    for py in python3.12 python3.11 python3; do
-        if resolved_py=$(resolve_python_cmd "$py"); then
-            if is_supported_python "$resolved_py"; then
-                echo "$resolved_py"
-                return 0
-            fi
-        fi
-    done
-    return 1
-}
 
 print_python_help() {
     echo ""

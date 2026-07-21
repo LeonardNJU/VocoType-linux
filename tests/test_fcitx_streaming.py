@@ -186,6 +186,29 @@ def _ipc_request(backend, payload):
         client_sock.close()
         thread.join(timeout=2)
 
+def test_backend_ipc_ping_unknown_and_plain_transcribe(tmp_path):
+    bare = Fcitx5Backend.__new__(Fcitx5Backend)
+    assert _ipc_request(bare, {"type": "ping"}) == {"pong": True}
+    assert _ipc_request(bare, {"type": "not-a-real-request"}) == {
+        "error": "未知的请求类型: not-a-real-request"
+    }
+
+    audio = tmp_path / "plain.wav"
+    audio.write_bytes(b"audio")
+    backend = _backend(
+        {"success": True, "text": "同步结果"},
+        _FakeStreamingPolisher([]),
+    )
+    result = _ipc_request(
+        backend,
+        {
+            "type": "transcribe",
+            "audio_path": str(audio),
+            "long_mode": False,
+        },
+    )
+    assert result == {"success": True, "text": "同步结果"}
+
 
 def test_backend_ipc_start_and_poll_protocol(tmp_path):
     audio = tmp_path / "recording.wav"

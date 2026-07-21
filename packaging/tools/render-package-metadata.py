@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from importlib.machinery import SourceFileLoader
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-_flavor = SourceFileLoader(
-    "vocotype_package_flavor", str(Path(__file__).with_name("package-flavor.py"))
-).load_module()
+from vocotype_package import package_flavor_metadata
+
+_PLACEHOLDER = re.compile(r"@[A-Z][A-Z0-9_]*@")
 
 
 def debian_values(meta: dict[str, object]) -> dict[str, str]:
@@ -21,7 +23,7 @@ def debian_values(meta: dict[str, object]) -> dict[str, str]:
     if includes_fcitx:
         build += ["cmake", "g++", "pkg-config", "libfcitx5core-dev", "nlohmann-json3-dev"]
     depends = [
-        "${shlibs:Depends}", "${misc:Depends}", "python3 (>= 3.10)",
+        "${shlibs:Depends}", "${misc:Depends}", "python3 (>= 3.11)",
         "python3-gi", "python3-yaml", "gir1.2-gtk-3.0", "libportaudio2",
         "pkexec | policykit-1",
     ]
@@ -111,7 +113,7 @@ def main() -> int:
     parser.add_argument("--template", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    meta = _flavor.metadata(args.flavor)
+    meta = package_flavor_metadata(args.flavor)
     values = {
         "debian": debian_values,
         "rpm": rpm_values,
@@ -126,13 +128,7 @@ def main() -> int:
         "@SOURCE_VERSION@",
         "@SOURCE_SHA256@",
     }
-    unresolved = sorted(
-        set(
-            part
-            for part in text.replace("-", " ").split()
-            if part.startswith("@") and part.endswith("@") and part not in allowed_later
-        )
-    )
+    unresolved = sorted(set(_PLACEHOLDER.findall(text)) - allowed_later)
     if unresolved:
         raise SystemExit("unresolved flavor placeholders: " + ", ".join(unresolved))
     args.output.parent.mkdir(parents=True, exist_ok=True)
