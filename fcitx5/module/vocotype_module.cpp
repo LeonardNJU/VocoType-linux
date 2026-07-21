@@ -37,7 +37,6 @@ namespace {
 
 constexpr auto FCITX_CONFIG_PATH = "conf/vocotype.conf";
 constexpr uint64_t RECORDING_ANIMATION_INTERVAL_US = 200000;
-constexpr uint64_t PTT_RELEASE_DEBOUNCE_US = 50000;
 constexpr uint64_t POLISH_POLL_INTERVAL_US = 100000;
 constexpr uint64_t DUPLICATE_COMMIT_SUPPRESS_US = 250000;
 
@@ -184,7 +183,6 @@ VoCoTypeModule::VoCoTypeModule(fcitx::Instance *instance)
 
 VoCoTypeModule::~VoCoTypeModule() {
     cancelPendingRecordingStart();
-    cancelPendingRecordingStop();
     cancelActivePolishTask();
     stopPanelAnimation();
     if (recorder_pid_ > 0 || recorder_stdout_ || recorder_stdin_fd_ >= 0) {
@@ -285,11 +283,6 @@ void VoCoTypeModule::handleKeyEvent(fcitx::KeyEvent &event) {
     }
 
     if (!event.isRelease()) {
-        if (is_recording_ && ptt_release_timer_) {
-            cancelPendingRecordingStop();
-            event.filterAndAccept();
-            return;
-        }
         if (!is_recording_ && !ptt_pressed_) {
             if (block_when_composing_ && hasActiveComposition(ic)) {
                 FCITX_INFO() << "VoCoType hotkey ignored because current input method has active composition";
@@ -301,7 +294,7 @@ void VoCoTypeModule::handleKeyEvent(fcitx::KeyEvent &event) {
             armPendingRecordingStart(ic, polishModeForStates(key.states()));
         }
     } else if (is_recording_) {
-        armPendingRecordingStop();
+        stopAndTranscribe();
     } else if (ptt_pressed_) {
         replayShortTapAsRegularKey(ic);
     } else {
@@ -324,7 +317,6 @@ void VoCoTypeModule::handleFocusOut(fcitx::InputContextEvent &event) {
         active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
     } else {
         cancelPendingRecordingStart();
-        cancelPendingRecordingStop();
         clearOwnedUI(active);
         active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
     }
@@ -365,30 +357,6 @@ void VoCoTypeModule::cancelPendingRecordingStart() {
     pending_long_mode_ = false;
     pending_ptt_states_ = fcitx::KeyState::NoState;
     ptt_hold_timer_.reset();
-}
-
-void VoCoTypeModule::armPendingRecordingStop() {
-    cancelPendingRecordingStop();
-    auto ic_ref = active_ic_;
-    ptt_release_timer_ = instance_->eventLoop().addTimeEvent(
-        CLOCK_MONOTONIC,
-        fcitx::now(CLOCK_MONOTONIC) + PTT_RELEASE_DEBOUNCE_US,
-        0,
-        [this, ic_ref](fcitx::EventSourceTime *, uint64_t) {
-            ptt_release_timer_.reset();
-            auto *ic_ptr = ic_ref.get();
-            if (!is_recording_ || !ic_ptr || !ic_ptr->hasFocus()) {
-                stopRecording(false);
-                return false;
-            }
-            stopAndTranscribe();
-            return false;
-        });
-    ptt_release_timer_->setOneShot();
-}
-
-void VoCoTypeModule::cancelPendingRecordingStop() {
-    ptt_release_timer_.reset();
 }
 
 void VoCoTypeModule::replayShortTapAsRegularKey(fcitx::InputContext *ic) {
@@ -483,7 +451,9 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
         return;
     }
 
-    cancelPendingRecordingStop();
+    // A PTT release must synchronously end the listening UI. The recorder
+    // process and ASR continue off the Fcitx event thread after this point.
+    stopPanelAnimation();
     ptt_hold_timer_.reset();
     ptt_pressed_ = false;
     pending_long_mode_ = false;

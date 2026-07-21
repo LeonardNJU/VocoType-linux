@@ -112,8 +112,6 @@ private:
 
     void armPendingRecordingStart(fcitx::InputContext *ic, bool long_mode);
     void cancelPendingRecordingStart();
-    void armPendingRecordingStop();
-    void cancelPendingRecordingStop();
     void replayShortTapAsRegularKey(fcitx::InputContext *ic);
 
     void startRecording(fcitx::InputContext *ic, bool long_mode);
@@ -179,7 +177,6 @@ private:
     FILE *recorder_stdout_ = nullptr;
 
     std::unique_ptr<fcitx::EventSourceTime> ptt_hold_timer_;
-    std::unique_ptr<fcitx::EventSourceTime> ptt_release_timer_;
     std::unique_ptr<fcitx::EventSourceTime> recording_animation_timer_;
     std::unique_ptr<fcitx::EventSourceTime> polish_poll_timer_;
     size_t recording_animation_frame_index_ = 0;

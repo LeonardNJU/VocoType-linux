@@ -476,8 +476,11 @@ class FunASRServer:
                 f"所有FunASR模型并行初始化完成，总耗时: {total_time:.2f}秒"
             )
             
-            # 预热librosa，避免首次load时的初始化延迟
-            self._warmup_librosa()
+            # Verify the PCM reader used by the ONNX path. Passing NumPy
+            # waveforms avoids funasr_onnx's optional librosa/audioread
+            # GStreamer backend, which is incompatible with some PyGObject
+            # versions.
+            self._warmup_audio_reader()
             
             return {
                 "success": True,
@@ -643,8 +646,9 @@ class FunASRServer:
                             "Contextual Paraformer 使用 %s 个原生热词",
                             len(native_hotwords.split()) if native_hotwords else 0,
                         )
+                        waveform = self._load_onnx_waveform(audio_path_for_asr)
                         asr_result = self.asr_model(
-                            [audio_path_for_asr],
+                            waveform,
                             hotwords=native_hotwords,
                         )
                     else:
@@ -653,7 +657,8 @@ class FunASRServer:
                                 "当前 ASR 模型不支持原生热词，忽略 %s 个热词",
                                 len(native_hotwords.split()),
                             )
-                        asr_result = self.asr_model([audio_path_for_asr])
+                        waveform = self._load_onnx_waveform(audio_path_for_asr)
+                        asr_result = self.asr_model(waveform)
             finally:
                 if tmp_vad_path:
                     try:
@@ -771,46 +776,68 @@ class FunASRServer:
             logger.debug("读取音频元数据失败: %s", exc)
             return None
 
-    def _warmup_librosa(self):
-        """预热librosa库，避免首次load时的初始化延迟（这是真正的问题所在）"""
+    def _asr_sample_rate(self) -> int:
         try:
-            logger.info("开始预热librosa，触发音频库初始化...")
-            warmup_start = time.time()
-            
+            return int(self.asr_model.frontend.opts.frame_opts.samp_freq)
+        except (AttributeError, TypeError, ValueError):
+            return 16000
+
+    def _load_onnx_waveform(self, audio_path: str):
+        """Read PCM audio without invoking librosa's optional GStreamer path."""
+
+        import math
+        import numpy as np
+        import soundfile as sf
+
+        waveform, sample_rate = sf.read(
+            audio_path,
+            dtype="float32",
+            always_2d=False,
+        )
+        waveform = np.asarray(waveform, dtype=np.float32)
+        if waveform.ndim > 1:
+            waveform = waveform.mean(axis=1, dtype=np.float32)
+        if waveform.ndim != 1 or waveform.size == 0:
+            raise ValueError(f"音频数据为空或维度无效: {waveform.shape}")
+
+        target_rate = self._asr_sample_rate()
+        if int(sample_rate) != target_rate:
+            from scipy.signal import resample_poly
+
+            divisor = math.gcd(int(sample_rate), target_rate)
+            waveform = resample_poly(
+                waveform,
+                target_rate // divisor,
+                int(sample_rate) // divisor,
+            ).astype(np.float32, copy=False)
+        return np.ascontiguousarray(waveform, dtype=np.float32)
+
+    def _warmup_audio_reader(self):
+        """Warm the actual soundfile/NumPy path used for ONNX inference."""
+
+        try:
             import tempfile
             import numpy as np
-            import wave
-            
-            # 创建一个极短的测试音频（10ms）
-            sample_rate = 16000
-            samples = int(sample_rate * 0.01)
-            audio_data = np.zeros(samples, dtype=np.int16)
-            
-            # 写入临时WAV文件
-            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
-                tmp_path = tmp_file.name
-                with wave.open(tmp_path, 'wb') as wf:
-                    wf.setnchannels(1)
-                    wf.setsampwidth(2)
-                    wf.setframerate(sample_rate)
-                    wf.writeframes(audio_data.tobytes())
-            
+
+            from app.wave_writer import write_wav
+
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as handle:
+                tmp_path = handle.name
             try:
-                # 调用librosa.load触发初始化（这是funasr_onnx内部使用的）
-                import librosa
-                _, _ = librosa.load(tmp_path, sr=16000)
-                
-                warmup_time = time.time() - warmup_start
-                logger.info(f"librosa预热完成，耗时: {warmup_time:.2f}秒")
+                samples = np.zeros(160, dtype=np.int16)
+                write_wav(tmp_path, samples.tobytes(), 16000)
+                waveform = self._load_onnx_waveform(tmp_path)
+                if waveform.size != 160:
+                    raise RuntimeError("音频预热读取长度异常")
             finally:
                 try:
                     os.remove(tmp_path)
-                except Exception:
+                except OSError:
                     pass
-                    
-        except Exception as e:
-            logger.warning(f"librosa预热失败（不影响使用）: {str(e)}")
-    
+            logger.info("ONNX PCM 音频读取路径预热完成")
+        except Exception as exc:
+            logger.warning("ONNX PCM 音频读取路径预热失败: %s", exc)
+
     def _cleanup_memory(self):
         """生产环境内存清理"""
         try:

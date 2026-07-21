@@ -24,6 +24,20 @@ class _RecordingASR:
         return [{"preds": "测试"}]
 
 
+class _WaveformRecordingASR:
+    def __init__(self):
+        self.waveform = None
+        self.frontend = type(
+            "Frontend",
+            (),
+            {"opts": type("Opts", (), {"frame_opts": type("FrameOpts", (), {"samp_freq": 16000})()})()},
+        )()
+
+    def __call__(self, waveform):
+        self.waveform = waveform
+        return [{"preds": "测试"}]
+
+
 def _write_wav(path, sample_count: int, sample_rate: int = 16000) -> None:
     samples = np.zeros(sample_count, dtype=np.int16)
     with wave.open(str(path), "wb") as wav_file:
@@ -76,6 +90,21 @@ def test_one_frontend_window_still_reaches_asr(tmp_path):
     assert model.calls == 1
     assert result["success"] is True
     assert result["raw_text"] == "测试"
+
+
+def test_onnx_transcription_passes_numpy_waveform_without_librosa_loader(tmp_path):
+    audio_path = tmp_path / "pcm.wav"
+    _write_wav(audio_path, sample_count=800)
+    model = _WaveformRecordingASR()
+    server = _server_with_model(model)
+
+    result = server.transcribe_audio(str(audio_path), options={"use_punc": False})
+
+    assert result["success"] is True
+    assert isinstance(model.waveform, np.ndarray)
+    assert model.waveform.dtype == np.float32
+    assert model.waveform.ndim == 1
+    assert model.waveform.shape == (800,)
 
 
 class _RecordingContextualASR:
