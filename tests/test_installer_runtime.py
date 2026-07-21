@@ -100,13 +100,25 @@ def test_installer_does_not_offer_obsolete_funasr_onnx_torch_workaround():
 def test_shared_runtime_helpers_are_sourced_once_and_keep_behavior(tmp_path: Path):
     library = ROOT / "installers/runtime-common.sh"
     source = library.read_text(encoding="utf-8")
-    assert source.count("get_python_version()") == 1
-    assert source.count("write_slm_config_json()") == 1
+    for function in (
+        "get_python_version",
+        "resolve_python_cmd",
+        "is_supported_python",
+        "detect_system_python",
+        "write_slm_config_json",
+    ):
+        assert source.count(f"{function}()") == 1
     for relative in ("ibus/scripts/install.sh", "fcitx5/scripts/install.sh"):
         installer = (ROOT / relative).read_text(encoding="utf-8")
         assert 'source "$PROJECT_DIR/installers/runtime-common.sh"' in installer
-        assert "get_python_version()" not in installer
-        assert "write_slm_config_json()" not in installer
+        for function in (
+            "get_python_version",
+            "resolve_python_cmd",
+            "is_supported_python",
+            "detect_system_python",
+            "write_slm_config_json",
+        ):
+            assert f"{function}()" not in installer
 
     version = subprocess.run(
         ["bash", "-c", f'source "{library}"; get_python_version "{sys.executable}"'],
@@ -116,6 +128,49 @@ def test_shared_runtime_helpers_are_sourced_once_and_keep_behavior(tmp_path: Pat
     )
     assert version.returncode == 0, version.stderr
     assert version.stdout.strip() == f"{sys.version_info.major}.{sys.version_info.minor}"
+
+    resolved = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f'source "{library}"; resolve_python_cmd "{sys.executable}"',
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert resolved.returncode == 0, resolved.stderr
+    assert Path(resolved.stdout.strip()).resolve() == Path(sys.executable).resolve()
+
+    supported = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f'source "{library}"; PYTHON_MIN_MINOR=11; PYTHON_MAX_MINOR=12; '
+            f'is_supported_python "{sys.executable}"',
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert supported.returncode == 0, supported.stderr
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "python3.12").symlink_to(Path(sys.executable).resolve())
+    detected = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f'PATH="{bin_dir}"; source "{library}"; '
+            'PYTHON_MIN_MINOR=11; PYTHON_MAX_MINOR=12; detect_system_python',
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert detected.returncode == 0, detected.stderr
+    assert Path(detected.stdout.strip()).resolve() == Path(sys.executable).resolve()
 
     config = tmp_path / "runtime.json"
     command = (

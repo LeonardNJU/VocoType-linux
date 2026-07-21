@@ -29,6 +29,45 @@ get_python_version() {
     "$1" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null
 }
 
+resolve_python_cmd() {
+    local py="$1"
+
+    if [[ "$py" == "~/"* ]]; then
+        py="$HOME/${py#~/}"
+    fi
+
+    if [[ "$py" == */* ]]; then
+        [ -x "$py" ] || return 1
+        printf '%s\n' "$py"
+        return 0
+    fi
+
+    command -v "$py" 2>/dev/null || return 1
+}
+
+is_supported_python() {
+    local py="$1"
+    local py_version major minor
+
+    py_version=$(get_python_version "$py") || return 1
+    major=${py_version%%.*}
+    minor=${py_version#*.}
+    [ "$major" -eq 3 ]         && [ "$minor" -ge "${PYTHON_MIN_MINOR:-11}" ]         && [ "$minor" -le "${PYTHON_MAX_MINOR:-12}" ]
+}
+
+detect_system_python() {
+    local candidate resolved
+
+    for candidate in python3.12 python3.11 python3; do
+        resolved=$(resolve_python_cmd "$candidate") || continue
+        if is_supported_python "$resolved"; then
+            printf '%s\n' "$resolved"
+            return 0
+        fi
+    done
+    return 1
+}
+
 emit_install_progress() {
     local percent="$1"
     shift
