@@ -5,6 +5,14 @@ All notable changes to VoCoType Linux will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0-rc.6] - 2026-07-22
+
+### Fixed
+
+- Native packages now install an executable libexec wrapper when the portable streaming worker lives in a distro-specific private library directory. An ELF symlink caused `$ORIGIN` to resolve from `/usr/libexec` on Debian multiarch systems, so the worker could not locate its bundled FunASR/ONNX libraries.
+- Package smoke tests now run relocation checks against the private worker ELF while invoking `--help` through the public launcher, covering both dependency resolution and the installed execution path.
+
+
 ## [3.0.0-rc.5] - 2026-07-22
 
 ### Fixed

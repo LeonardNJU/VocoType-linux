@@ -142,10 +142,12 @@ elif [[ -x "$streaming_bundle/bin/vocotype-streaming-worker" && -d "$streaming_b
       "$DESTDIR$PREFIX/share/licenses/vocotype-linux/native-streaming/"
   fi
   if [[ "$LIBEXECDIR/vocotype-streaming-worker" != "$runtime_streaming_libdir/vocotype-streaming-worker" ]]; then
-    streaming_link_target=$(realpath -m --relative-to="$LIBEXECDIR" \
-      "$runtime_streaming_libdir/vocotype-streaming-worker")
-    ln -sfn "$streaming_link_target" \
-      "$DESTDIR$LIBEXECDIR/vocotype-streaming-worker"
+    streaming_launcher="$DESTDIR$LIBEXECDIR/vocotype-streaming-worker"
+    printf -v streaming_worker_command '%q' \
+      "$runtime_streaming_libdir/vocotype-streaming-worker"
+    printf '#!/usr/bin/env bash\nset -euo pipefail\nexec %s "$@"\n' \
+      "$streaming_worker_command" > "$streaming_launcher"
+    chmod 0755 "$streaming_launcher"
   fi
 elif [[ "$REQUIRE_STREAMING_BUNDLE" == "1" ]]; then
   echo "Required native streaming bundle is missing: $streaming_bundle" >&2

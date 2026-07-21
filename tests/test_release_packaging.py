@@ -250,7 +250,13 @@ def test_staging_script_places_prebuilt_native_streaming_bundle(tmp_path: Path):
     )
     assert result.returncode == 0, result.stdout + result.stderr
     installed_worker = dest / "usr/libexec/vocotype-streaming-worker"
+    private_worker = dest / "usr/lib/vocotype/vocotype-streaming-worker"
+    assert installed_worker.is_file()
+    assert not installed_worker.is_symlink()
     assert installed_worker.stat().st_mode & stat.S_IXUSR
+    launcher_text = installed_worker.read_text(encoding="utf-8")
+    assert 'exec /usr/lib/vocotype/vocotype-streaming-worker "$@"' in launcher_text
+    assert private_worker.read_text(encoding="utf-8") == "#!/bin/sh\nexit 0\n"
     assert (dest / "usr/lib/vocotype/libfunasr.so").read_bytes() == b"native"
 
 def test_staging_script_honors_custom_libexec_directory(tmp_path: Path):
@@ -364,11 +370,11 @@ def test_backend_launcher_fails_cleanly_before_gui_setup(tmp_path: Path):
 def test_version_is_consistent_across_package_metadata():
     version = _version()
     assert version.startswith("3.0.0")
-    assert _version_field("tag") == "v3.0.0-rc.5"
-    assert _version_field("debian") == "3.0.0~rc5"
+    assert _version_field("tag") == "v3.0.0-rc.6"
+    assert _version_field("debian") == "3.0.0~rc6"
     assert _version_field("rpm_version") == "3.0.0"
-    assert _version_field("rpm_release") == "0.rc5"
-    assert _version_field("arch") == "3.0.0rc5"
+    assert _version_field("rpm_release") == "0.rc6"
+    assert _version_field("arch") == "3.0.0rc6"
     changelog = (ROOT / "packaging/debian/changelog").read_text(encoding="utf-8")
     assert changelog.startswith(
         f"vocotype-linux ({_version_field('debian')}-1)"
@@ -909,6 +915,9 @@ def test_release_packages_are_offline_but_require_complete_prebuilt_runtimes():
     )
     assert "PACKAGE_STREAMING_RUNTIME_OPTIONAL_ABSENT" not in smoke
     assert "PACKAGE_STREAMING_RUNTIME_OK" in smoke
+    assert 'ldd -r "$streaming_worker_elf"' in smoke
+    assert '"$streaming_launcher" --help' in smoke
+    assert "streaming_worker_elf" in smoke
     assert "PACKAGE_WHEELHOUSE_OK" in smoke
     assert '"$wheel_count" -ge 12' in smoke
     for required in ("onnxruntime", "sentencepiece", "funasr_onnx"):
@@ -916,7 +925,6 @@ def test_release_packages_are_offline_but_require_complete_prebuilt_runtimes():
     for optional in ("pyrime", "torch", "transformers", "socksio"):
         assert optional in smoke
     assert "non-core wheel leaked into package" in smoke
-    assert '"$streaming_worker" --help' in smoke
 
     release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
     assert release.count("name: native-streaming-linux-x86_64") >= 4
@@ -935,6 +943,8 @@ def test_release_packages_are_offline_but_require_complete_prebuilt_runtimes():
     assert 'flavor=%s' in stage and 'package=%s' in stage
     assert 'rm -rf "$source_root/ibus"' in stage
     assert 'rm -rf "$source_root/fcitx5"' in stage
+    assert 'streaming_launcher="$DESTDIR$LIBEXECDIR/vocotype-streaming-worker"' in stage
+    assert 'ln -sfn "$streaming_link_target"' not in stage
     assert "--only-binary :all:" in (
         ROOT / "packaging/tests/smoke-binary-runtime.sh"
     ).read_text(encoding="utf-8")

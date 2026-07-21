@@ -98,20 +98,57 @@ else
   fi
 fi
 
-streaming_worker=""
+streaming_launcher=""
 for candidate in \
   /usr/libexec/vocotype-streaming-worker \
   /usr/lib/vocotype/vocotype-streaming-worker \
   /usr/lib64/vocotype/vocotype-streaming-worker \
   /usr/lib/*/vocotype/vocotype-streaming-worker; do
-  if [[ -x "$candidate" ]]; then streaming_worker="$candidate"; break; fi
+  if [[ -x "$candidate" ]]; then
+    streaming_launcher="$candidate"
+    break
+  fi
 done
-[[ -n "$streaming_worker" ]] || { echo 'native streaming worker missing' >&2; exit 1; }
-if ldd "$streaming_worker" | grep -q 'not found'; then ldd "$streaming_worker" >&2; exit 1; fi
-"$streaming_worker" --help >/dev/null
+[[ -n "$streaming_launcher" ]] || {
+  echo 'native streaming worker launcher missing' >&2
+  exit 1
+}
+
+streaming_worker_elf=""
+for candidate in \
+  /usr/lib/vocotype/vocotype-streaming-worker \
+  /usr/lib64/vocotype/vocotype-streaming-worker \
+  /usr/lib/*/vocotype/vocotype-streaming-worker \
+  "$streaming_launcher"; do
+  [[ -x "$candidate" ]] || continue
+  if readelf -h "$candidate" >/dev/null 2>&1; then
+    streaming_worker_elf="$candidate"
+    break
+  fi
+done
+[[ -n "$streaming_worker_elf" ]] || {
+  echo 'native streaming worker ELF missing' >&2
+  exit 1
+}
+
+streaming_ldd_log=$(mktemp)
+if ! ldd -r "$streaming_worker_elf" >"$streaming_ldd_log" 2>&1; then
+  cat "$streaming_ldd_log" >&2
+  rm -f "$streaming_ldd_log"
+  echo 'native streaming worker failed runtime relocation checks' >&2
+  exit 1
+fi
+if grep -Eqi 'not found|undefined symbol|version `[^`]+. not found' "$streaming_ldd_log"; then
+  cat "$streaming_ldd_log" >&2
+  rm -f "$streaming_ldd_log"
+  echo 'native streaming worker has unresolved runtime dependencies' >&2
+  exit 1
+fi
+rm -f "$streaming_ldd_log"
+"$streaming_launcher" --help >/dev/null
 check_path /usr/share/licenses/vocotype-linux/native-streaming/onnxruntime/LICENSE
 check_path /usr/share/licenses/vocotype-linux/native-streaming/funasr/LICENSE
-echo "PACKAGE_STREAMING_RUNTIME_OK $streaming_worker"
+echo "PACKAGE_STREAMING_RUNTIME_OK launcher=$streaming_launcher elf=$streaming_worker_elf"
 
 wheelhouse=/usr/share/vocotype/wheelhouse
 check_path "$wheelhouse"
