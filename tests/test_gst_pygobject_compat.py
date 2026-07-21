@@ -4,6 +4,18 @@ import subprocess
 import sys
 import textwrap
 
+import pytest
+
+
+def _require_gstreamer_typelib() -> None:
+    try:
+        import gi
+
+        gi.require_version("Gst", "1.0")
+        from gi.repository import Gst  # noqa: F401
+    except (ImportError, ValueError) as exc:
+        pytest.skip(f"GStreamer typelib is not installed: {exc}")
+
 
 def _run_isolated(script: str) -> subprocess.CompletedProcess[str]:
     repo_root = Path(__file__).resolve().parents[1]
@@ -21,6 +33,7 @@ def _run_isolated(script: str) -> subprocess.CompletedProcess[str]:
 
 def test_pygobject_350_gst_init_calls_remain_valid_after_vocotype_patch():
     """Exercise the real PyGObject/GStreamer binding available on the runner."""
+    _require_gstreamer_typelib()
     completed = _run_isolated(
         """
         import importlib.metadata
@@ -47,6 +60,7 @@ def test_pygobject_350_gst_init_calls_remain_valid_after_vocotype_patch():
 
 def test_gst_compatibility_patch_normalizes_none_for_strict_bindings():
     """Model the strict typelib behavior reported on affected distributions."""
+    _require_gstreamer_typelib()
     completed = _run_isolated(
         """
         import gi
