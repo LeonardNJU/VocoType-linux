@@ -1,0 +1,64 @@
+--- a/third_party/kaldi-native-fbank/kaldi-native-fbank/csrc/rfft.h
++++ b/third_party/kaldi-native-fbank/kaldi-native-fbank/csrc/rfft.h
+@@ -19,5 +19,6 @@
+ #define KALDI_NATIVE_FBANK_CSRC_RFFT_H_
+ 
++#include <cstdint>
+ #include <memory>
+ 
+ namespace knf {
+--- a/third_party/openfst/src/include/fst/bi-table.h
++++ b/third_party/openfst/src/include/fst/bi-table.h
+@@ -315,7 +315,7 @@
+   }
+ 
+   VectorHashBiTable(const VectorHashBiTable<I, T, S, FP, H, HS> &table)
+-      : selector_(new S(table.s_)), fp_(new FP(*table.fp_)),
++      : selector_(new S(*table.selector_)), fp_(new FP(*table.fp_)),
+         h_(new H(*table.h_)), id2entry_(table.id2entry_),
+         fp2id_(table.fp2id_), hash_func_(*this), hash_equal_(*this),
+         keys_(table.keys_.size(), hash_func_, hash_equal_) {
+--- a/third_party/openfst/src/include/fst/fst.h
++++ b/third_party/openfst/src/include/fst/fst.h
+@@ -652,7 +652,7 @@
+   FstImpl &operator=(const FstImpl<Arc> &impl) {
+     properties_ = impl.properties_;
+     type_ = impl.type_;
+-    isymbols_ = impl.isymbols_ ? impl.isymbols_->Copy() : nullptr;
+-    osymbols_ = impl.osymbols_ ? impl.osymbols_->Copy() : nullptr;
++    isymbols_.reset(impl.isymbols_ ? impl.isymbols_->Copy() : nullptr);
++    osymbols_.reset(impl.osymbols_ ? impl.osymbols_->Copy() : nullptr);
+     return *this;
+   }
+--- a/src/util.h
++++ b/src/util.h
+@@ -1,5 +1,6 @@
+ #ifndef UTIL_H
+ #define UTIL_H
++#include <cstdint>
+ #include <vector>
+ #include <memory>
+ #include <unordered_map>
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -27,6 +27,6 @@
+     target_compile_definitions(funasr PUBLIC -D_FUNASR_API_EXPORT -DNOMINMAX -DYAML_CPP_DLL)
+ else()
+-    set(EXTRA_LIBS pthread yaml-cpp csrc kaldi-decoder fst glog gflags)
++    set(EXTRA_LIBS pthread yaml-cpp csrc kaldi-decoder fst glog gflags_nothreads_static)
+     include_directories(${ONNXRUNTIME_DIR}/include)
+     if(APPLE)
+         target_link_directories(funasr PUBLIC ${ONNXRUNTIME_DIR}/lib)
+--- a/third_party/openfst/src/lib/CMakeLists.txt
++++ b/third_party/openfst/src/lib/CMakeLists.txt
+@@ -41,8 +41,8 @@
+ include_directories(${CMAKE_SOURCE_DIR}/third_party/gflags/src/include)
+ link_directories(${CMAKE_SOURCE_DIR}/build/third_party/gflags)
+ 
+-target_link_libraries(fst PUBLIC glog gflags)
+-add_dependencies(fst glog gflags)
++target_link_libraries(fst PUBLIC glog gflags_nothreads_static)
++add_dependencies(fst glog gflags_nothreads_static)
+ 
+ install(TARGETS fst
+   LIBRARY DESTINATION lib

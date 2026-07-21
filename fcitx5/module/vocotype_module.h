@@ -3,7 +3,9 @@
 
 #include <cstdio>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <sys/types.h>
 
 #include <fcitx-config/option.h>
@@ -18,6 +20,11 @@
 #include "ipc_client.h"
 
 namespace vocotype {
+
+struct RecorderOutputState {
+    std::mutex mutex;
+    std::string audio_path;
+};
 
 FCITX_CONFIGURATION(
     VoCoTypeModuleConfig,
@@ -119,6 +126,7 @@ private:
     void stopAndTranscribe();
 
     void showPanelMessage(fcitx::InputContext *ic, const std::string &message);
+    void showStreamingPreview(fcitx::InputContext *ic, const std::string &text);
     void showAnimationFrame(fcitx::InputContext *ic);
     void startPanelAnimation(fcitx::InputContext *ic, PanelAnimationKind kind);
     void stopPanelAnimation();
@@ -165,16 +173,21 @@ private:
     bool strip_trailing_period_on_commit_ = false;
 
     bool ptt_pressed_ = false;
+    bool ptt_suppressed_ = false;
     bool is_recording_ = false;
     bool recording_long_mode_ = false;
     bool pending_long_mode_ = false;
     bool ui_owned_ = false;
+    bool streaming_preview_visible_ = false;
     fcitx::KeyStates pending_ptt_states_ = fcitx::KeyState::NoState;
     fcitx::TrackableObjectReference<fcitx::InputContext> active_ic_;
 
     pid_t recorder_pid_ = -1;
     int recorder_stdin_fd_ = -1;
-    FILE *recorder_stdout_ = nullptr;
+    int recorder_lock_fd_ = -1;
+    std::thread recorder_output_thread_;
+    std::shared_ptr<RecorderOutputState> recorder_output_state_;
+    uint64_t recording_generation_ = 0;
 
     std::unique_ptr<fcitx::EventSourceTime> ptt_hold_timer_;
     std::unique_ptr<fcitx::EventSourceTime> recording_animation_timer_;

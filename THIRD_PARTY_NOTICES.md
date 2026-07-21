@@ -8,7 +8,8 @@ Runtime dependencies (from requirements.txt / pyproject.toml):
 - sounddevice 0.5.2 - https://github.com/spatialaudio/python-sounddevice
 - librosa 0.11.0 - https://github.com/librosa/librosa
 - soundfile 0.13.1 - https://github.com/bastibe/python-soundfile
-- funasr_onnx 0.4.1 - https://github.com/modelscope/FunASR
+- funasr_onnx 0.4.2 - https://github.com/modelscope/FunASR
+- ONNX Runtime 1.23.2 (native streaming bundle) - https://github.com/microsoft/onnxruntime
 - jieba 0.42.1 - https://github.com/fxsjy/jieba
 - PyGObject >=3.42.0, <3.51 - https://pygobject.readthedocs.io/
 - modelscope 1.30.0 - https://github.com/modelscope/modelscope

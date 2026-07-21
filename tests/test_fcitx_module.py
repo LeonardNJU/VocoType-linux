@@ -60,3 +60,32 @@ def test_ptt_release_stops_listening_immediately_without_debounce():
     assert "} else if (is_recording_) {\n        stopAndTranscribe();" in source
     stop_body = source.split("void VoCoTypeModule::stopRecording(bool transcribe)", 1)[1]
     assert stop_body.index("stopPanelAnimation();") < stop_body.index("is_recording_ = false;")
+
+
+def test_live_asr_partials_replace_panel_preedit_but_never_commit():
+    source = (ROOT / "fcitx5" / "module" / "vocotype_module.cpp").read_text(
+        encoding="utf-8"
+    )
+    preview_body = source.split(
+        "void VoCoTypeModule::showStreamingPreview", 1
+    )[1].split("void VoCoTypeModule::showAnimationFrame", 1)[0]
+    assert 'type == "partial"' in source
+    assert "panel.setPreedit(preview);" in preview_body
+    assert "streaming_preview_visible_" in preview_body
+    assert preview_body.count("panel.reset();") == 1
+    assert "ic->updatePreedit();" not in preview_body
+    assert "commitString" not in preview_body
+    assert 'type == "audio"' in source
+    assert "transcribeAudio(audio_path, false)" in source
+
+
+def test_fcitx_recording_is_process_singleton_and_duplicate_release_is_consumed():
+    source = (ROOT / "fcitx5/module/vocotype_module.cpp").read_text(encoding="utf-8")
+    header = (ROOT / "fcitx5/module/vocotype_module.h").read_text(encoding="utf-8")
+    assert "flock(fd, LOCK_EX | LOCK_NB)" in source
+    assert "recorder_lock_fd_" in header
+    assert "ptt_suppressed_" in header
+    assert "Suppressed duplicate VoCoType recording start" in source
+    assert "} else if (ptt_suppressed_) {\n        cancelPendingRecordingStart();" in source
+    finish = source.split("std::string finishRecorderProcess", 1)[1].split("bool copyTextToWaylandClipboard", 1)[0]
+    assert "close(lock_fd);" in finish

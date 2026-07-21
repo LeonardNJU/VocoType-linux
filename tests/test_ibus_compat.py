@@ -31,3 +31,34 @@ def test_build_capability_flags_includes_newer_optional_flags():
         (64, "osk"),
         (128, "sync_key"),
     )
+
+
+def test_ibus_online_preview_is_preedit_only_and_offline_asr_remains_final():
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[1] / "ibus" / "engine.py"
+    ).read_text(encoding="utf-8")
+    preview_body = source.split("    def _render_streaming_preview", 1)[1].split(
+        "    def _reload_runtime_config", 1
+    )[0]
+    final_body = source.split("    def _stop_and_transcribe", 1)[1].split(
+        "    def _update_preedit", 1
+    )[0]
+    assert "self._update_preedit(text)" in preview_body
+    assert "commit_text" not in preview_body
+    assert "asr_server.transcribe_audio(" in final_body
+    assert "audio_data = np.concatenate(self._audio_frames)" in final_body
+
+
+def test_ibus_release_does_not_wait_for_online_tail_flush():
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[1] / "ibus" / "engine.py"
+    ).read_text(encoding="utf-8")
+    stop_body = source.split("    def _stop_streaming_preview", 1)[1].split(
+        "    def _render_streaming_preview", 1
+    )[0]
+    assert "thread.join(timeout=0.1)" in stop_body
+    assert "flush=True" not in stop_body

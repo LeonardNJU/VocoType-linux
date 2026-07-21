@@ -954,3 +954,13 @@ def test_doctor_reports_polkit_readiness(monkeypatch: pytest.MonkeyPatch):
     check = next(item for item in run_doctor() if item.check_id == "polkit")
     assert check.status == "pass"
     assert "pkexec" in check.details
+
+
+def test_settings_center_exposes_optional_two_pass_preview_toggle():
+    source = (
+        Path(__file__).resolve().parents[1] / "settings_center" / "application.py"
+    ).read_text(encoding="utf-8")
+    assert "实时识别预览（2-pass）" in source
+    assert 'streaming["enabled"] = self.asr_streaming_enabled.get_active()' in source
+    assert "松键后仍由原高精度离线模型给出最终结果" in source
+    assert "本地 native worker 空闲后自动退出" in source

@@ -326,11 +326,22 @@ class SettingsWindow(Gtk.ApplicationWindow):
             "配置识别后的数字、日期、时间、路程和金额格式；麦克风、回放与真实模型试用已集中到 Playground。",
         )
         card = self._card()
+        self.asr_streaming_enabled = self._switch()
         self.itn_enabled = self._switch()
         self.compact_dates = self._switch()
         self.compact_times = self._switch()
         self.compact_distances = self._switch()
         self.currency_symbols = self._switch()
+        card.pack_start(
+            self._row(
+                "实时识别预览（2-pass）",
+                "按住说话时实时更新 preedit；松键后仍由原高精度离线模型给出最终结果。首次录音会按需加载约 238 MB 官方在线模型；本地 native worker 空闲后自动退出并释放内存。",
+                self.asr_streaming_enabled,
+            ),
+            False,
+            False,
+            0,
+        )
         card.pack_start(self._row("启用数字与 ITN", "关闭后保留用户词典替换，但不改写中文数字。", self.itn_enabled), False, False, 0)
         card.pack_start(self._row("紧凑日期", "例如：二零二六年五月十一号 → 2026/05/11", self.compact_dates), False, False, 0)
         card.pack_start(self._row("24 小时时间", "例如：下午三点二十分 → 15:20", self.compact_times), False, False, 0)
@@ -696,8 +707,12 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
     def _load_values(self) -> None:
         normalization = self.runtime_config.get("normalization", {})
+        asr_streaming = self.runtime_config.get("asr_streaming", {})
         slm = self.runtime_config.get("slm", {})
         feedback = self.runtime_config.get("feedback", {})
+        self.asr_streaming_enabled.set_active(
+            _as_bool(asr_streaming.get("enabled"), False)
+        )
         self.itn_enabled.set_active(_as_bool(normalization.get("enabled"), True))
         self.compact_dates.set_active(_as_bool(normalization.get("compact_dates"), True))
         self.compact_times.set_active(_as_bool(normalization.get("compact_times"), True))
@@ -795,6 +810,11 @@ class SettingsWindow(Gtk.ApplicationWindow):
                     sample_rate=int(self.audio_sample_rate.get_value()),
                 )
             config = load_runtime_config()
+            streaming = config.get("asr_streaming")
+            if not isinstance(streaming, dict):
+                streaming = {}
+            streaming["enabled"] = self.asr_streaming_enabled.get_active()
+            config["asr_streaming"] = streaming
             config["normalization"] = self._current_normalization()
             config["slm"] = self._current_slm()
             feedback = config.get("feedback")

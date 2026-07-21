@@ -794,6 +794,7 @@ cp -r "$PROJECT_DIR/app" "$INSTALL_DIR/"
 cp -r "$PROJECT_DIR/settings_center" "$INSTALL_DIR/"
 cp -r "$PROJECT_DIR/ibus" "$INSTALL_DIR/"
 cp "$PROJECT_DIR/vocotype_version.py" "$INSTALL_DIR/"
+install_native_streaming_bundle "$PROJECT_DIR"
 
 TERMS_DIR="$HOME/.config/vocotype"
 TERMS_FILE="$TERMS_DIR/terms.yaml"

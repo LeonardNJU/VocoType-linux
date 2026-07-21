@@ -8,6 +8,7 @@
 - [Rime 配置](guides/rime.md)
 - [术语库与热词](guides/terms.md)
 - [数字与 ITN](guides/itn.md)
+- [实时识别预览（FunASR 2-pass）](guides/asr-streaming.md)
 - [流式 AI 润色](guides/slm-streaming.md)
 
 ## 输入法集成

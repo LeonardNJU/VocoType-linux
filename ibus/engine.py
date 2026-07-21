@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import threading
@@ -36,6 +37,7 @@ from app.audio_utils import (
 from app.config import DEFAULT_CONFIG, load_config
 from app.ibus_compat import build_capability_flags
 from app.slm_polisher import SLMPolisher
+from app.streaming_asr import StreamingASRProcess, StreamingAudioChunker
 
 if TYPE_CHECKING:
     from pyrime.session import Session as RimeSession
@@ -130,6 +132,12 @@ class VoCoTypeEngine(IBus.Engine):
     _shared_asr_ready = threading.Event()
     _shared_asr_init_error: Optional[str] = None
 
+    # Optional FunASR online model shared across engine instances. It is only
+    # loaded when the user enables 2-pass preview.
+    _shared_streaming_asr = None
+    _shared_streaming_config_key = ""
+    _shared_streaming_lock = threading.Lock()
+
     def __init__(self, bus: IBus.Bus, object_path: str):
         # 需要显式传入 DBus 连接与 object_path，避免 GLib g_variant object_path 断言失败。
         super().__init__(connection=bus.get_connection(), object_path=object_path)
@@ -145,6 +153,12 @@ class VoCoTypeEngine(IBus.Engine):
         self._stop_event = threading.Event()
         self._capture_thread: Optional[threading.Thread] = None
         self._stream = None
+        self._streaming_audio_queue: Optional[queue.Queue] = None
+        self._streaming_stop_event: Optional[threading.Event] = None
+        self._streaming_thread: Optional[threading.Thread] = None
+        self._streaming_session_id = ""
+        self._streaming_enabled = False
+        self._recording_generation = 0
         self._edit_snapshot: Optional[SurroundingSnapshot] = None
         self._edit_undo_stack: list[str] = []
         self._edit_redo_stack: list[str] = []
@@ -163,6 +177,7 @@ class VoCoTypeEngine(IBus.Engine):
         )
         self._slm_polisher = SLMPolisher(self._runtime_config.get("slm", {}))
         logger.info("IBus SLM 长句润色: enabled=%s", self._slm_polisher.enabled)
+        self._configure_streaming_asr(self._runtime_config)
 
         # ASR服务使用类级共享实例
         self._native_sample_rate = CONFIGURED_SAMPLE_RATE
@@ -903,6 +918,116 @@ class VoCoTypeEngine(IBus.Engine):
             "",
         )
 
+    def _configure_streaming_asr(self, config: dict) -> None:
+        cfg = dict(config.get("asr_streaming", {}) or {})
+        enabled = bool(cfg.get("enabled", False))
+        config_key = json.dumps(cfg, ensure_ascii=False, sort_keys=True)
+        cls = type(self)
+        with cls._shared_streaming_lock:
+            if not enabled:
+                if cls._shared_streaming_asr is not None:
+                    cls._shared_streaming_asr.cleanup()
+                cls._shared_streaming_asr = None
+                cls._shared_streaming_config_key = ""
+            elif (
+                cls._shared_streaming_asr is None
+                or cls._shared_streaming_config_key != config_key
+            ):
+                if cls._shared_streaming_asr is not None:
+                    cls._shared_streaming_asr.cleanup()
+                cls._shared_streaming_asr = StreamingASRProcess(cfg)
+                cls._shared_streaming_config_key = config_key
+        self._streaming_enabled = enabled
+
+    def _start_streaming_preview(self, sample_rate: int) -> None:
+        if not self._streaming_enabled or self._recording_edit_mode:
+            return
+        cls = type(self)
+        with cls._shared_streaming_lock:
+            model = cls._shared_streaming_asr
+        if model is None:
+            return
+
+        preview_queue: queue.Queue = queue.Queue(maxsize=100)
+        stop_event = threading.Event()
+        generation = self._recording_generation
+        self._streaming_audio_queue = preview_queue
+        self._streaming_stop_event = stop_event
+
+        def preview_loop():
+            session_id = ""
+            try:
+                started = model.start_session()
+                if not started.get("success"):
+                    logger.info(
+                        "IBus 本次录音无实时预览，最终离线识别不受影响: %s",
+                        started.get("error", "not_ready"),
+                    )
+                    return
+                session_id = str(started["session_id"])
+                self._streaming_session_id = session_id
+                if stop_event.is_set():
+                    return
+                chunker = StreamingAudioChunker(
+                    sample_rate,
+                    int(started.get("chunk_samples", 9600)),
+                )
+                while not stop_event.is_set():
+                    try:
+                        frame = preview_queue.get(timeout=0.1)
+                    except queue.Empty:
+                        continue
+                    for chunk in chunker.push(frame):
+                        if stop_event.is_set():
+                            break
+                        result = model.feed(session_id, chunk.tobytes())
+                        if not result.get("success"):
+                            raise RuntimeError(
+                                str(result.get("error", "实时预览失败"))
+                            )
+                        text = str(result.get("text", ""))
+                        if text:
+                            GLib.idle_add(
+                                self._render_streaming_preview,
+                                text,
+                                generation,
+                            )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("IBus 实时预览已停用，本次最终识别不受影响: %s", exc)
+            finally:
+                if session_id:
+                    model.close_session(session_id, flush=False)
+
+        self._streaming_thread = threading.Thread(
+            target=preview_loop,
+            daemon=True,
+            name="VoCoTypeIBusStreamingPreview",
+        )
+        self._streaming_thread.start()
+
+    def _stop_streaming_preview(self) -> None:
+        stop_event = self._streaming_stop_event
+        self._streaming_stop_event = None
+        self._streaming_audio_queue = None
+        if stop_event is not None:
+            stop_event.set()
+        thread = self._streaming_thread
+        self._streaming_thread = None
+        self._streaming_session_id = ""
+        if thread is not None:
+            thread.join(timeout=0.1)
+            if thread.is_alive():
+                logger.debug("IBus 实时预览仍在退出；不等待，优先最终离线识别")
+
+    def _render_streaming_preview(self, text: str, generation: int) -> bool:
+        if (
+            self._is_recording
+            and generation == self._recording_generation
+            and not self._recording_edit_mode
+        ):
+            self._update_preedit(text)
+        return False
+
     def _reload_runtime_config(self) -> None:
         """Reload GUI-managed runtime settings before a new recording."""
 
@@ -917,9 +1042,11 @@ class VoCoTypeEngine(IBus.Engine):
         )
         self._slm_polisher = SLMPolisher(latest.get("slm", {}))
         previous_polisher.release()
+        self._configure_streaming_asr(latest)
         logger.info(
-            "IBus 运行配置已重新加载: slm_enabled=%s normalization_enabled=%s",
+            "IBus 运行配置已重新加载: slm_enabled=%s streaming_enabled=%s normalization_enabled=%s",
             self._slm_polisher.enabled,
+            self._streaming_enabled,
             self._asr_options["normalization"].get("enabled", True),
         )
 
@@ -1719,6 +1846,7 @@ class VoCoTypeEngine(IBus.Engine):
             self._is_recording = True
             self._recording_long_mode = long_mode
             self._recording_edit_mode = edit_mode
+            self._recording_generation += 1
             self._audio_frames.clear()
             self._stop_event.clear()
 
@@ -1753,12 +1881,20 @@ class VoCoTypeEngine(IBus.Engine):
             )
             self._stream.start()
 
+            self._start_streaming_preview(sample_rate)
+
             # 启动采集线程
             def capture_loop():
                 while not self._stop_event.is_set():
                     try:
                         frame = self._audio_queue.get(timeout=0.1)
                         self._audio_frames.append(frame)
+                        preview_queue = self._streaming_audio_queue
+                        if preview_queue is not None:
+                            try:
+                                preview_queue.put_nowait(frame)
+                            except queue.Full:
+                                logger.debug("IBus 实时预览队列已满，最终录音仍完整保留")
                     except queue.Empty:
                         continue
 
@@ -1819,6 +1955,7 @@ class VoCoTypeEngine(IBus.Engine):
         self._is_recording = False
         self._recording_long_mode = False
         self._recording_edit_mode = False
+        self._stop_streaming_preview()
         self._clear_preedit()
         if long_mode or edit_mode:
             self._slm_polisher.release()
@@ -1853,6 +1990,7 @@ class VoCoTypeEngine(IBus.Engine):
         self._is_recording = False
         self._recording_long_mode = False
         self._recording_edit_mode = False
+        self._stop_streaming_preview()
         self._edit_snapshot = None
 
         if edit_mode and not self._is_engine_active():

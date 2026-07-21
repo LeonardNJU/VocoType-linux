@@ -72,3 +72,13 @@ def test_installers_write_remote_streaming_defaults():
     assert 'slm["stream_idle_timeout_ms"] = timeout_ms' in shared
     assert 'slm.setdefault("remote_max_tokens", 0)' in shared
     assert 'slm.setdefault("extra_headers", {})' in shared
+
+
+def test_official_two_pass_preview_is_optional_and_cpu_bounded_by_default():
+    streaming = DEFAULT_CONFIG["asr_streaming"]
+    assert streaming["enabled"] is False
+    assert streaming["chunk_size"] == [5, 10, 5]
+    assert streaming["intra_op_num_threads"] == 1
+    assert streaming["idle_timeout_s"] == 30
+    assert streaming["session_idle_timeout_s"] == 15
+    assert streaming["model"].endswith("-online-onnx")
