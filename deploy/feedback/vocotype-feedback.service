@@ -1,0 +1,36 @@
+[Unit]
+Description=VoCoType Feedback API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vocotype-feedback
+Group=vocotype-feedback
+WorkingDirectory=/opt/vocotype-feedback
+EnvironmentFile=/etc/vocotype-feedback.env
+ExecStart=/opt/vocotype-feedback/.venv/bin/uvicorn feedback_service.app:app --host 127.0.0.1 --port 18088 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=15
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/vocotype-feedback
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

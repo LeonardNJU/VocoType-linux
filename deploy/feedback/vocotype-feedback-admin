@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+set -a
+. /etc/vocotype-feedback.env
+set +a
+exec /usr/sbin/runuser -u vocotype-feedback -- \
+  /usr/bin/env \
+  VOCOTYPE_FEEDBACK_DATA_DIR="$VOCOTYPE_FEEDBACK_DATA_DIR" \
+  VOCOTYPE_FEEDBACK_HMAC_SECRET="$VOCOTYPE_FEEDBACK_HMAC_SECRET" \
+  VOCOTYPE_FEEDBACK_TRUSTED_PROXIES="${VOCOTYPE_FEEDBACK_TRUSTED_PROXIES:-127.0.0.1,::1}" \
+  PYTHONPATH=/opt/vocotype-feedback \
+  /opt/vocotype-feedback/.venv/bin/python -m feedback_service.cli "$@"
