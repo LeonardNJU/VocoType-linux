@@ -364,11 +364,11 @@ def test_backend_launcher_fails_cleanly_before_gui_setup(tmp_path: Path):
 def test_version_is_consistent_across_package_metadata():
     version = _version()
     assert version.startswith("3.0.0")
-    assert _version_field("tag") == "v3.0.0-rc.2"
-    assert _version_field("debian") == "3.0.0~rc2"
+    assert _version_field("tag") == "v3.0.0-rc.3"
+    assert _version_field("debian") == "3.0.0~rc3"
     assert _version_field("rpm_version") == "3.0.0"
-    assert _version_field("rpm_release") == "0.rc2"
-    assert _version_field("arch") == "3.0.0rc2"
+    assert _version_field("rpm_release") == "0.rc3"
+    assert _version_field("arch") == "3.0.0rc3"
     changelog = (ROOT / "packaging/debian/changelog").read_text(encoding="utf-8")
     assert changelog.startswith(
         f"vocotype-linux ({_version_field('debian')}-1)"
@@ -917,6 +917,11 @@ def test_release_packages_are_offline_but_require_complete_prebuilt_runtimes():
     assert "build-runtime-wheelhouse.sh" in release
     assert "smoke-binary-runtime.sh" in release
     assert release.count("for flavor in universal ibus fcitx5") >= 3
+    assert '${package_name}_${debian_version}-*_amd64.deb' in release
+    assert '${package_name}-${rpm_version}-${rpm_release}*.x86_64.rpm' in release
+    assert '${package_name}-${arch_version}-*.pkg.tar.*' in release
+    assert '${package_name}-*.x86_64.rpm' not in release
+    assert '${package_name}-*.pkg.tar.*' not in release
     assert 'smoke-installed-package.sh "${{ needs.validate-version.outputs.version }}" "$flavor"' in release
     stage = (ROOT / "packaging/tools/stage-system-package.sh").read_text(encoding="utf-8")
     assert '--flavor) FLAVOR=' in stage

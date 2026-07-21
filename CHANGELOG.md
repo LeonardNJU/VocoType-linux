@@ -5,6 +5,13 @@ All notable changes to VoCoType Linux will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0-rc.3] - 2026-07-22
+
+### Fixed
+
+- Release CI now selects each native package flavor by its exact package name and normalized distro version, preventing the universal Arch/RPM smoke test from accidentally installing the IBus- or Fcitx-specific package.
+
+
 ## [3.0.0-rc.2] - 2026-07-22
 
 ### Fixed

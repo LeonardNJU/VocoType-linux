@@ -145,9 +145,10 @@ jobs:
       - name: Install and validate every Debian flavor
         run: |
           version=$(python3 packaging/tools/versioning.py "$(sed -n 's/^__version__ = "\(.*\)"/\1/p' vocotype_version.py)")
+          debian_version=$(python3 packaging/tools/versioning.py "$version" --field debian)
           for flavor in universal ibus fcitx5; do
             package_name=$(python3 packaging/tools/package-flavor.py "$flavor" --field package_name)
-            package=$(find dist/packages -maxdepth 1 -name "${package_name}_*.deb" -print -quit)
+            package=$(find dist/packages -maxdepth 1 -name "${package_name}_${debian_version}-*_amd64.deb" -print -quit)
             test -n "$package"
             sudo apt-get install -y "$(realpath "$package")"
             sudo packaging/tests/smoke-installed-package.sh "$version" "$flavor"
@@ -210,9 +211,11 @@ jobs:
       - name: Install and validate every RPM flavor
         run: |
           version=$(python3 packaging/tools/versioning.py "$(sed -n 's/^__version__ = "\(.*\)"/\1/p' vocotype_version.py)")
+          rpm_version=$(python3 packaging/tools/versioning.py "$version" --field rpm_version)
+          rpm_release=$(python3 packaging/tools/versioning.py "$version" --field rpm_release)
           for flavor in universal ibus fcitx5; do
             package_name=$(python3 packaging/tools/package-flavor.py "$flavor" --field package_name)
-            package=$(find dist/packages -maxdepth 1 -name "${package_name}-*.x86_64.rpm" ! -name '*debug*' -print -quit)
+            package=$(find dist/packages -maxdepth 1 -name "${package_name}-${rpm_version}-${rpm_release}*.x86_64.rpm" ! -name '*debug*' -print -quit)
             test -n "$package"
             dnf install -y "$package"
             packaging/tests/smoke-installed-package.sh "$version" "$flavor"
@@ -269,9 +272,10 @@ jobs:
       - name: Install and validate every Arch flavor
         run: |
           version=$(python3 packaging/tools/versioning.py "$(sed -n 's/^__version__ = "\(.*\)"/\1/p' vocotype_version.py)")
+          arch_version=$(python3 packaging/tools/versioning.py "$version" --field arch)
           for flavor in universal ibus fcitx5; do
             package_name=$(python3 packaging/tools/package-flavor.py "$flavor" --field package_name)
-            package=$(find dist/packages -maxdepth 1 -name "${package_name}-*.pkg.tar.*" ! -name '*debug*' -print -quit)
+            package=$(find dist/packages -maxdepth 1 -name "${package_name}-${arch_version}-*.pkg.tar.*" ! -name '*debug*' -print -quit)
             test -n "$package"
             pacman -U --noconfirm "$package"
             packaging/tests/smoke-installed-package.sh "$version" "$flavor"
