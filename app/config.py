@@ -97,7 +97,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "top_k": 20,
         "enable_thinking": False,
         "edit_enabled": True,
-        "edit_max_tokens": 256,
+        "edit_max_tokens": 1024,
         "api_key": "",
         # Prefer an environment variable for credentials on shared machines.
         "api_key_env": "",

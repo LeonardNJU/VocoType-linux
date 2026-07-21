@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import threading
 import time
 
+from app.voice_edit import KeyAction, VoiceEditPlan
 from fcitx5.backend.fcitx5_server import EditTask, Fcitx5Backend
 
 
@@ -21,19 +22,31 @@ class FakeAsr:
 
 
 class FakePolisher:
-    def __init__(self, *, enabled: bool, edited_text: str = ""):
+    def __init__(
+        self,
+        *,
+        enabled: bool,
+        plan: VoiceEditPlan | None = None,
+        reason: str = "ok",
+    ):
         self.enabled = enabled
         self.edit_enabled = enabled
-        self.edited_text = edited_text
+        self.plan = plan
+        self.reason = reason
         self.received = None
 
-    def edit_with_instruction(self, **kwargs):
+    def plan_voice_edit(self, **kwargs):
         self.received = kwargs
-        return self.edited_text, SimpleNamespace(reason="ok")
+        return self.plan, SimpleNamespace(
+            reason=self.reason,
+            latency_ms=3.0,
+            used=True,
+            applied=self.plan is not None,
+        )
 
     @staticmethod
     def is_failure_reason(reason):
-        return False
+        return reason not in {"ok", "disabled", "edit_disabled"}
 
     @staticmethod
     def format_failure_message(reason):
@@ -46,8 +59,6 @@ def backend(instruction: str, polisher: FakePolisher) -> Fcitx5Backend:
     value._asr_options = {}
     value._asr_lock = threading.Lock()
     value._slm_polisher = polisher
-    value._voice_edit_cores = {}
-    value._voice_edit_cores_lock = threading.Lock()
     value._voice_edit_run_lock = threading.Lock()
     value._edit_tasks = {}
     value._edit_tasks_lock = threading.Lock()
@@ -60,6 +71,7 @@ def request(audio: Path, text: str, cursor: int | None = None):
         "audio_path": str(audio),
         "context_id": "context-1",
         "replace_state": "unknown",
+        "supports_surrounding": True,
         "snapshot": {
             "text": text,
             "cursor_pos": position,
@@ -69,58 +81,66 @@ def request(audio: Path, text: str, cursor: int | None = None):
     }
 
 
-def test_fcitx_direct_edit_works_without_ai(tmp_path):
+def test_fcitx_voice_edit_requires_ai_for_every_command(tmp_path):
     audio = tmp_path / "edit.wav"
     audio.write_bytes(b"audio")
-    value = backend("把旧名字改成新名字", FakePolisher(enabled=False))
+    value = backend("撤销", FakePolisher(enabled=False))
 
-    result = value._edit_audio(request(audio, "这里是旧名字。"))
+    result = value._edit_audio(request(audio, "当前文本"))
 
-    assert result["success"] is True
-    assert result["mode"] == "replace"
-    assert result["new_text"] == "这里是新名字。"
-    assert result["expected_text"] == "这里是新名字。"
+    assert result["success"] is False
+    assert result["reason"] == "edit_disabled"
+    assert "完全由 AI 理解" in result["error"]
 
 
-def test_fcitx_free_form_edit_uses_shared_slm_path(tmp_path):
+def test_fcitx_contextual_homophone_edit_uses_slm_plan(tmp_path):
     audio = tmp_path / "edit.wav"
     audio.write_bytes(b"audio")
-    polisher = FakePolisher(enabled=True, edited_text="更正式的文本")
-    value = backend("改得更正式一点", polisher)
-
-    result = value._edit_audio(request(audio, "原始文本"))
-
-    assert result["success"] is True
-    assert result["mode"] == "replace"
-    assert result["new_text"] == "更正式的文本"
-    assert polisher.received["context_text"] == "原始文本"
-    assert polisher.received["instruction"] == "改得更正式一点"
-
-
-def test_fcitx_confirmed_edit_enables_shared_internal_undo(tmp_path):
-    audio = tmp_path / "edit.wav"
-    audio.write_bytes(b"audio")
-    value = backend("把旧改成新", FakePolisher(enabled=False))
-
-    first = value._edit_audio(request(audio, "旧"))
-    assert first["new_text"] == "新"
-    value._confirm_edit_applied(
-        {
-            "context_id": "context-1",
-            "original_text": "旧",
-            "new_text": "新",
-            "record_history": True,
-        }
+    polisher = FakePolisher(
+        enabled=True,
+        plan=VoiceEditPlan(
+            mode="replace",
+            new_text="请把 VoCoType 写成正确形式。",
+            hint="已结合上下文修正目标词",
+        ),
     )
+    value = backend("把窝口太普写正确", polisher)
 
-    value.asr_server.text = "撤销"
-    undone = value._edit_audio(request(audio, "新"))
-    assert undone["mode"] == "replace"
-    assert undone["new_text"] == "旧"
-    assert undone["record_history"] is False
+    result = value._edit_audio(request(audio, "请把 VocoType 写成正确形式。"))
+
+    assert result["success"] is True
+    assert result["mode"] == "replace"
+    assert result["new_text"] == "请把 VoCoType 写成正确形式。"
+    assert polisher.received["context_text"] == "请把 VocoType 写成正确形式。"
+    assert polisher.received["instruction"] == "把窝口太普写正确"
+    assert polisher.received["supports_surrounding"] is True
 
 
-def test_cpp_module_uses_surrounding_text_and_ctrl_f9_adapter():
+def test_fcitx_undo_and_navigation_are_slm_key_plans(tmp_path):
+    audio = tmp_path / "edit.wav"
+    audio.write_bytes(b"audio")
+    polisher = FakePolisher(
+        enabled=True,
+        plan=VoiceEditPlan(
+            mode="key_actions",
+            key_actions=(KeyAction("z", ("ctrl",), 1),),
+            record_history=False,
+        ),
+    )
+    value = backend("撤销", polisher)
+
+    result = value._edit_audio(request(audio, "当前文本"))
+
+    assert result["success"] is True
+    assert result["mode"] == "key_actions"
+    assert result["new_text"] == ""
+    assert result["key_actions"] == [
+        {"key": "z", "modifiers": ["ctrl"], "repeat": 1}
+    ]
+    assert result["expected_text"] == "当前文本"
+
+
+def test_cpp_module_uses_surrounding_text_and_slm_plan_adapter():
     header = (ROOT / "fcitx5/module/vocotype_module.h").read_text(encoding="utf-8")
     source = (ROOT / "fcitx5/module/vocotype_module.cpp").read_text(encoding="utf-8")
     backend_source = (ROOT / "fcitx5/backend/fcitx5_server.py").read_text(
@@ -140,7 +160,9 @@ def test_cpp_module_uses_surrounding_text_and_ctrl_f9_adapter():
     assert "req_type == 'edit_start'" in backend_source
     assert "req_type == 'edit_poll'" in backend_source
     assert "req_type == 'edit_audio'" in backend_source
-    assert "VoiceEditCore" in backend_source
+    assert "plan_voice_edit" in backend_source
+    assert "VoiceEditCore" not in backend_source
+    assert "apply_direct_command" not in backend_source
 
 
 def test_fcitx_ai_edit_uses_30_second_timeout():
@@ -159,15 +181,18 @@ def test_fcitx_ai_edit_uses_30_second_timeout():
 def test_async_edit_exposes_instruction_before_slm_finishes(tmp_path):
     class BlockingPolisher(FakePolisher):
         def __init__(self):
-            super().__init__(enabled=True, edited_text="完成结果")
+            super().__init__(
+                enabled=True,
+                plan=VoiceEditPlan(mode="replace", new_text="完成结果"),
+            )
             self.started = threading.Event()
             self.release = threading.Event()
 
-        def edit_with_instruction(self, **kwargs):
+        def plan_voice_edit(self, **kwargs):
             self.received = kwargs
             self.started.set()
             assert self.release.wait(timeout=2)
-            return self.edited_text, SimpleNamespace(reason="ok")
+            return super().plan_voice_edit(**kwargs)
 
     audio = tmp_path / "edit.wav"
     audio.write_bytes(b"audio")
@@ -192,22 +217,33 @@ def test_async_edit_exposes_instruction_before_slm_finishes(tmp_path):
     assert final["result"]["new_text"] == "完成结果"
 
 
-def test_empty_asr_and_empty_slm_are_distinguished(tmp_path):
+def test_empty_asr_and_bad_slm_plan_are_distinguished(tmp_path):
     audio = tmp_path / "edit.wav"
     audio.write_bytes(b"audio")
 
-    empty_asr = backend("", FakePolisher(enabled=True, edited_text="unused"))
+    empty_asr = backend("", FakePolisher(enabled=True))
     asr_result = empty_asr._edit_audio(request(audio, "原文"))
     assert asr_result["success"] is False
     assert asr_result["reason"] == "empty_instruction"
     assert "未识别到编辑指令" in asr_result["error"]
 
-    empty_slm = backend("翻译成英文", FakePolisher(enabled=True, edited_text=""))
-    slm_result = empty_slm._edit_audio(request(audio, "原文"))
-    assert slm_result["success"] is False
-    assert slm_result["reason"] == "blank_content"
-    assert slm_result["instruction"] == "翻译成英文"
-    assert "没有返回编辑结果" in slm_result["error"]
+    bad_plan = backend(
+        "翻译成英文",
+        FakePolisher(enabled=True, plan=None, reason="bad_edit_plan"),
+    )
+    plan_result = bad_plan._edit_audio(request(audio, "原文"))
+    assert plan_result["success"] is False
+    assert plan_result["reason"] == "bad_edit_plan"
+    assert plan_result["instruction"] == "翻译成英文"
+
+
+def test_cpp_voice_edit_json_parser_tolerates_null_fields():
+    source = (ROOT / "fcitx5/common/ipc_client.cpp").read_text(encoding="utf-8")
+    assert 'jsonStringOr(value, "new_text")' in source
+    assert 'jsonStringOr(value, "hint")' in source
+    assert 'jsonBoolOr(value, "record_history", true)' in source
+    assert 'value.value("new_text", "")' not in source
+    assert "item.is_object()" in source
 
 
 def test_edit_task_times_out_after_30_seconds():

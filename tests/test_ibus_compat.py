@@ -90,3 +90,23 @@ def test_ibus_rejects_short_recordings_and_hides_early_streaming_partials():
     assert "eligible = (" in preview_body
     assert "time.monotonic() - self._recording_started_at" in preview_body
     assert "and eligible" in preview_body
+
+
+def test_ibus_slm_key_plans_cover_navigation_and_recheck_snapshot():
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "ibus" / "engine.py").read_text(
+        encoding="utf-8"
+    )
+    assert '"pageup": IBus.KEY_Page_Up' in source
+    assert '"backspace": IBus.KEY_BackSpace' in source
+    assert '"c": IBus.KEY_c' in source
+    assert '"v": IBus.KEY_v' in source
+    assert 'snapshot: Optional[SurroundingSnapshot] = None' in source
+    assert 'live_text != snapshot.text' in source
+    assert 'int(live_cursor) != int(snapshot.cursor_pos)' in source
+    assert 'int(live_anchor) != int(snapshot.anchor_pos)' in source
+    plan_call = source.split("if plan.mode == \"key_actions\":", 1)[1].split("return", 1)[0]
+    assert "plan.key_actions" in plan_call
+    assert "plan.hint" in plan_call
+    assert "edit_snapshot" in plan_call

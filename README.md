@@ -148,11 +148,11 @@ VoCoType 作为独立 IBus 引擎运行，并提供与 Fcitx 5 相同的 `Ctrl+F
 - reasoning / thinking 过滤；
 - 失败时保留原始识别文本。
 
-AI 功能默认关闭；只有用户主动配置远程接口时，文本才会发送到该服务。IBus 与 Fcitx 5 的 `Ctrl+F9` 共用同一套确定性命令、AI 编辑提示和历史状态。
+AI 功能默认关闭。`Shift+F9` 润色和 `Ctrl+F9` 语音编辑都使用用户选择的本地或远程模型；使用远程 provider 时，相应的转写文本会发送到该接口，语音编辑还会发送当前应用提供的 surrounding text、光标和选区。IBus 与 Fcitx 5 共用同一套受限 JSON 编辑计划与本地安全执行器，不再使用自然语言硬编码命令。
 
 ### 语音编辑
 
-在支持 surrounding text 的应用中，按 `Ctrl+F9` 后可以直接说：
+先在“AI 功能”页完成配置与测活。在支持 surrounding text 的应用中，按 `Ctrl+F9` 后可以直接说：
 
 - “把 A 改成 B”
 - “删除上一句”

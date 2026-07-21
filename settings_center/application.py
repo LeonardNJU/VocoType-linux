@@ -224,7 +224,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.stack.add_titled(general_page, "general", "通用设置")
         self.stack.add_titled(playground_page, "playground", "Playground")
         self.stack.add_titled(terms_page, "terms", "用户词典")
-        self.stack.add_titled(slm_page, "slm", "AI 润色")
+        self.stack.add_titled(slm_page, "slm", "AI 功能")
         self.stack.add_titled(self._doctor_page(), "doctor", "诊断")
         self.tutorial_page = self._tutorial_page()
         self.tutorial_page.set_no_show_all(True)
@@ -252,11 +252,12 @@ class SettingsWindow(Gtk.ApplicationWindow):
         box.get_style_context().add_class("card")
         return box
 
-    def _text_entry(self, *, width_chars: int = 40) -> Gtk.Entry:
+    def _text_entry(self, *, width_chars: int = 30) -> Gtk.Entry:
         entry = Gtk.Entry()
-        entry.set_width_chars(max(40, int(width_chars)))
-        entry.set_max_width_chars(max(80, int(width_chars)))
-        entry.set_hexpand(True)
+        entry.set_width_chars(max(30, int(width_chars)))
+        entry.set_max_width_chars(max(60, int(width_chars)))
+        entry.set_hexpand(False)
+        entry.set_halign(Gtk.Align.END)
         return entry
 
     def _section_heading(self, title: str, subtitle: str = "") -> Gtk.Box:
@@ -801,8 +802,8 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
     def _slm_page(self) -> Gtk.Widget:
         page, content = self._page(
-            "AI 润色",
-            "配置本地或 OpenAI-compatible 远程服务。API Key 可直接保存，也可以仅填写环境变量名。",
+            "AI 润色与语音编辑",
+            "配置本地或 OpenAI-compatible 远程服务。Shift+F9 用于润色；Ctrl+F9 的所有指令理解、同音词消歧与导航规划也统一由该模型完成。",
         )
         card = self._card()
         self.slm_enabled = self._switch()
@@ -823,8 +824,8 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.slm_timeout = Gtk.SpinButton.new_with_range(1000, 120000, 1000)
         card.pack_start(
             self._row(
-                "启用 AI 润色",
-                "F9 始终直接输出；Shift+F9 调用 AI 润色。填好模型、端点与凭据后再打开；切换到 ON 时会自动真实测活，失败则保持关闭。",
+                "启用 AI 功能",
+                "F9 始终直接输出；Shift+F9 调用润色；Ctrl+F9 必须通过模型结合 surrounding context 生成安全编辑计划。填好模型、端点与凭据后再打开；切换到 ON 时会自动真实测活。",
                 self.slm_enabled,
             ),
             False,
@@ -1060,7 +1061,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.playground_ai_controls.pack_start(
             self._section_heading(
                 "4. 测试语音编辑",
-                "用范例快速验证替换、翻译、LaTeX 公式与好评生成四类编辑指令。",
+                "所有指令都会把 ASR 结果、上下文、光标和选区交给已测活的模型生成受限编辑计划；可验证同音词替换、翻译、LaTeX 与文本生成。",
             ),
             False,
             False,

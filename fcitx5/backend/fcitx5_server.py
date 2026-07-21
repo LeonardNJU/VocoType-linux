@@ -25,7 +25,7 @@ from app.funasr_server import FunASRServer
 from app.logging_config import setup_logging
 from app.slm_polisher import SLMPolisher
 from app.streaming_asr import StreamingASRProcess
-from app.voice_edit import EditEnvironment, SurroundingSnapshot, VoiceEditCore
+from app.voice_edit import SurroundingSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -344,8 +344,6 @@ class Fcitx5Backend:
         self._stream_tasks_lock = threading.Lock()
         self._edit_tasks: dict[str, EditTask] = {}
         self._edit_tasks_lock = threading.Lock()
-        self._voice_edit_cores: dict[str, VoiceEditCore] = {}
-        self._voice_edit_cores_lock = threading.Lock()
         self._voice_edit_run_lock = threading.Lock()
 
         # 注册信号处理
@@ -629,24 +627,19 @@ class Fcitx5Backend:
                 except OSError:
                     pass
 
-    def _voice_edit_core(self, context_id: str) -> VoiceEditCore:
-        key = context_id.strip() or "default"
-        with self._voice_edit_cores_lock:
-            core = self._voice_edit_cores.get(key)
-            if core is None:
-                core = VoiceEditCore()
-                self._voice_edit_cores[key] = core
-            return core
-
     def _edit_audio(
         self,
         request: dict,
         on_instruction=None,
     ) -> dict:
         audio_path = str(request.get("audio_path", "")).strip()
-        context_id = str(request.get("context_id", "default")).strip() or "default"
         snapshot = SurroundingSnapshot.from_mapping(request.get("snapshot", {}))
-        replace_state = str(request.get("replace_state", "unknown"))
+        raw_replace_state = request.get("replace_state", "unknown")
+        replace_state = (
+            raw_replace_state
+            if isinstance(raw_replace_state, str) and raw_replace_state
+            else "unknown"
+        )
         supports_surrounding = bool(request.get("supports_surrounding", True))
         if not audio_path:
             return {"success": False, "error": "缺少 audio_path 参数"}
@@ -671,85 +664,49 @@ class Fcitx5Backend:
         if on_instruction is not None:
             on_instruction(instruction)
 
-        core = self._voice_edit_core(context_id)
-        direct = core.apply_direct_command(
-            snapshot,
-            instruction,
-            EditEnvironment(
-                supports_surrounding=supports_surrounding,
-                active=True,
-                replace_state=replace_state,
-            ),
-        )
-        if direct.handled:
-            payload = direct.to_dict()
-            expected_text = ""
-            if direct.mode == "replace" and direct.new_text is not None:
-                expected_text = direct.new_text
-            elif direct.mode == "commit_only" and direct.new_text:
-                expected_text = core.predict_commit_result(snapshot, direct.new_text)
-            payload.update(
-                {
-                    "success": True,
-                    "instruction": instruction,
-                    "expected_text": expected_text,
-                }
-            )
-            return payload
-
         if not self._slm_polisher.enabled or not self._slm_polisher.edit_enabled:
             return {
                 "success": False,
-                "error": "该指令需要 AI 编辑，请先在设置中心启用 AI 润色",
+                "error": "语音编辑完全由 AI 理解，请先在设置中心启用并测活 AI 润色",
                 "instruction": instruction,
+                "reason": "edit_disabled",
             }
 
-        rewritten = core.rewrite_insert_generation_instruction(instruction)
         with self._voice_edit_run_lock:
-            edited_text, metrics = self._slm_polisher.edit_with_instruction(
+            plan, metrics = self._slm_polisher.plan_voice_edit(
                 context_text=snapshot.text,
-                instruction=rewritten or instruction,
+                instruction=instruction,
                 cursor_pos=snapshot.cursor_pos,
                 anchor_pos=snapshot.anchor_pos,
                 selected_text=snapshot.selected_text,
+                supports_surrounding=supports_surrounding,
+                replace_state=replace_state,
             )
-        if self._slm_polisher.is_failure_reason(metrics.reason):
+        if plan is None:
             return {
                 "success": False,
                 "error": self._slm_polisher.format_failure_message(metrics.reason),
                 "instruction": instruction,
                 "reason": metrics.reason,
             }
-        if not str(edited_text or "").strip():
-            return {
-                "success": False,
-                "error": "AI 已收到指令，但没有返回编辑结果",
+
+        payload = plan.to_dict()
+        payload.update(
+            {
+                "success": True,
                 "instruction": instruction,
-                "reason": "blank_content",
+                "expected_text": (
+                    plan.new_text if plan.mode == "replace" else snapshot.text
+                ),
+                "reason": metrics.reason,
             }
-        return {
-            "success": True,
-            "handled": True,
-            "mode": "replace",
-            "new_text": edited_text,
-            "expected_text": edited_text,
-            "record_history": True,
-            "hint": "",
-            "key_actions": [],
-            "instruction": instruction,
-            "reason": metrics.reason,
-        }
+        )
+        return payload
 
     def _confirm_edit_applied(self, request: dict) -> dict:
-        context_id = str(request.get("context_id", "default")).strip() or "default"
-        original_text = str(request.get("original_text", ""))
-        new_text = str(request.get("new_text", ""))
-        record_history = bool(request.get("record_history", True))
-        self._voice_edit_core(context_id).mark_voice_edit_applied(
-            original_text,
-            new_text,
-            record_history=record_history,
-        )
+        # Compatibility endpoint retained for older frontends. Undo/redo and
+        # navigation are now planned by the SLM and executed by the host app,
+        # so the backend no longer maintains a parallel command/history state.
         return {"success": True}
 
     def handle_client(self, conn: socket.socket):

@@ -434,8 +434,30 @@ void VoCoTypeModule::runVoiceEditKeyActions(
             sym = FcitxKey_Home;
         } else if (key == "end") {
             sym = FcitxKey_End;
+        } else if (key == "pageup") {
+            sym = FcitxKey_Page_Up;
+        } else if (key == "pagedown") {
+            sym = FcitxKey_Page_Down;
+        } else if (key == "backspace") {
+            sym = FcitxKey_BackSpace;
+        } else if (key == "delete") {
+            sym = FcitxKey_Delete;
+        } else if (key == "enter") {
+            sym = FcitxKey_Return;
+        } else if (key == "tab") {
+            sym = FcitxKey_Tab;
+        } else if (key == "escape") {
+            sym = FcitxKey_Escape;
+        } else if (key == "space") {
+            sym = FcitxKey_space;
         } else if (key == "a") {
             sym = FcitxKey_a;
+        } else if (key == "c") {
+            sym = FcitxKey_c;
+        } else if (key == "v") {
+            sym = FcitxKey_v;
+        } else if (key == "x") {
+            sym = FcitxKey_x;
         } else if (key == "z") {
             sym = FcitxKey_z;
         }
@@ -457,7 +479,7 @@ void VoCoTypeModule::runVoiceEditKeyActions(
                 states |= fcitx::KeyState::Super;
             }
         }
-        const int repeat = std::clamp(action.repeat, 1, 20);
+        const int repeat = std::clamp(action.repeat, 1, 100);
         for (int index = 0; index < repeat; ++index) {
             const fcitx::Key forwarded(sym, states);
             ic->forwardKey(forwarded, false, 0);
@@ -613,7 +635,7 @@ void VoCoTypeModule::applyVoiceEditResult(
         active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
         return;
     }
-    if (result.mode == "no_replace") {
+    if (result.mode == "no_op" || result.mode == "no_replace") {
         if (!result.hint.empty()) {
             showTemporaryMessage(ic, result.hint);
         } else {

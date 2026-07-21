@@ -42,7 +42,7 @@ Fcitx 5 Module 不代理普通按键，也不创建自己的 Rime session。因�
 
 ## 语音编辑兼容性
 
-Fcitx 5 与 IBus 共用 `Ctrl+F9` 编辑核心。Module 只使用 Fcitx 正式的 surrounding-text capability、文本快照和删除接口；应用不提供上下文时会安全拒绝。
+Fcitx 5 与 IBus 共用 `Ctrl+F9` 的 SLM 编辑计划和本地安全执行器。Module 只使用 Fcitx 正式的 surrounding-text capability、文本快照和删除接口；AI 未启用或应用不提供上下文时会安全拒绝。
 
 标准 GTK/Qt 控件通常可以使用。Chrome、Chromium、Electron 和 VSCode 的 X11 输入法桥目前不提供 surrounding text，因此这些应用中的语音编辑不受支持；普通 `F9` 语音输入不受影响。
 

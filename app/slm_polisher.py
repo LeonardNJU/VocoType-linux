@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterator, Optional, Tuple
 
+from app.voice_edit import VoiceEditPlan, VoiceEditPlanError
+
 
 logger = logging.getLogger(__name__)
 
@@ -46,22 +48,37 @@ DEFAULT_SYSTEM_PROMPT = """你是中文语音转写文本的后处理器。
 
 输出要求：只输出最终文本，不要任何说明。"""
 
-DEFAULT_EDIT_SYSTEM_PROMPT = """你是中文输入框的语音编辑器。
+DEFAULT_EDIT_SYSTEM_PROMPT = """你是中文输入框的语音编辑规划器。
 
-你会收到：
-1) 用户的语音编辑指令
-2) 输入框当前全文
-3) 光标与选区信息
+你会收到 ASR 识别出的用户指令、输入框全文、光标、锚点、选区和执行能力。ASR 指令可能包含同音词、近音词或错别字；必须结合输入框上下文推断用户真正指向的词和操作，不能机械做字面字符串匹配。
 
-你的任务：
-- 严格根据用户指令编辑“输入框当前全文”
-- 能少改就少改，不要无关改写
-- 保留原有语种、标点风格、技术字符串（路径/命令/代码/版本号）除非用户明确要求修改
-- 若指令与文本无关或无法执行，返回原文
+只允许输出一个严格 JSON 对象，不要 Markdown、解释或额外文本，也绝不能输出 null。
 
-输出要求：
-- 只输出“编辑后的完整输入框文本”
-- 不要解释、不要加前后缀、不要输出 JSON。"""
+可用计划：
+1. 修改正文：
+{"mode":"replace","new_text":"编辑后的完整输入框全文","record_history":true,"hint":""}
+2. 导航、选择、撤销、重做、复制、剪切、粘贴等按键动作：
+{"mode":"key_actions","key_actions":[{"key":"left","modifiers":["ctrl"],"repeat":1}],"hint":""}
+3. 无法安全执行或无需修改：
+{"mode":"no_op","hint":"说明原因"}
+
+key 只能是：left、right、up、down、home、end、pageup、pagedown、backspace、delete、enter、tab、escape、space、a、c、v、x、z。
+modifiers 只能是：ctrl、shift、alt、super。repeat 必须是 1 到 100 的整数。
+
+动作语义参考：
+- 撤销通常是 ctrl+z，重做通常是 ctrl+shift+z；
+- 上一个/下一个词通常是 ctrl+left / ctrl+right；加 shift 表示扩展选区；
+- 行首/行尾通常是 home / end；若用户说的是“当前句首”而句首不等于行首，应根据全文和光标计算距离，用 left 的 repeat 精确移动，距离超过 100 时拆成多个动作；
+- 全选、复制、剪切、粘贴通常是 ctrl+a / ctrl+c / ctrl+x / ctrl+v。
+这些只是执行原语说明，必须由你结合用户自然语言、上下文与光标决定实际计划。
+
+规则：
+- 文本替换、删除、翻译、LaTeX 转换、生成评论等使用 replace，并返回完整全文。
+- 光标移动、选区、撤销/重做等使用 key_actions；由你根据自然语言意图选择正确按键组合。
+- 只做用户要求的最小修改，保留其余文本、格式、代码、路径和技术字符串。
+- 如果 ASR 把目标词识别成同音词，优先依据上下文定位实际存在且语义合理的目标。
+- 所有字符串字段缺省时写空字符串，不得写 null。
+"""
 
 
 def looks_like_api_key(value: str) -> bool:
@@ -169,12 +186,13 @@ class SLMPolisher:
             self.api_key = str(os.environ.get(self.api_key_env, "")).strip()
         self.system_prompt = str(cfg.get("system_prompt", DEFAULT_SYSTEM_PROMPT))
         self.edit_enabled = bool(cfg.get("edit_enabled", True))
-        self.edit_system_prompt = str(
-            cfg.get("edit_system_prompt", DEFAULT_EDIT_SYSTEM_PROMPT)
-        )
+        # Voice-edit output is an executable protocol. Keep its system
+        # prompt fixed so stale/custom free-text prompts cannot bypass the
+        # validated JSON plan schema.
+        self.edit_system_prompt = DEFAULT_EDIT_SYSTEM_PROMPT
         self.edit_max_tokens = max(
             self.max_tokens,
-            int(cfg.get("edit_max_tokens", max(256, self.max_tokens))),
+            int(cfg.get("edit_max_tokens", max(1024, self.max_tokens))),
         )
         self.retry_without_proxy = bool(cfg.get("retry_without_proxy", True))
         self.remote_stream = bool(cfg.get("remote_stream", True))
@@ -347,37 +365,14 @@ class SLMPolisher:
                 )
             return self._polish_remote(original, stripped, start)
 
-    def edit_with_instruction(
+    def _request_edit_completion(
         self,
         *,
-        context_text: str,
-        instruction: str,
-        cursor_pos: int,
-        anchor_pos: int,
-        selected_text: str = "",
+        original: str,
+        request_text: str,
+        start: float,
+        token_budget: int | None = None,
     ) -> Tuple[str, PolisherMetrics]:
-        """Edit full context text according to a voice instruction."""
-
-        start = time.perf_counter()
-        original = context_text or ""
-
-        if not self.enabled:
-            return original, PolisherMetrics(False, False, 0.0, "disabled")
-        if not self.edit_enabled:
-            return original, PolisherMetrics(False, False, 0.0, "edit_disabled")
-
-        normalized_instruction = (instruction or "").strip()
-        if not normalized_instruction:
-            return original, PolisherMetrics(False, False, 0.0, "empty_instruction")
-
-        request_text = self._build_edit_request_text(
-            context_text=original,
-            instruction=normalized_instruction,
-            cursor_pos=cursor_pos,
-            anchor_pos=anchor_pos,
-            selected_text=selected_text,
-        )
-
         with self._global_request_lock:
             old_system_prompt = self.system_prompt
             old_max_tokens = self.max_tokens
@@ -385,9 +380,12 @@ class SLMPolisher:
             old_enable_thinking = self.enable_thinking
             try:
                 self.system_prompt = self.edit_system_prompt
-                self.max_tokens = self.edit_max_tokens
-                # Preserve the pre-streaming edit budget for remote editing.
-                self.remote_max_tokens = self.edit_max_tokens
+                edit_budget = max(
+                    self.edit_max_tokens,
+                    int(token_budget or self.edit_max_tokens),
+                )
+                self.max_tokens = edit_budget
+                self.remote_max_tokens = edit_budget
                 self.enable_thinking = False
                 if self.provider == self.PROVIDER_LOCAL_EPHEMERAL:
                     return self._polish_local(original, request_text, start)
@@ -404,6 +402,101 @@ class SLMPolisher:
                 self.max_tokens = old_max_tokens
                 self.remote_max_tokens = old_remote_max_tokens
                 self.enable_thinking = old_enable_thinking
+
+    def plan_voice_edit(
+        self,
+        *,
+        context_text: str,
+        instruction: str,
+        cursor_pos: int,
+        anchor_pos: int,
+        selected_text: str = "",
+        supports_surrounding: bool = True,
+        replace_state: str = "unknown",
+    ) -> Tuple[VoiceEditPlan | None, PolisherMetrics]:
+        """Ask the SLM to understand the command and return a validated plan."""
+
+        start = time.perf_counter()
+        original = context_text or ""
+        if not self.enabled:
+            return None, PolisherMetrics(False, False, 0.0, "disabled")
+        if not self.edit_enabled:
+            return None, PolisherMetrics(False, False, 0.0, "edit_disabled")
+
+        normalized_instruction = (instruction or "").strip()
+        if not normalized_instruction:
+            return None, PolisherMetrics(False, False, 0.0, "empty_instruction")
+
+        request_text = self._build_edit_plan_request_text(
+            context_text=original,
+            instruction=normalized_instruction,
+            cursor_pos=cursor_pos,
+            anchor_pos=anchor_pos,
+            selected_text=selected_text,
+            supports_surrounding=supports_surrounding,
+            replace_state=replace_state,
+        )
+        # A replace plan contains the complete surrounding text. Scale the
+        # completion budget with context length while keeping a bounded
+        # ceiling for remote cost and local model safety.
+        token_budget = min(8192, max(
+            self.edit_max_tokens,
+            len(original) * 2 + 256,
+        ))
+        raw_plan, metrics = self._request_edit_completion(
+            original=original,
+            request_text=request_text,
+            start=start,
+            token_budget=token_budget,
+        )
+        if self.is_failure_reason(metrics.reason):
+            return None, metrics
+        try:
+            plan = VoiceEditPlan.from_model_output(
+                raw_plan,
+                original_text=original,
+            )
+        except VoiceEditPlanError as exc:
+            logger.warning("SLM voice-edit plan rejected: %s; raw=%r", exc, raw_plan)
+            return None, PolisherMetrics(
+                used=True,
+                applied=False,
+                latency_ms=(time.perf_counter() - start) * 1000.0,
+                reason="bad_edit_plan",
+            )
+
+        applied = (
+            (plan.mode == "replace" and plan.new_text != original)
+            or (plan.mode == "key_actions" and bool(plan.key_actions))
+        )
+        return plan, PolisherMetrics(
+            used=True,
+            applied=applied,
+            latency_ms=metrics.latency_ms,
+            reason="ok",
+        )
+
+    def edit_with_instruction(
+        self,
+        *,
+        context_text: str,
+        instruction: str,
+        cursor_pos: int,
+        anchor_pos: int,
+        selected_text: str = "",
+    ) -> Tuple[str, PolisherMetrics]:
+        """Compatibility wrapper returning text for older callers."""
+
+        plan, metrics = self.plan_voice_edit(
+            context_text=context_text,
+            instruction=instruction,
+            cursor_pos=cursor_pos,
+            anchor_pos=anchor_pos,
+            selected_text=selected_text,
+        )
+        if plan is not None and plan.mode == "replace":
+            return plan.new_text, metrics
+        return context_text or "", metrics
 
     @classmethod
     def is_failure_reason(cls, reason: str) -> bool:
@@ -429,6 +522,8 @@ class SLMPolisher:
             return "SLM 调用失败：长时间未收到模型输出"
         if normalized == "bad_json":
             return "SLM 调用失败：响应解析失败"
+        if normalized == "bad_edit_plan":
+            return "SLM 调用失败：模型返回的编辑计划格式无效"
         if normalized == "remote_error":
             return "SLM 调用失败：远端服务返回错误（请查看日志）"
         if normalized == "empty_content":
@@ -452,23 +547,27 @@ class SLMPolisher:
         return f"SLM 调用失败：{normalized}"
 
     @staticmethod
-    def _build_edit_request_text(
+    def _build_edit_plan_request_text(
         *,
         context_text: str,
         instruction: str,
         cursor_pos: int,
         anchor_pos: int,
         selected_text: str,
+        supports_surrounding: bool,
+        replace_state: str,
     ) -> str:
-        selected = (selected_text or "").strip() or "(无选中文本)"
+        selected = selected_text if isinstance(selected_text, str) else ""
         return (
-            f"用户指令：{instruction}\n"
+            f"ASR 用户指令：{instruction}\n"
+            f"surrounding 可用：{str(bool(supports_surrounding)).lower()}\n"
+            f"全文替换能力：{replace_state or 'unknown'}\n"
             f"光标位置：{int(cursor_pos)}\n"
             f"锚点位置：{int(anchor_pos)}\n"
             f"选中文本：{selected}\n"
             "输入框全文：\n"
             f"{context_text}\n"
-            "请直接输出编辑后的完整输入框文本。"
+            "请结合全文消解 ASR 同音/近音错误，并只返回严格 JSON 编辑计划。"
         )
 
     def _build_remote_payload(

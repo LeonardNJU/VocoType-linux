@@ -37,13 +37,7 @@ from app.config import DEFAULT_CONFIG, load_config
 from app.ibus_compat import build_capability_flags
 from app.slm_polisher import SLMPolisher
 from app.streaming_asr import StreamingASRProcess, StreamingAudioChunker
-from app.voice_edit import (
-    DirectEditResult,
-    EditEnvironment,
-    KeyAction,
-    SurroundingSnapshot,
-    VoiceEditCore,
-)
+from app.voice_edit import KeyAction, SurroundingSnapshot
 
 if TYPE_CHECKING:
     from pyrime.session import Session as RimeSession
@@ -95,7 +89,6 @@ class VoCoTypeEngine(IBus.Engine):
     PTT_FALLBACK_KEYCODE = 67
     # 调试探针：Ctrl+F9 读取 surrounding text 并回填
     SURROUNDING_PROBE_CTRL_MASK = IBus.ModifierType.CONTROL_MASK
-    EDIT_HISTORY_LIMIT = 20
     _KEY_NAME_TO_IBUS = {
         "left": IBus.KEY_Left,
         "right": IBus.KEY_Right,
@@ -103,7 +96,18 @@ class VoCoTypeEngine(IBus.Engine):
         "down": IBus.KEY_Down,
         "home": IBus.KEY_Home,
         "end": IBus.KEY_End,
+        "pageup": IBus.KEY_Page_Up,
+        "pagedown": IBus.KEY_Page_Down,
+        "backspace": IBus.KEY_BackSpace,
+        "delete": IBus.KEY_Delete,
+        "enter": IBus.KEY_Return,
+        "tab": IBus.KEY_Tab,
+        "escape": IBus.KEY_Escape,
+        "space": IBus.KEY_space,
         "a": IBus.KEY_a,
+        "c": IBus.KEY_c,
+        "v": IBus.KEY_v,
+        "x": IBus.KEY_x,
         "z": IBus.KEY_z,
     }
     _KEYCODE_HINTS = {
@@ -113,7 +117,18 @@ class VoCoTypeEngine(IBus.Engine):
         IBus.KEY_Down: 108,
         IBus.KEY_Home: 102,
         IBus.KEY_End: 107,
+        IBus.KEY_Page_Up: 104,
+        IBus.KEY_Page_Down: 109,
+        IBus.KEY_BackSpace: 14,
+        IBus.KEY_Delete: 111,
+        IBus.KEY_Return: 28,
+        IBus.KEY_Tab: 15,
+        IBus.KEY_Escape: 1,
+        IBus.KEY_space: 57,
         IBus.KEY_a: 30,
+        IBus.KEY_c: 46,
+        IBus.KEY_v: 47,
+        IBus.KEY_x: 45,
         IBus.KEY_z: 44,
     }
     _CAPABILITY_FLAGS = build_capability_flags(IBus.Capabilite)
@@ -163,7 +178,6 @@ class VoCoTypeEngine(IBus.Engine):
         self._recording_generation = 0
         self._recording_started_at = 0.0
         self._edit_snapshot: Optional[SurroundingSnapshot] = None
-        self._voice_edit_core = VoiceEditCore(history_limit=self.EDIT_HISTORY_LIMIT)
         self._engine_enabled = False
         self._has_focus = False
         self._replace_capability_state = "unknown"  # unknown/supported/unsupported
@@ -1171,18 +1185,31 @@ class VoCoTypeEngine(IBus.Engine):
         GLib.timeout_add(timeout_ms, self._clear_auxiliary_text)
         return False
 
-    def _rewrite_insert_generation_instruction(self, command: str) -> str:
-        return self._voice_edit_core.rewrite_insert_generation_instruction(command)
-
     def _run_key_actions(
         self,
         actions: tuple[KeyAction, ...],
         hint: str = "",
+        snapshot: Optional[SurroundingSnapshot] = None,
     ) -> bool:
-        """Execute framework-neutral navigation/edit key actions via IBus."""
+        """Execute a validated model plan through IBus key events."""
         if not self._is_engine_active():
             self._show_nonintrusive_error("当前输入法未激活，已取消导航")
             return False
+        if snapshot is not None:
+            try:
+                live_text_obj, live_cursor, live_anchor = self.get_surrounding_text()
+                live_text = live_text_obj.get_text() if live_text_obj else ""
+                if (
+                    live_text != snapshot.text
+                    or int(live_cursor) != int(snapshot.cursor_pos)
+                    or int(live_anchor) != int(snapshot.anchor_pos)
+                ):
+                    self._show_nonintrusive_error("输入框内容或光标已变化，请重试")
+                    return False
+            except Exception as exc:
+                logger.warning("执行导航前复核 surrounding text 失败: %s", exc)
+                self._show_nonintrusive_error("无法确认当前输入框状态，已取消导航")
+                return False
         if not actions:
             if hint:
                 self._show_hint(hint)
@@ -1206,7 +1233,7 @@ class VoCoTypeEngine(IBus.Engine):
                 if "super" in modifiers:
                     state |= int(IBus.ModifierType.SUPER_MASK)
                 keycode = int(self._KEYCODE_HINTS.get(int(keyval), 0))
-                for _ in range(max(1, min(20, int(action.repeat)))):
+                for _ in range(max(1, min(100, int(action.repeat)))):
                     self.forward_key_event(int(keyval), keycode, state)
                     self.forward_key_event(int(keyval), keycode, state | release_mask)
             if hint:
@@ -1216,28 +1243,6 @@ class VoCoTypeEngine(IBus.Engine):
             logger.warning("导航按键下发失败: %s", exc)
             self._show_nonintrusive_error("当前输入框不支持导航命令")
             return False
-
-    def _push_undo_state(self, text: str) -> None:
-        self._voice_edit_core.push_undo_state(text)
-
-    @staticmethod
-    def _predict_commit_result(snapshot: SurroundingSnapshot, payload: str) -> str:
-        return VoiceEditCore.predict_commit_result(snapshot, payload)
-
-    def _apply_direct_edit_command(
-        self,
-        snapshot: SurroundingSnapshot,
-        instruction: str,
-    ) -> DirectEditResult:
-        return self._voice_edit_core.apply_direct_command(
-            snapshot,
-            instruction,
-            EditEnvironment(
-                supports_surrounding=self._supports_surrounding_text(),
-                active=self._is_engine_active(),
-                replace_state=self._replace_capability_state,
-            ),
-        )
 
     def _replace_surrounding_text(
         self,
@@ -1330,11 +1335,6 @@ class VoCoTypeEngine(IBus.Engine):
                 return False
 
             self._replace_capability_state = "supported"
-            self._voice_edit_core.mark_voice_edit_applied(
-                original_text,
-                new_text,
-                record_history=bool(record_history_int),
-            )
             self._commit_text(new_text, "voice_edit")
             if hint:
                 GLib.timeout_add(30, self._show_hint, hint, 1200)
@@ -1729,102 +1729,80 @@ class VoCoTypeEngine(IBus.Engine):
                                     GLib.idle_add(self._show_nonintrusive_error, "编辑上下文获取失败，请重试")
                                     return
 
-                                rewritten_instruction = self._rewrite_insert_generation_instruction(text)
-                                direct_result = self._apply_direct_edit_command(edit_snapshot, text)
-                                if direct_result.handled:
-                                    if direct_result.mode == "key_actions":
-                                        GLib.idle_add(
-                                            self._run_key_actions,
-                                            direct_result.key_actions,
-                                            direct_result.hint,
-                                        )
-                                    elif direct_result.mode == "commit_only":
-                                        if direct_result.new_text:
-                                            predicted_text = self._predict_commit_result(
-                                                edit_snapshot,
-                                                direct_result.new_text,
-                                            )
-                                            self._voice_edit_core.mark_voice_edit_applied(
-                                                edit_snapshot.text,
-                                                predicted_text,
-                                                record_history=direct_result.record_history,
-                                            )
-                                            GLib.idle_add(
-                                                self._commit_text,
-                                                direct_result.new_text,
-                                                "voice_edit",
-                                            )
-                                        if direct_result.hint:
-                                            GLib.idle_add(self._show_hint, direct_result.hint, 1200)
-                                    elif direct_result.mode == "no_replace":
-                                        GLib.idle_add(self._show_hint, direct_result.hint, 1200)
-                                    else:
-                                        target_text = (
-                                            edit_snapshot.text
-                                            if direct_result.new_text is None
-                                            else direct_result.new_text
-                                        )
-                                        GLib.idle_add(
-                                            self._replace_surrounding_text,
-                                            target_text,
-                                            edit_snapshot.text,
-                                            edit_snapshot.cursor_pos,
-                                            direct_result.record_history,
-                                            direct_result.hint,
-                                        )
-                                    logger.info(
-                                        "编辑模式命中确定性命令: instruction=%s mode=%s hint=%s",
-                                        text,
-                                        direct_result.mode,
-                                        direct_result.hint,
+                                if (
+                                    not self._slm_polisher.enabled
+                                    or not self._slm_polisher.edit_enabled
+                                ):
+                                    GLib.idle_add(
+                                        self._show_nonintrusive_error,
+                                        "语音编辑完全由 AI 理解，请先在设置中心启用并测活 AI 润色",
                                     )
                                     return
 
-                                GLib.idle_add(self._update_auxiliary_status, "✍️ 正在编辑...")
-                                slm_instruction = rewritten_instruction or text
-                                if rewritten_instruction:
-                                    logger.info(
-                                        "编辑模式命中输入生成指令: instruction=%s rewritten=%s",
-                                        text,
-                                        slm_instruction,
-                                    )
-                                edited_text, metrics = self._slm_polisher.edit_with_instruction(
+                                GLib.idle_add(
+                                    self._update_auxiliary_status,
+                                    "✨ 正在理解并规划编辑...",
+                                )
+                                plan, metrics = self._slm_polisher.plan_voice_edit(
                                     context_text=edit_snapshot.text,
-                                    instruction=slm_instruction,
+                                    instruction=text,
                                     cursor_pos=edit_snapshot.cursor_pos,
                                     anchor_pos=edit_snapshot.anchor_pos,
                                     selected_text=edit_snapshot.selected_text,
+                                    supports_surrounding=self._supports_surrounding_text(),
+                                    replace_state=self._replace_capability_state,
                                 )
                                 slm_ms = metrics.latency_ms
                                 slm_reason = metrics.reason
                                 slm_used = metrics.used
 
-                                if self._slm_polisher.is_failure_reason(metrics.reason):
+                                if plan is None:
                                     logger.warning(
-                                        "编辑模式 SLM 调用失败: reason=%s",
+                                        "编辑模式 SLM 计划失败: reason=%s",
                                         metrics.reason,
                                     )
                                     GLib.idle_add(
                                         self._show_nonintrusive_error,
-                                        self._slm_polisher.format_failure_message(metrics.reason),
+                                        self._slm_polisher.format_failure_message(
+                                            metrics.reason
+                                        ),
                                     )
                                     return
 
                                 logger.info(
-                                    "转录流水线 mode=%s asr_ms=%.2f slm_used=%s slm_ms=%.2f fallback_reason=%s",
-                                    "edit",
+                                    "转录流水线 mode=edit asr_ms=%.2f slm_used=%s slm_ms=%.2f plan=%s reason=%s",
                                     asr_ms,
                                     slm_used,
                                     slm_ms,
+                                    plan.mode,
                                     slm_reason,
                                 )
+                                if plan.mode == "key_actions":
+                                    GLib.idle_add(
+                                        self._run_key_actions,
+                                        plan.key_actions,
+                                        plan.hint,
+                                        edit_snapshot,
+                                    )
+                                    return
+                                if plan.mode == "no_op":
+                                    if plan.hint:
+                                        GLib.idle_add(
+                                            self._show_hint,
+                                            plan.hint,
+                                            1600,
+                                        )
+                                    else:
+                                        GLib.idle_add(self._clear_auxiliary_text)
+                                    return
+
                                 GLib.idle_add(
                                     self._replace_surrounding_text,
-                                    edited_text,
+                                    plan.new_text,
                                     edit_snapshot.text,
                                     edit_snapshot.cursor_pos,
-                                    True,
-                                    "",
+                                    plan.record_history,
+                                    plan.hint,
                                 )
                                 return
 
@@ -1999,8 +1977,6 @@ class VoCoTypeEngine(IBus.Engine):
         """提交文本到应用"""
         self._clear_preedit()
         self.commit_text(IBus.Text.new_from_string(text))
-        if mutation_source != "voice_edit":
-            self._voice_edit_core.mark_external_commit()
         logger.info(f"已提交文本: {text}")
         return False
 
