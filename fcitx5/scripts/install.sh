@@ -768,7 +768,7 @@ fi
 # 8. 音频设备配置和 ASR 验收
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
-emit_install_progress 78 "检查麦克风配置"
+emit_install_progress 78 "保留或写入麦克风设备配置"
 echo "[8/8] 音频设备配置..."
 
 if [ -n "$AUDIO_DEVICE" ]; then
@@ -782,8 +782,8 @@ sample_rate = $SAMPLE_RATE
 EOF
     echo "✓ 音频配置已保存"
 elif [ "$SKIP_AUDIO" = true ]; then
-    # 图形安装由设置中心的“语音识别与 ITN”页面管理麦克风。
-    echo "跳过命令行音频向导；可在设置中心选择并测试麦克风。"
+    # 图形安装只安装程序；设备选择、回放和真实转录集中在 Playground。
+    echo "跳过命令行音频向导；可在设置中心 Playground 选择设备并试用。"
 else
     # 交互式配置
     echo ""
@@ -940,19 +940,15 @@ if ! PYTHONPATH="$INSTALL_DIR${PYTHONPATH:+:$PYTHONPATH}" \
     exit 1
 fi
 
-emit_install_progress 96 "VoCoType（Fcitx 5）程序安装与运行验收完成"
+emit_install_progress 100 "VoCoType（Fcitx 5）程序安装与运行验收完成"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 完成
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-if [ "$SKIP_AUDIO" = true ] || [ -n "$AUDIO_DEVICE" ]; then
-    echo "⚠️ VoCoType（Fcitx 5）程序与运行链路已就绪；麦克风验收尚未完成"
-    echo "请在设置中心选择麦克风并执行“录音 2 秒测试”。"
-else
-    echo "✅ VoCoType（Fcitx 5）安装与运行验收完成"
-fi
+echo "✅ VoCoType（Fcitx 5）安装与运行验收完成"
+echo "麦克风回放、真实 ASR 和 AI 试用可在设置中心 Playground 独立完成。"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "无需添加独立输入法条目；继续使用现有输入法，按住 F9 说话。"
 echo ""

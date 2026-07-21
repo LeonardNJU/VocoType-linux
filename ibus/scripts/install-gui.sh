@@ -420,6 +420,7 @@ if ! PYTHONPATH="$INSTALL_DIR${PYTHONPATH:+:$PYTHONPATH}" \
     exit 1
 fi
 
-emit_install_progress 96 "VoCoType（IBus）程序安装与结构验收完成"
+emit_install_progress 100 "VoCoType（IBus）程序安装与结构验收完成"
 echo "✅ VoCoType（IBus）安装/修复与结构验收完成。"
+echo "麦克风回放、真实 ASR 和 AI 试用可在设置中心 Playground 独立完成。"
 echo "请在桌面输入源设置中添加“VoCoType Voice Input”。"

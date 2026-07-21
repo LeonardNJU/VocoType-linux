@@ -33,8 +33,6 @@ Fcitx 5 与 IBus 的安装和卸载都使用同目录下的非交互 GUI worker�
 
 ### 语音识别与 ITN
 
-页面可枚举 PortAudio 输入设备、保存设备名称/ID与原生采样率，并执行不落盘的 2 秒录音电平测试。安装器因此可以跳过旧的终端麦克风向导。
-
 术语 canonicalization 始终启用；数字与 ITN 可以整体关闭。以下书写风格可独立控制：
 
 ```text
@@ -45,6 +43,19 @@ Fcitx 5 与 IBus 的安装和卸载都使用同目录下的非交互 GUI worker�
 ```
 
 页面提供实时文本预览，不需要实际录音。
+
+### Playground
+
+Playground 与安装状态相互独立，用于真实体验验证：
+
+- 枚举并选择 PortAudio 输入设备，录制固定 5 秒 WAV；
+- 录音结束后通过独立按钮从系统默认扬声器或耳机回放，而不是只看 peak/RMS；
+- 将同一段录音发送给当前 VoCoType ASR 后台，显示可编辑的转录结果；
+- 输入文本测试 AI 润色，或填写编辑指令测试 AI 编辑；输出保持可编辑。
+
+AI 区域默认置灰。必须先在“AI 润色”页启用功能、配置 endpoint/模型，并点击“测活 AI 端点 / 模型”成功后，当前配置才会在本次设置中心会话中解锁。修改 Provider、endpoint、模型或凭据后会重新锁定，要求再次测活。
+
+录音文件保存在 `~/.cache/vocotype/playground/last-recording.wav`，权限为 `0600`，不会进入支持包。
 
 ### 用户词典
 
@@ -64,7 +75,7 @@ Fcitx 5 与 IBus 的安装和卸载都使用同目录下的非交互 GUI worker�
 - F9 是否默认润色；
 - reasoning/thinking；
 - 直接 API Key 或环境变量凭据；
-- 实际连接测试。
+- 端点 / 本地模型测活；测活结果用于解锁 Playground 的 AI 试用。
 
 运行配置同步写入：
 

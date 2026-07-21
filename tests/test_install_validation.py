@@ -167,12 +167,12 @@ def test_audio_installer_cannot_skip_success_and_records_verification():
     assert "save_audio_config(" in source
 
 
-def test_ibus_cli_only_claims_full_success_after_audio_verification():
+def test_ibus_cli_separates_install_success_from_playground_trials():
     source = (ROOT / "ibus/scripts/install.sh").read_text(encoding="utf-8")
-    assert "AUDIO_VERIFIED=false" in source
-    assert "AUDIO_VERIFIED=true" in source
-    assert "程序与结构已就绪；麦克风验收尚未完成" in source
-    assert "安装与麦克风验收完成" in source
+    assert "安装与运行验收完成" in source
+    assert "Playground 独立完成" in source
+    assert "程序与结构已就绪；麦克风验收尚未完成" not in source
+    assert "录音 2 秒测试" not in source
 
 
 def test_make_clean_removes_python_build_metadata():
@@ -198,11 +198,12 @@ def test_gui_installers_emit_determinate_progress_and_share_runtime_helpers():
         ]
         assert stages == sorted(stages)
         assert stages[0] <= 2
-        assert stages[-1] == 96
+        assert stages[-1] == 100
         assert len(stages) >= 8
 
     assert "progress_bar = Gtk.ProgressBar()" in application
     assert "parse_install_progress(line.strip())" in application
     assert 'progress_bar.set_text("❌ 安装失败")' in application
-    assert 'progress_bar.set_text("⚠️ 96%")' in application
+    assert 'progress_bar.set_text("⚠️ 96%")' not in application
     assert 'progress_bar.set_text("✅ 100%")' in application
+    assert "继续配置麦克风" not in application

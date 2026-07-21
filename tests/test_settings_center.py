@@ -611,20 +611,13 @@ def test_integration_status_distinguishes_absent_partial_and_complete(
     assert "module" in partial.present
     assert "后端代码" in partial.missing
     assert "Python 运行环境" in partial.missing
-    assert "麦克风验收" in partial.missing
+    assert "麦克风验收" not in partial.missing
     assert "后端 IPC" in partial.missing
 
     _touch(home / ".config/systemd/user/vocotype-fcitx5-backend.service")
     _touch(home / ".local/bin/vocotype-fcitx5-backend", executable=True)
     _touch(home / ".local/share/vocotype-fcitx5/backend/fcitx5_server.py")
     _touch(home / ".local/share/vocotype-fcitx5/.venv/bin/python", executable=True)
-    audio = home / ".config/vocotype/audio.conf"
-    audio.parent.mkdir(parents=True, exist_ok=True)
-    audio.write_text(
-        "[audio]\ndevice_id = 2\nsample_rate = 48000\n"
-        "tested_at = 2026-07-21T00:00:00+00:00\ntested_device_id = 2\n",
-        encoding="utf-8",
-    )
     socket_path = tmp_path / "vocotype.sock"
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
@@ -659,17 +652,10 @@ def test_ibus_status_requires_runtime_and_python_environment(
 
     partial = integration_status("ibus", home=home, system_prefix=prefix)
     assert partial.state == "partial"
-    assert partial.missing == ("引擎代码", "Python 运行环境", "麦克风验收")
+    assert partial.missing == ("引擎代码", "Python 运行环境")
 
     _touch(home / ".local/share/vocotype/ibus/main.py")
     _touch(home / ".local/share/vocotype/.venv/bin/python", executable=True)
-    audio = home / ".config/vocotype/audio.conf"
-    audio.parent.mkdir(parents=True, exist_ok=True)
-    audio.write_text(
-        "[audio]\ndevice_id = 4\nsample_rate = 44100\n"
-        "tested_at = 2026-07-21T00:00:00+00:00\ntested_device_id = 4\n",
-        encoding="utf-8",
-    )
     complete = integration_status("ibus", home=home, system_prefix=prefix)
     assert complete.state == "complete"
 
@@ -753,14 +739,24 @@ def test_settings_application_exposes_both_install_paths():
     assert "安装 / 修复 IBus" not in source
     assert "Polkit" in source
     assert "InstallOptions" in source
-    assert "录音 2 秒测试" in source
+    assert 'self.stack.add_titled(playground_page, "playground", "Playground")' in source
+    assert "录音 {int(RECORDING_DURATION_SECONDS)} 秒" in source
+    assert "回放上次录音" in source
+    assert "转录上次录音" in source
+    assert "测试 AI 润色" in source
+    assert "测试 AI 编辑" in source
+    assert "self.playground_ai_controls.set_sensitive(False)" in source
+    assert "请先在“AI 润色”页面" in (
+        Path("settings_center/playground_service.py")
+    ).read_text(encoding="utf-8")
     assert "save_audio_config" in source
     assert "Gtk.Expander()" in source
     assert "overview_doctor_scroll" not in source
     assert 'Gtk.Button(label="查看详情")' in source
     assert "快速检查后仅显示摘要" in source
-    assert "继续配置麦克风" in source
-    assert "麦克风尚未通过 2 秒录音验收" in source
+    assert "继续配置麦克风" not in source
+    assert "麦克风尚未通过 2 秒录音验收" not in source
+    assert "程序安装与运行验收完成" in source
     assert "API Key 环境变量名（高级）" in source
     assert "直接 API Key" in source
     assert "remove_system_integration" in source

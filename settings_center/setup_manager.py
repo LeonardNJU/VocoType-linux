@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import configparser
 import os
 import shutil
 import subprocess
@@ -169,23 +168,6 @@ def _query_fcitx_addon_loaded() -> bool:
     return names is not None and "vocotype" in names
 
 
-def _audio_verified(home: Path) -> bool:
-    path = home / ".config/vocotype/audio.conf"
-    if not path.is_file():
-        return False
-    parser = configparser.ConfigParser(interpolation=None)
-    try:
-        parser.read(path, encoding="utf-8")
-        device_id = parser.get("audio", "device_id", fallback="").strip()
-        tested_device_id = parser.get(
-            "audio", "tested_device_id", fallback=""
-        ).strip()
-        tested_at = parser.get("audio", "tested_at", fallback="").strip()
-    except (configparser.Error, OSError, ValueError):
-        return False
-    return bool(tested_at and device_id and tested_device_id == device_id)
-
-
 def integration_status(
     framework: Framework,
     *,
@@ -235,11 +217,6 @@ def integration_status(
         present.append("必需模型")
     else:
         missing.append("必需模型")
-
-    if _audio_verified(user_home):
-        present.append("麦克风验收")
-    else:
-        missing.append("麦克风验收")
 
     if framework == "fcitx5":
         if fcitx_socket_path.is_socket():
