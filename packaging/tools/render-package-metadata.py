@@ -6,12 +6,11 @@ import argparse
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from importlib.machinery import SourceFileLoader
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-_flavor = SourceFileLoader(
-    "vocotype_package_flavor", str(Path(__file__).with_name("package-flavor.py"))
-).load_module()
+from vocotype_package import package_flavor_metadata
 
 
 def debian_values(meta: dict[str, object]) -> dict[str, str]:
@@ -111,7 +110,7 @@ def main() -> int:
     parser.add_argument("--template", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    meta = _flavor.metadata(args.flavor)
+    meta = package_flavor_metadata(args.flavor)
     values = {
         "debian": debian_values,
         "rpm": rpm_values,

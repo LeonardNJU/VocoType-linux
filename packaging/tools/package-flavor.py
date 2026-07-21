@@ -13,7 +13,6 @@ if str(ROOT) not in sys.path:
 
 from vocotype_package import package_flavor_metadata
 
-metadata = package_flavor_metadata
 
 
 def main() -> int:
@@ -22,7 +21,7 @@ def main() -> int:
     parser.add_argument("--field")
     args = parser.parse_args()
     try:
-        result = metadata(args.flavor)
+        result = package_flavor_metadata(args.flavor)
     except ValueError as exc:
         parser.error(str(exc))
     if args.field:
