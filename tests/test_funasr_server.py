@@ -24,6 +24,11 @@ class _RecordingASR:
         return [{"preds": "测试"}]
 
 
+class _NoneTextASR:
+    def __call__(self, _audio):
+        return [{"preds": None}]
+
+
 def _write_wav(path, sample_count: int, sample_rate: int = 16000) -> None:
     samples = np.zeros(sample_count, dtype=np.int16)
     with wave.open(str(path), "wb") as wav_file:
@@ -76,6 +81,18 @@ def test_one_frontend_window_still_reaches_asr(tmp_path):
     assert model.calls == 1
     assert result["success"] is True
     assert result["raw_text"] == "测试"
+
+
+def test_none_text_from_asr_is_treated_as_empty_result(tmp_path):
+    audio_path = tmp_path / "none-text.wav"
+    _write_wav(audio_path, sample_count=400)
+    server = _server_with_model(_NoneTextASR())
+
+    result = server.transcribe_audio(str(audio_path), options={"use_punc": False})
+
+    assert result["success"] is True
+    assert result["text"] == ""
+    assert result["raw_text"] == ""
 
 
 class _RecordingContextualASR:
