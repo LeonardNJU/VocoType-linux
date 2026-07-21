@@ -153,7 +153,6 @@ def test_cpp_module_uses_async_start_poll_cancel_and_live_preview():
     )
 
     for option in (
-        "PolishByDefault",
         "PolishMinChars",
         "PolishTimeoutMs",
         "EnableThinking",

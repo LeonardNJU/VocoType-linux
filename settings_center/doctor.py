@@ -592,7 +592,7 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
                     "麦克风",
                     "已配置的输入设备当前不可用",
                     f"configured={configured_name or configured_id}\n{details}",
-                    "在 Playground 重新选择设备，录音 5 秒并回放。",
+                    "在 Playground 重新选择设备，录音 3 秒并回放。",
                 )
             peak = configured.get("test_peak")
             rms = configured.get("test_rms")
@@ -606,14 +606,14 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
                 "microphone",
                 "麦克风",
                 f"已选择且当前可用：{selected[1]}",
-                f"{details}{metrics}\n请在 Playground 录音 5 秒并回放，以实际听感确认。",
+                f"{details}{metrics}\n请在 Playground 录音 3 秒并回放，以实际听感确认。",
             )
         return _warn(
             "microphone",
             "麦克风",
             f"检测到 {len(inputs)} 个输入设备，但尚未固定选择",
             details,
-            "在 Playground 选择设备，录音 5 秒并回放；成功录音后会保存设备。",
+            "在 Playground 选择设备，录音 3 秒并回放；成功录音后会保存设备。",
         )
 
     checks.append(_check("microphone", "麦克风", microphone_check))

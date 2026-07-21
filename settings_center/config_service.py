@@ -213,6 +213,9 @@ def load_fcitx_module_config() -> dict[str, str]:
 def save_fcitx_module_config(values: Mapping[str, Any]) -> Path:
     path = fcitx_module_config_path()
     existing = load_fcitx_module_config()
+    # Legacy builds allowed Fcitx to invert F9 and Shift+F9. The two input
+    # frameworks now share one contract: F9 is direct ASR, Shift+F9 polishes.
+    existing.pop("polishbydefault", None)
     for key, value in values.items():
         if isinstance(value, bool):
             existing[key.lower()] = "True" if value else "False"
@@ -222,12 +225,12 @@ def save_fcitx_module_config(values: Mapping[str, Any]) -> Path:
         "pttkey",
         "pttholdthresholdms",
         "longmodemodifier",
-        "polishbydefault",
         "polishminchars",
         "polishtimeoutms",
         "enablethinking",
         "blockwhencomposing",
         "striptrailingperiodoncommit",
+        "panelstyle",
     ]
     ordered = []
     seen = set()
@@ -246,12 +249,12 @@ def save_fcitx_module_config(values: Mapping[str, Any]) -> Path:
                     "pttkey": "PTTKey",
                     "pttholdthresholdms": "PTTHoldThresholdMs",
                     "longmodemodifier": "LongModeModifier",
-                    "polishbydefault": "PolishByDefault",
                     "polishminchars": "PolishMinChars",
                     "polishtimeoutms": "PolishTimeoutMs",
                     "enablethinking": "EnableThinking",
                     "blockwhencomposing": "BlockWhenComposing",
                     "striptrailingperiodoncommit": "StripTrailingPeriodOnCommit",
+                    "panelstyle": "PanelStyle",
                 }.get(key, key)
                 handle.write(f"{canonical}={value}\n")
             handle.flush()

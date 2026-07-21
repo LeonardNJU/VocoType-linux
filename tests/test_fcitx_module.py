@@ -60,3 +60,29 @@ def test_ptt_release_stops_listening_immediately_without_debounce():
     assert "} else if (is_recording_) {\n        stopAndTranscribe();" in source
     stop_body = source.split("void VoCoTypeModule::stopRecording(bool transcribe)", 1)[1]
     assert stop_body.index("stopPanelAnimation();") < stop_body.index("is_recording_ = false;")
+
+
+def test_panel_style_defaults_to_minimal_and_release_switches_immediately():
+    header = (ROOT / "fcitx5/module/vocotype_module.h").read_text(encoding="utf-8")
+    source = (ROOT / "fcitx5/module/vocotype_module.cpp").read_text(encoding="utf-8")
+    assert '"PanelStyle"' in header
+    assert '"minimal"' in header
+    assert 'animate_panel_ = false' in header
+    assert 'animate_panel_ = toLower(config_.panelStyle.value()) == "animated"' in source
+    assert 'showPanelMessage(ic, "🎤 录音中...")' in source
+    stop_body = source.split("void VoCoTypeModule::stopRecording(bool transcribe)", 1)[1]
+    assert 'showPanelMessage(ic, "⏳ 识别中")' in stop_body
+    assert stop_body.index("stopPanelAnimation();") < stop_body.index('showPanelMessage(ic, "⏳ 识别中")')
+    release_prefix = stop_body.split("std::thread", 1)[0]
+    assert "PanelAnimationKind::Polishing" not in release_prefix
+
+
+def test_f9_and_shift_f9_contract_matches_ibus():
+    header = (ROOT / "fcitx5/module/vocotype_module.h").read_text(encoding="utf-8")
+    source = (ROOT / "fcitx5/module/vocotype_module.cpp").read_text(encoding="utf-8")
+    ibus = (ROOT / "ibus/engine.py").read_text(encoding="utf-8")
+
+    assert "PolishByDefault" not in header
+    assert "polish_by_default_" not in source
+    assert "return static_cast<bool>(states & long_mode_modifier_);" in source
+    assert "long_mode = bool(state & IBus.ModifierType.SHIFT_MASK)" in ibus

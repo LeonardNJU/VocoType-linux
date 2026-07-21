@@ -31,6 +31,7 @@ from settings_center.setup_manager import (
     native_package_removal_command,
     parse_install_progress,
     restart_fcitx,
+    restart_ibus_backend,
 )
 from settings_center.support_bundle import create_support_bundle
 
@@ -132,6 +133,21 @@ def test_config_service_synchronizes_runtimes_and_redacts_secrets(isolated_home:
     assert redacted["slm"]["api_key_env"] == "<redacted>"
 
 
+
+def test_runtime_config_remembers_last_lifecycle_framework(isolated_home: Path):
+    config_service.update_runtime_sections(
+        {"ui": {"lifecycle_framework": "fcitx5"}}
+    )
+
+    loaded = config_service.load_runtime_config()
+    assert loaded["ui"]["lifecycle_framework"] == "fcitx5"
+    assert json.loads(config_service.ibus_config_path().read_text(encoding="utf-8"))[
+        "ui"
+    ]["lifecycle_framework"] == "fcitx5"
+    assert json.loads(config_service.fcitx_backend_path().read_text(encoding="utf-8"))[
+        "ui"
+    ]["lifecycle_framework"] == "fcitx5"
+
 def test_audio_config_round_trip(isolated_home: Path):
     path = config_service.save_audio_config(
         device_name="USB Microphone",
@@ -175,20 +191,31 @@ def test_audio_config_records_and_clears_verification(isolated_home: Path):
     assert "tested_device_id" not in loaded
 
 
-def test_fcitx_module_config_round_trip(isolated_home: Path):
-    path = config_service.save_fcitx_module_config(
+def test_fcitx_module_config_round_trip_removes_legacy_polish_inversion(
+    isolated_home: Path,
+):
+    path = config_service.fcitx_module_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "PolishByDefault=True\nPolishMinChars=8\n",
+        encoding="utf-8",
+    )
+
+    saved = config_service.save_fcitx_module_config(
         {
-            "PolishByDefault": True,
             "PolishMinChars": 12,
             "EnableThinking": False,
+            "PanelStyle": "minimal",
         }
     )
-    text = path.read_text(encoding="utf-8")
-    assert "PolishByDefault=True" in text
+    text = saved.read_text(encoding="utf-8")
+    assert "PolishByDefault" not in text
     assert "PolishMinChars=12" in text
+    assert "PanelStyle=minimal" in text
     loaded = config_service.load_fcitx_module_config()
-    assert loaded["polishbydefault"] == "True"
+    assert "polishbydefault" not in loaded
     assert loaded["polishminchars"] == "12"
+    assert loaded["panelstyle"] == "minimal"
 
 
 def test_slm_api_key_can_come_from_environment(monkeypatch: pytest.MonkeyPatch):
@@ -598,7 +625,8 @@ def test_integration_status_distinguishes_absent_partial_and_complete(
     assert absent.state == "absent"
     assert "module" in absent.missing
 
-    _touch(home / ".local/lib/fcitx5/vocotype.so")
+    module = home / ".local/lib/fcitx5/vocotype.so"
+    _touch(module)
     _touch(home / ".local/share/fcitx5/addon/vocotype.conf")
     partial = integration_status(
         "fcitx5",
@@ -618,6 +646,7 @@ def test_integration_status_distinguishes_absent_partial_and_complete(
     _touch(home / ".local/bin/vocotype-fcitx5-backend", executable=True)
     _touch(home / ".local/share/vocotype-fcitx5/backend/fcitx5_server.py")
     _touch(home / ".local/share/vocotype-fcitx5/.venv/bin/python", executable=True)
+    module.write_bytes(b"fixture\0PanelStyle\0minimal")
     socket_path = tmp_path / "vocotype.sock"
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
@@ -634,6 +663,38 @@ def test_integration_status_distinguishes_absent_partial_and_complete(
     assert complete.state == "complete"
     assert complete.missing == ()
 
+
+
+def test_old_fcitx_module_is_reported_as_incomplete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    home = tmp_path / "home"
+    prefix = tmp_path / "usr"
+    monkeypatch.setattr(
+        "settings_center.setup_manager.inspect_required_models",
+        lambda **_kwargs: {
+            name: {"complete": True}
+            for name in ("asr", "vad", "punc")
+        },
+    )
+    module = home / ".local/lib/fcitx5/vocotype.so"
+    _touch(module)
+    _touch(home / ".local/share/fcitx5/addon/vocotype.conf")
+    _touch(home / ".config/systemd/user/vocotype-fcitx5-backend.service")
+    _touch(home / ".local/bin/vocotype-fcitx5-backend", executable=True)
+    _touch(home / ".local/share/vocotype-fcitx5/backend/fcitx5_server.py")
+    _touch(home / ".local/share/vocotype-fcitx5/.venv/bin/python", executable=True)
+
+    status = integration_status(
+        "fcitx5",
+        home=home,
+        system_prefix=prefix,
+        fcitx_socket_path=tmp_path / "missing.sock",
+        fcitx_addon_loaded=True,
+    )
+
+    assert status.state == "partial"
+    assert "F9 状态样式支持（module 需要更新）" in status.missing
 
 def test_ibus_status_requires_runtime_and_python_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -683,6 +744,32 @@ def test_restart_fcitx_uses_nonblocking_session_helper(monkeypatch: pytest.Monke
     assert calls == [{"timeout": 10.0}]
 
 
+def test_restart_ibus_backend_stops_only_vocotype_engine(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    proc_root = tmp_path / "proc"
+    for pid, command in {
+        101: "python /home/user/.local/share/vocotype/ibus/main.py --ibus",
+        102: "ibus-daemon --daemonize",
+        103: "python unrelated.py --ibus",
+    }.items():
+        process_dir = proc_root / str(pid)
+        process_dir.mkdir(parents=True)
+        (process_dir / "cmdline").write_bytes(command.replace(" ", "\0").encode())
+    killed: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        "settings_center.setup_manager.os.kill",
+        lambda pid, sig: killed.append((pid, sig)),
+    )
+
+    ok, message = restart_ibus_backend(proc_root=proc_root)
+
+    assert ok, message
+    assert killed == [(101, 15)]
+    assert "下次切换到 VoCoType" in message
+
+
 def test_install_progress_parser_accepts_only_structured_stages():
     assert parse_install_progress("VOCOTYPE_PROGRESS:2:准备安装") == (0.02, "准备安装")
     assert parse_install_progress("VOCOTYPE_PROGRESS:100:完成") == (1.0, "完成")
@@ -720,13 +807,27 @@ def test_settings_application_exposes_both_install_paths():
     source = Path("settings_center/application.py").read_text(encoding="utf-8")
     assert "安装 / 修复 VoCoType（Fcitx 5）" in source
     assert "安装 / 修复 VoCoType（IBus）" in source
-    assert "卸载 VoCoType（Fcitx 5）" in source
-    assert "卸载 VoCoType（IBus）" in source
+    assert 'uninstall_button = Gtk.Button(label=f"卸载 VoCoType（{title}）")' in source
     assert "UninstallOptions" in source
     assert "uninstall_framework" in source
     assert "launch_ibus_installer" not in source
-    assert "Gtk.Grid()" in source
-    assert "lifecycle_actions.set_column_homogeneous(True)" in source
+    assert "lifecycle_stack = Gtk.Stack()" in source
+    assert "lifecycle_switcher = Gtk.StackSwitcher()" in source
+    assert 'lifecycle_stack.add_titled(ibus_panel, "ibus", "IBus")' in source
+    assert 'lifecycle_stack.add_titled(fcitx_panel, "fcitx5", "Fcitx 5")' in source
+    assert "lifecycle_switcher.set_homogeneous(True)" in source
+    assert "lifecycle_switcher.set_hexpand(True)" in source
+    assert "lifecycle_switcher.set_halign(Gtk.Align.FILL)" in source
+    assert 'ui_config = self.runtime_config.get("ui")' in source
+    assert '"lifecycle_framework"' in source
+    assert 'self._on_lifecycle_framework_changed' in source
+    assert 'update_runtime_sections(' in source
+    assert 'lifecycle_stack.connect(' in source
+    assert "button.set_hexpand(True)" in source
+    assert "button.set_halign(Gtk.Align.FILL)" in source
+    assert 'backend_button = Gtk.Button(label="重启 VoCoType 后台")' in source
+    assert 'framework_button = Gtk.Button(label=f"重启 {title}")' in source
+    assert "restart_ibus_backend" in source
     assert "Gtk.ProgressBar()" in source
     assert "progress_bar.pulse()" in source
     assert "正在准备卸载 VoCoType" in source
@@ -760,6 +861,21 @@ def test_settings_application_exposes_both_install_paths():
     assert "API Key 环境变量名（高级）" in source
     assert "直接 API Key" in source
     assert "remove_system_integration" in source
+    assert 'self.stack.add_titled(recognition_page, "recognition", "逆文本标准化")' in source
+    assert 'self.panel_style.append("minimal", "极简：🎤 录音中 / ⏳ 识别中")' in source
+    assert 'self.panel_style.append("animated", "动画：绿黑状态动画")' in source
+    assert '"PanelStyle": self.panel_style.get_active_id() or "minimal"' in source
+    assert "Gtk.DrawingArea()" in source
+    assert "self.playground_waveform.set_hexpand(True)" in source
+    assert "visible_peak = max(" in source
+    assert "display_peak = max(0.01" in source
+    assert "waveform_callback=lambda envelope" in source
+    assert "自动增益 +{result.gain_db:.1f} dB" in source
+    assert "list_output_devices" in source
+    assert "回放输出已切换到" in source
+    assert "Fcitx：F9 默认润色" not in source
+    assert "PolishByDefault" not in source
+    assert "F9 始终直接输出；Shift+F9" in source
 
 
 def test_installers_have_gui_noninteractive_paths_without_terminal_password_prompts():
@@ -783,8 +899,16 @@ def test_installers_have_gui_noninteractive_paths_without_terminal_password_prom
         'VOCOTYPE_PROJECT_DIR',
         '--install-system-deps',
         'pkexec',
+        'pkexec --disable-internal-agent',
     ):
         assert fragment in script
+
+    ibus_gui = Path("ibus/scripts/install-gui.sh").read_text(encoding="utf-8")
+    assert ibus_gui.count("pkexec --disable-internal-agent") == 2
+
+    uninstaller = Path("installers/uninstall-integration.sh").read_text(encoding="utf-8")
+    assert 'if [[ "$NON_INTERACTIVE" == true ]]; then' in uninstaller
+    assert 'pkexec --disable-internal-agent "$@"' in uninstaller
 
 
 def test_shared_uninstaller_preserves_user_configuration_by_default():

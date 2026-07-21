@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import threading
+from collections import deque
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable
@@ -30,13 +31,16 @@ from .config_service import (
     save_fcitx_module_config,
     save_runtime_config,
     terms_path,
+    update_runtime_sections,
 )
 from .doctor import DoctorCheck, doctor_summary, run_doctor
 from .feedback import open_github_issue, submit_feedback
 from .playground_service import (
     RECORDING_DURATION_SECONDS,
+    OutputDevice,
     last_recording_path,
     list_input_devices,
+    list_output_devices,
     play_recording,
     record_audio,
     slm_config_fingerprint,
@@ -46,6 +50,7 @@ from .playground_service import (
 from .setup_manager import (
     InstallOptions,
     UninstallOptions,
+    fcitx_panel_style_support,
     find_project_root,
     install_or_repair,
     installation_paths,
@@ -56,6 +61,7 @@ from .setup_manager import (
     restart_backend,
     restart_fcitx,
     restart_ibus,
+    restart_ibus_backend,
     uninstall_framework,
 )
 from .support_bundle import create_support_bundle
@@ -113,6 +119,11 @@ headerbar {
   border-radius: 8px;
   padding: 12px;
 }
+.waveform {
+  background-color: shade(@theme_base_color, 0.96);
+  border: 1px solid alpha(@theme_fg_color, 0.18);
+  border-radius: 8px;
+}
 .accent {
   background-color: @theme_selected_bg_color;
   color: @theme_selected_fg_color;
@@ -151,9 +162,14 @@ class SettingsWindow(Gtk.ApplicationWindow):
         )
         self._playground_audio_busy = False
         self._playground_ai_busy = False
+        self._loading_values = True
+        self._restoring_lifecycle_framework = True
+        self._playground_waveform: deque[tuple[float, float]] = deque(maxlen=240)
         self._build_header()
         self._build_layout()
         self._load_values()
+        self._loading_values = False
+        GLib.idle_add(self._refresh_panel_style_status)
 
     def _build_header(self) -> None:
         header = Gtk.HeaderBar()
@@ -186,7 +202,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         slm_page = self._slm_page()
         playground_page = self._playground_page()
         self.stack.add_titled(overview_page, "overview", "概览与安装")
-        self.stack.add_titled(recognition_page, "recognition", "语音识别与 ITN")
+        self.stack.add_titled(recognition_page, "recognition", "逆文本标准化")
         self.stack.add_titled(playground_page, "playground", "Playground")
         self.stack.add_titled(terms_page, "terms", "用户词典")
         self.stack.add_titled(slm_page, "slm", "AI 润色")
@@ -247,53 +263,126 @@ class SettingsWindow(Gtk.ApplicationWindow):
             "概览与安装",
             "从这里完成首次安装、升级或修复。配置与术语文件会被保留。",
         )
-        card = self._card()
-        self.install_status = Gtk.Label(label="尚未检查安装状态", xalign=0)
-        self.install_status.set_line_wrap(True)
-        lifecycle_actions = Gtk.Grid()
-        lifecycle_actions.set_row_spacing(8)
-        lifecycle_actions.set_column_spacing(8)
-        lifecycle_actions.set_column_homogeneous(True)
-        install_button = Gtk.Button(label="安装 / 修复 VoCoType（Fcitx 5）")
-        install_button.get_style_context().add_class("suggested-action")
-        install_button.connect("clicked", lambda _b: self._open_install_dialog("fcitx5"))
-        ibus_install_button = Gtk.Button(label="安装 / 修复 VoCoType（IBus）")
-        ibus_install_button.connect("clicked", lambda _b: self._open_install_dialog("ibus"))
-        uninstall_fcitx_button = Gtk.Button(label="卸载 VoCoType（Fcitx 5）")
-        uninstall_fcitx_button.connect("clicked", lambda _b: self._open_uninstall_dialog("fcitx5"))
-        uninstall_ibus_button = Gtk.Button(label="卸载 VoCoType（IBus）")
-        uninstall_ibus_button.connect("clicked", lambda _b: self._open_uninstall_dialog("ibus"))
-        lifecycle_actions.attach(install_button, 0, 0, 1, 1)
-        lifecycle_actions.attach(ibus_install_button, 1, 0, 1, 1)
-        lifecycle_actions.attach(uninstall_fcitx_button, 0, 1, 1, 1)
-        lifecycle_actions.attach(uninstall_ibus_button, 1, 1, 1, 1)
-
-        restart_actions = Gtk.Box(spacing=8)
-        restart_service = Gtk.Button(label="重启后台服务")
-        restart_service.connect("clicked", lambda _b: self._run_quick_action(restart_backend))
-        restart_fcitx_button = Gtk.Button(label="重启 Fcitx 5")
-        restart_fcitx_button.connect("clicked", lambda _b: self._run_quick_action(restart_fcitx))
-        restart_ibus_button = Gtk.Button(label="重启 IBus")
-        restart_ibus_button.connect("clicked", lambda _b: self._run_quick_action(restart_ibus))
-        restart_actions.pack_start(restart_service, False, False, 0)
-        restart_actions.pack_start(restart_fcitx_button, False, False, 0)
-        restart_actions.pack_start(restart_ibus_button, False, False, 0)
-
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        box.pack_start(self.install_status, False, False, 0)
-        box.pack_start(lifecycle_actions, False, False, 0)
-        box.pack_start(restart_actions, False, False, 0)
-        card.pack_start(
-            self._row(
-                "VoCoType 安装",
-                "Fcitx 5 与 IBus 均在本窗口完成。缺少系统依赖或需要注册系统 IBus component 时，Polkit 会弹出标准管理员授权窗口。",
-                box,
-            ),
+        install_card = self._card()
+        self.install_environment_status = Gtk.Label(
+            label="正在检查安装环境…", xalign=0
+        )
+        self.install_environment_status.set_line_wrap(True)
+        install_card.pack_start(
+            self._row("安装环境", control=self.install_environment_status),
             False,
             False,
             0,
         )
 
+        lifecycle_stack = Gtk.Stack()
+        self.lifecycle_stack = lifecycle_stack
+        lifecycle_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        lifecycle_stack.set_transition_duration(120)
+        lifecycle_stack.set_hexpand(True)
+
+        def lifecycle_page(
+            framework: str,
+            title: str,
+            restart_backend_action: Callable[[], tuple[bool, str]],
+            restart_framework_action: Callable[[], tuple[bool, str]],
+        ) -> Gtk.Widget:
+            panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+            panel.set_border_width(14)
+            status = Gtk.Label(label=f"正在检查 VoCoType（{title}）…", xalign=0)
+            status.set_line_wrap(True)
+            if framework == "ibus":
+                self.ibus_install_status = status
+            else:
+                self.fcitx_install_status = status
+
+            actions = Gtk.Grid()
+            actions.set_row_spacing(8)
+            actions.set_column_spacing(8)
+            actions.set_column_homogeneous(True)
+            actions.set_hexpand(True)
+
+            install_button = Gtk.Button(label=f"安装 / 修复 VoCoType（{title}）")
+            install_button.get_style_context().add_class("suggested-action")
+            install_button.connect(
+                "clicked", lambda _button: self._open_install_dialog(framework)
+            )
+            uninstall_button = Gtk.Button(label=f"卸载 VoCoType（{title}）")
+            uninstall_button.connect(
+                "clicked", lambda _button: self._open_uninstall_dialog(framework)
+            )
+            backend_button = Gtk.Button(label="重启 VoCoType 后台")
+            backend_button.connect(
+                "clicked",
+                lambda _button: self._run_quick_action(restart_backend_action),
+            )
+            framework_button = Gtk.Button(label=f"重启 {title}")
+            framework_button.connect(
+                "clicked",
+                lambda _button: self._run_quick_action(restart_framework_action),
+            )
+            for button in (
+                install_button,
+                uninstall_button,
+                backend_button,
+                framework_button,
+            ):
+                button.set_hexpand(True)
+                button.set_halign(Gtk.Align.FILL)
+            actions.attach(install_button, 0, 0, 1, 1)
+            actions.attach(uninstall_button, 1, 0, 1, 1)
+            actions.attach(backend_button, 0, 1, 1, 1)
+            actions.attach(framework_button, 1, 1, 1, 1)
+            panel.pack_start(status, False, False, 0)
+            panel.pack_start(actions, False, False, 0)
+            return panel
+
+        ibus_panel = lifecycle_page(
+            "ibus", "IBus", restart_ibus_backend, restart_ibus
+        )
+        fcitx_panel = lifecycle_page(
+            "fcitx5", "Fcitx 5", restart_backend, restart_fcitx
+        )
+        lifecycle_stack.add_titled(ibus_panel, "ibus", "IBus")
+        lifecycle_stack.add_titled(fcitx_panel, "fcitx5", "Fcitx 5")
+        ui_config = self.runtime_config.get("ui")
+        saved_framework = (
+            str(ui_config.get("lifecycle_framework", "")).strip().lower()
+            if isinstance(ui_config, dict)
+            else ""
+        )
+        if saved_framework not in {"ibus", "fcitx5"}:
+            saved_framework = (
+                "fcitx5"
+                if "fcitx" in os.environ.get("XMODIFIERS", "").casefold()
+                else "ibus"
+            )
+        lifecycle_stack.connect(
+            "notify::visible-child-name",
+            self._on_lifecycle_framework_changed,
+        )
+        GLib.idle_add(
+            self._restore_lifecycle_framework,
+            lifecycle_stack,
+            saved_framework,
+        )
+
+        lifecycle_switcher = Gtk.StackSwitcher()
+        lifecycle_switcher.set_stack(lifecycle_stack)
+        lifecycle_switcher.set_homogeneous(True)
+        lifecycle_switcher.set_hexpand(True)
+        lifecycle_switcher.set_halign(Gtk.Align.FILL)
+
+        lifecycle_container = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=0
+        )
+        lifecycle_container.set_hexpand(True)
+        lifecycle_container.pack_start(lifecycle_switcher, False, True, 0)
+        lifecycle_container.pack_start(lifecycle_stack, False, True, 0)
+        install_card.pack_start(lifecycle_container, False, True, 0)
+        content.pack_start(install_card, False, False, 0)
+
+        doctor_card = self._card()
         doctor_actions = Gtk.Box(spacing=8)
         doctor_button = Gtk.Button(label="运行快速检查")
         doctor_button.connect("clicked", self._on_run_doctor)
@@ -306,7 +395,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         doctor_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         doctor_panel.pack_start(doctor_actions, False, False, 0)
         doctor_panel.pack_start(self.overview_summary, False, False, 0)
-        card.pack_start(
+        doctor_card.pack_start(
             self._row(
                 "运行状态",
                 "快速检查后仅显示摘要；点击“查看详情”进入诊断页查看逐项结果与修复建议。",
@@ -316,13 +405,40 @@ class SettingsWindow(Gtk.ApplicationWindow):
             False,
             0,
         )
-        content.pack_start(card, False, False, 0)
+        content.pack_start(doctor_card, False, False, 0)
         GLib.idle_add(self._refresh_install_status)
         return page
 
+    def _restore_lifecycle_framework(
+        self, stack: Gtk.Stack, framework: str
+    ) -> bool:
+        stack.set_visible_child_name(framework)
+        GLib.idle_add(self._finish_lifecycle_framework_restore)
+        return False
+
+    def _finish_lifecycle_framework_restore(self) -> bool:
+        self._restoring_lifecycle_framework = False
+        return False
+
+    def _on_lifecycle_framework_changed(
+        self, stack: Gtk.Stack, _parameter: Any
+    ) -> None:
+        if self._loading_values or self._restoring_lifecycle_framework:
+            return
+        framework = stack.get_visible_child_name()
+        if framework not in {"ibus", "fcitx5"}:
+            return
+        try:
+            self.runtime_config = update_runtime_sections(
+                {"ui": {"lifecycle_framework": framework}}
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._last_lifecycle_notice = f"⚠️ 无法保存上次使用的框架：{exc}"
+            self._refresh_install_status()
+
     def _recognition_page(self) -> Gtk.Widget:
         page, content = self._page(
-            "语音识别与 ITN",
+            "逆文本标准化（ITN）",
             "配置识别后的数字、日期、时间、路程和金额格式；麦克风、回放与真实模型试用已集中到 Playground。",
         )
         card = self._card()
@@ -392,7 +508,6 @@ class SettingsWindow(Gtk.ApplicationWindow):
         )
         card = self._card()
         self.slm_enabled = self._switch()
-        self.polish_by_default = self._switch()
         self.slm_remote_stream = self._switch()
         self.slm_thinking = self._switch()
         self.slm_provider = Gtk.ComboBoxText()
@@ -408,12 +523,11 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.slm_clear_api_key = Gtk.CheckButton(label="清除已保存的直接 API Key")
         self.slm_min_chars = Gtk.SpinButton.new_with_range(0, 2000, 1)
         self.slm_timeout = Gtk.SpinButton.new_with_range(1000, 120000, 1000)
-        card.pack_start(self._row("启用 AI 润色", "Shift+F9 或默认润色模式才会调用。", self.slm_enabled), False, False, 0)
         card.pack_start(
             self._row(
-                "Fcitx：F9 默认润色",
-                "开启后 Shift+F9 临时跳过润色；IBus 仍保持 Shift+F9 才润色。",
-                self.polish_by_default,
+                "启用 AI 润色",
+                "F9 始终直接输出；Shift+F9 在 IBus 与 Fcitx 5 中统一调用 AI 润色。",
+                self.slm_enabled,
             ),
             False,
             False,
@@ -461,10 +575,24 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.audio_device = Gtk.ComboBoxText()
         self.audio_device.set_hexpand(True)
         self.audio_device.connect("changed", self._on_audio_device_changed)
+        self.audio_output = Gtk.ComboBoxText()
+        self.audio_output.set_hexpand(True)
+        self.audio_output.connect("changed", self._on_audio_output_changed)
         self.audio_sample_rate = Gtk.SpinButton.new_with_range(8000, 192000, 1000)
         self.audio_sample_rate.set_value(44100)
-        self.audio_status = Gtk.Label(label="尚未枚举麦克风", xalign=0)
+        self.panel_style = Gtk.ComboBoxText()
+        self.panel_style.append("minimal", "极简：🎤 录音中 / ⏳ 识别中")
+        self.panel_style.append("animated", "动画：绿黑状态动画")
+        self.panel_style.set_active_id("minimal")
+        self.panel_style.connect("changed", self._on_panel_style_changed)
+        self.panel_style_status = Gtk.Label(xalign=0)
+        self.panel_style_status.set_line_wrap(True)
+        self.audio_status = Gtk.Label(label="尚未枚举音频设备", xalign=0)
         self.audio_status.set_line_wrap(True)
+        self.playground_waveform = Gtk.DrawingArea()
+        self.playground_waveform.set_size_request(-1, 110)
+        self.playground_waveform.get_style_context().add_class("waveform")
+        self.playground_waveform.connect("draw", self._draw_playground_waveform)
 
         self.playground_refresh_audio_button = Gtk.Button(label="刷新设备")
         self.playground_refresh_audio_button.connect("clicked", self._on_refresh_audio)
@@ -492,6 +620,16 @@ class SettingsWindow(Gtk.ApplicationWindow):
         )
         audio_card.pack_start(
             self._row(
+                "输出设备",
+                "回放会明确发送到所选的 PipeWire/PulseAudio sink，避免误落到无声 HDMI。",
+                self.audio_output,
+            ),
+            False,
+            False,
+            0,
+        )
+        audio_card.pack_start(
+            self._row(
                 "原生采样率",
                 "按设备原生采样率采集，保存为 WAV；ASR 会按模型需要处理采样率。",
                 self.audio_sample_rate,
@@ -500,16 +638,50 @@ class SettingsWindow(Gtk.ApplicationWindow):
             False,
             0,
         )
+        panel_style_control = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=4
+        )
+        panel_style_control.pack_start(self.panel_style, False, False, 0)
+        panel_style_control.pack_start(
+            self.panel_style_status, False, False, 0
+        )
+        audio_card.pack_start(
+            self._row(
+                "F9 状态样式",
+                "极简模式默认启用；改变后会立即写入配置并重载 Fcitx 5。",
+                panel_style_control,
+            ),
+            False,
+            False,
+            0,
+        )
         audio_card.pack_start(
             self._row(
                 "录音与回放",
-                "先完整录音 5 秒，再用独立回放按钮从默认扬声器/耳机试听。",
+                f"先完整录音 {int(RECORDING_DURATION_SECONDS)} 秒，再用独立回放按钮从所选输出设备试听。",
                 audio_actions,
             ),
             False,
             False,
             0,
         )
+        waveform_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        waveform_section.get_style_context().add_class("card-row")
+        waveform_title = Gtk.Label(label="实时波形", xalign=0)
+        waveform_title.get_style_context().add_class("row-title")
+        waveform_subtitle = Gtk.Label(
+            label="录音期间滚动显示，并按当前信号自动放大；原始 WAV 不会被修改。",
+            xalign=0,
+        )
+        waveform_subtitle.set_line_wrap(True)
+        waveform_subtitle.get_style_context().add_class("row-subtitle")
+        self.playground_waveform.set_hexpand(True)
+        self.playground_waveform.set_vexpand(False)
+        self.playground_waveform.set_valign(Gtk.Align.FILL)
+        waveform_section.pack_start(waveform_title, False, False, 0)
+        waveform_section.pack_start(waveform_subtitle, False, False, 0)
+        waveform_section.pack_start(self.playground_waveform, False, True, 0)
+        audio_card.pack_start(waveform_section, False, False, 0)
         audio_card.pack_start(
             self._row("状态", control=self.audio_status),
             False,
@@ -653,7 +825,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         steps = [
             ("1. 安装或修复", "在“概览与安装”点击安装/修复，然后注销并重新登录一次，让桌面会话读取用户 addon 路径。"),
             ("2. 保留原输入法", "继续使用雾凇拼音、Rime、Mozc 或任意 Fcitx 5 输入法，不再切换到 VoCoType。"),
-            ("3. Playground 验证", "先录音 5 秒并回放，再测试真实 ASR；AI 润色需先在 AI 页面完成端点/模型测活。"),
+            ("3. Playground 验证", "先录音 3 秒并回放，再测试真实 ASR；AI 润色需先在 AI 页面完成端点/模型测活。"),
             ("4. 语音输入", "按住 F9 说话，松开识别；Shift+F9 使用 AI 润色。"),
             ("5. 添加术语", "在用户词典中加入项目名、人名和专业术语。hotword 提高识别概率，aliases 保证标准拼写。"),
             ("6. 排障", "F9 无响应时先运行 Doctor；支持包可直接附到 GitHub issue。"),
@@ -722,7 +894,10 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.slm_timeout.set_value(float(slm.get("stream_idle_timeout_ms", slm.get("timeout_ms", 20000))))
         self.slm_remote_stream.set_active(_as_bool(slm.get("remote_stream"), True))
         self.slm_thinking.set_active(_as_bool(slm.get("enable_thinking"), False))
-        self.polish_by_default.set_active(_as_bool(self.module_config.get("polishbydefault"), False))
+        panel_style = str(self.module_config.get("panelstyle", "minimal")).strip().lower()
+        self.panel_style.set_active_id(
+            panel_style if panel_style in {"minimal", "animated"} else "minimal"
+        )
         self.feedback_endpoint.set_text(str(feedback.get("endpoint", "")))
         try:
             self._saved_audio_config = load_audio_config()
@@ -805,10 +980,10 @@ class SettingsWindow(Gtk.ApplicationWindow):
             save_runtime_config(config)
             save_fcitx_module_config(
                 {
-                    "PolishByDefault": self.polish_by_default.get_active(),
                     "PolishMinChars": int(self.slm_min_chars.get_value()),
                     "PolishTimeoutMs": int(self.slm_timeout.get_value()),
                     "EnableThinking": self.slm_thinking.get_active(),
+                    "PanelStyle": self.panel_style.get_active_id() or "minimal",
                 }
             )
             self.runtime_config = config
@@ -859,12 +1034,13 @@ class SettingsWindow(Gtk.ApplicationWindow):
         return False
 
     def _on_refresh_audio(self, _button: Gtk.Button | None) -> None:
-        self.audio_status.set_text("正在枚举输入设备…")
+        self.audio_status.set_text("正在枚举输入与输出设备…")
         self._playground_audio_busy = True
         self._update_playground_recording_actions()
         saved = getattr(self, "_saved_audio_config", {})
 
         def work() -> None:
+            errors: list[str] = []
             try:
                 devices = [
                     {
@@ -875,35 +1051,37 @@ class SettingsWindow(Gtk.ApplicationWindow):
                     }
                     for item in list_input_devices()
                 ]
-                error = ""
             except Exception as exc:  # noqa: BLE001
                 devices = []
-                error = str(exc)
-            GLib.idle_add(self._render_audio_devices, devices, saved, error)
+                errors.append(f"输入设备：{exc}")
+            try:
+                outputs = list_output_devices()
+            except Exception as exc:  # noqa: BLE001
+                outputs = []
+                errors.append(f"输出设备：{exc}")
+            GLib.idle_add(
+                self._render_audio_devices,
+                devices,
+                outputs,
+                saved,
+                "；".join(errors),
+            )
 
         threading.Thread(target=work, daemon=True).start()
 
     def _render_audio_devices(
         self,
         devices: list[dict[str, Any]],
+        outputs: list[OutputDevice],
         saved: dict[str, Any],
         error: str,
     ) -> bool:
         self._rendering_audio_devices = True
         self.audio_device.remove_all()
+        self.audio_output.remove_all()
         self._audio_devices = {int(item["id"]): item for item in devices}
-        if error:
-            self.audio_status.set_text(f"无法枚举麦克风：{error}")
-            self._rendering_audio_devices = False
-            self._playground_audio_busy = False
-            self._update_playground_recording_actions()
-            return False
-        if not devices:
-            self.audio_status.set_text("没有检测到可用的输入设备")
-            self._rendering_audio_devices = False
-            self._playground_audio_busy = False
-            self._update_playground_recording_actions()
-            return False
+        self._audio_outputs = {str(index): item for index, item in enumerate(outputs)}
+
         saved_id = saved.get("device_id")
         saved_name = str(saved.get("device_name") or "")
         selected_id: int | None = None
@@ -915,17 +1093,44 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 selected_id = device_id
             elif selected_id is None and saved_id == device_id:
                 selected_id = device_id
-        if selected_id is None:
+        if selected_id is None and devices:
             selected_id = int(devices[0]["id"])
-        self.audio_device.set_active_id(str(selected_id))
-        selected = self._audio_devices[selected_id]
-        if not int(saved.get("sample_rate") or 0):
-            self.audio_sample_rate.set_value(selected["sample_rate"])
+        if selected_id is not None:
+            self.audio_device.set_active_id(str(selected_id))
+            selected = self._audio_devices[selected_id]
+            if not int(saved.get("sample_rate") or 0):
+                self.audio_sample_rate.set_value(selected["sample_rate"])
+
+        selected_output_id: str | None = None
+        for key, item in self._audio_outputs.items():
+            suffix = "（系统默认）" if item.is_default else ""
+            self.audio_output.append(key, f"{item.name}{suffix}")
+            if selected_output_id is None and item.is_default:
+                selected_output_id = key
+        if selected_output_id is None and outputs:
+            selected_output_id = "0"
+        if selected_output_id is not None:
+            self.audio_output.set_active_id(selected_output_id)
+
         self._rendering_audio_devices = False
         self._playground_audio_busy = False
-        self.audio_status.set_text(
-            f"检测到 {len(devices)} 个输入设备；点击“录音 5 秒”开始实际试听。"
-        )
+        parts = [f"检测到 {len(devices)} 个输入设备", f"{len(outputs)} 个输出设备"]
+        if error:
+            parts.append(f"⚠️ {error}")
+        if not devices:
+            parts.append("无法录音")
+        if not outputs:
+            parts.append("无法回放")
+        if devices and outputs:
+            parts.append(
+                f"点击“录音 {int(RECORDING_DURATION_SECONDS)} 秒”开始实际试听"
+            )
+            selected_output = next((item for item in outputs if item.is_default), outputs[0])
+            if "hdmi" in (selected_output.name + selected_output.device_id).casefold():
+                parts.append(
+                    "⚠️ 当前系统默认输出是 HDMI；无声时请改选 Speakers 或 Headphones"
+                )
+        self.audio_status.set_text("；".join(parts) + "。")
         self._update_playground_recording_actions()
         return False
 
@@ -940,14 +1145,124 @@ class SettingsWindow(Gtk.ApplicationWindow):
         if selected.get("sample_rate"):
             self.audio_sample_rate.set_value(int(selected["sample_rate"]))
         self.audio_status.set_text(
-            "已切换输入设备；录制新的 5 秒样本后会保存为 F9 使用设备。"
+            f"已切换输入设备；录制新的 {int(RECORDING_DURATION_SECONDS)} 秒样本后会保存为 F9 使用设备。"
         )
         self._update_playground_recording_actions()
+
+    def _set_panel_style_status(self, message: str) -> bool:
+        self.panel_style_status.set_text(message)
+        return False
+
+    def _refresh_panel_style_status(self) -> bool:
+        supported, module = fcitx_panel_style_support()
+        if supported:
+            self.panel_style_status.set_text(
+                f"✅ 当前 module 支持此设置：{module}"
+            )
+        elif module is not None:
+            self.panel_style_status.set_text(
+                "⚠️ 当前已安装 module 版本过旧；请在“概览与安装 → Fcitx 5”"
+                "执行安装 / 修复后生效。"
+            )
+        else:
+            self.panel_style_status.set_text(
+                "⚠️ 尚未安装 VoCoType（Fcitx 5）module。"
+            )
+        return False
+
+    def _on_panel_style_changed(self, _widget: Gtk.ComboBoxText) -> None:
+        if self._loading_values:
+            return
+        style = self.panel_style.get_active_id() or "minimal"
+        try:
+            save_fcitx_module_config({"PanelStyle": style})
+            self.module_config = load_fcitx_module_config()
+        except Exception as exc:  # noqa: BLE001
+            self.panel_style_status.set_text(f"❌ 保存状态样式失败：{exc}")
+            return
+        self.panel_style_status.set_text("⏳ 配置已保存，正在应用到 Fcitx 5…")
+
+        def work() -> None:
+            supported, module = fcitx_panel_style_support()
+            if not supported:
+                if module is None:
+                    message = "⚠️ 配置已保存，但尚未安装 Fcitx module。"
+                else:
+                    message = (
+                        "⚠️ 配置已保存，但当前系统 module 版本过旧；"
+                        "请在概览页的 Fcitx 5 页签执行安装 / 修复。"
+                    )
+                GLib.idle_add(self._set_panel_style_status, message)
+                GLib.idle_add(self._refresh_install_status)
+                return
+            ok, detail = restart_fcitx()
+            if ok:
+                label = "极简" if style == "minimal" else "动画"
+                message = f"✅ 已切换为{label}模式，并重载 Fcitx 5。"
+            else:
+                message = f"❌ 配置已保存，但 Fcitx 5 重载失败：{detail}"
+            GLib.idle_add(self._set_panel_style_status, message)
+            GLib.idle_add(self._refresh_install_status)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_audio_output_changed(self, _widget: Gtk.ComboBoxText) -> None:
+        if getattr(self, "_rendering_audio_devices", False):
+            return
+        output = self._selected_audio_output()
+        if output is not None:
+            self.audio_status.set_text(f"回放输出已切换到：{output.name}")
+        self._update_playground_recording_actions()
+
+    def _selected_audio_output(self) -> OutputDevice | None:
+        active_id = self.audio_output.get_active_id()
+        if active_id is None:
+            return None
+        return getattr(self, "_audio_outputs", {}).get(active_id)
+
+    def _draw_playground_waveform(self, widget: Gtk.DrawingArea, context: Any) -> bool:
+        width = max(1, widget.get_allocated_width())
+        height = max(1, widget.get_allocated_height())
+        center = height / 2.0
+        color = widget.get_style_context().get_color(Gtk.StateFlags.NORMAL)
+        context.set_line_width(1.0)
+        context.set_source_rgba(color.red, color.green, color.blue, 0.22)
+        context.move_to(0, center)
+        context.line_to(width, center)
+        context.stroke()
+
+        points = tuple(self._playground_waveform)
+        if not points:
+            return False
+        step = width / max(1, len(points) - 1)
+        visible_peak = max(
+            max(abs(minimum), abs(maximum)) for minimum, maximum in points
+        )
+        # Display gain is visualization-only. A quiet but valid microphone
+        # signal should still occupy the canvas instead of looking flat.
+        display_peak = max(0.01, min(1.0, visible_peak * 1.2))
+        scale = max(1.0, (center - 8.0) / display_peak)
+        context.set_line_width(max(1.0, min(2.0, step * 0.55)))
+        context.set_source_rgba(color.red, color.green, color.blue, 0.92)
+        for index, (minimum, maximum) in enumerate(points):
+            x = index * step
+            context.move_to(x, center - maximum * scale)
+            context.line_to(x, center - minimum * scale)
+        context.stroke()
+        return False
+
+    def _append_playground_waveform(
+        self, envelope: tuple[tuple[float, float], ...]
+    ) -> bool:
+        self._playground_waveform.extend(envelope)
+        self.playground_waveform.queue_draw()
+        return False
 
     def _update_playground_recording_actions(self) -> bool:
         if not hasattr(self, "playground_record_button"):
             return False
         has_device = self.audio_device.get_active_id() is not None
+        has_output = self._selected_audio_output() is not None
         has_recording = bool(
             self._playground_recording_path
             and self._playground_recording_path.is_file()
@@ -955,7 +1270,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         idle = not self._playground_audio_busy
         self.playground_refresh_audio_button.set_sensitive(idle)
         self.playground_record_button.set_sensitive(idle and has_device)
-        self.playground_play_button.set_sensitive(idle and has_recording)
+        self.playground_play_button.set_sensitive(idle and has_recording and has_output)
         self.playground_transcribe_button.set_sensitive(idle and has_recording)
         return False
 
@@ -972,6 +1287,8 @@ class SettingsWindow(Gtk.ApplicationWindow):
             )
         )
         self._playground_audio_busy = True
+        self._playground_waveform.clear()
+        self.playground_waveform.queue_draw()
         self._update_playground_recording_actions()
         self.audio_status.set_text(
             f"🎙️ 正在录音 {int(RECORDING_DURATION_SECONDS)} 秒，请持续正常说话…"
@@ -983,6 +1300,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
                     device_id=device_id,
                     device_name=device_name,
                     sample_rate=sample_rate,
+                    waveform_callback=lambda envelope: GLib.idle_add(
+                        self._append_playground_waveform, envelope
+                    ),
                 )
                 save_audio_config(
                     device_name=device_name,
@@ -1005,7 +1325,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
                     self._playground_recording_path = recording.path
                     self._saved_audio_config = load_audio_config()
                     if recording.peak < 0.002:
-                        prefix = "⚠️ 录音信号很弱"
+                        prefix = "⚠️ 录音几乎没有信号"
+                    elif recording.peak < 0.06:
+                        prefix = "⚠️ 录音音量偏低（回放会自动增益）"
                     elif recording.peak > 0.98:
                         prefix = "⚠️ 录音可能削波"
                     else:
@@ -1013,7 +1335,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
                     self.audio_status.set_text(
                         f"{prefix}：{recording.duration_seconds:.2f} 秒，"
                         f"peak={recording.peak:.3f}，RMS={recording.rms:.3f}。"
-                        "请点击“回放上次录音”实际确认声音。"
+                        "请选择正确的输出设备并点击“回放上次录音”。"
                     )
                 self._update_playground_recording_actions()
                 return False
@@ -1025,18 +1347,32 @@ class SettingsWindow(Gtk.ApplicationWindow):
     def _on_playground_play(self, _button: Gtk.Button) -> None:
         path = self._playground_recording_path
         if path is None or not path.is_file():
-            self.audio_status.set_text("请先录制 5 秒样本")
+            self.audio_status.set_text(
+                f"请先录制 {int(RECORDING_DURATION_SECONDS)} 秒样本"
+            )
+            self._update_playground_recording_actions()
+            return
+        output = self._selected_audio_output()
+        if output is None:
+            self.audio_status.set_text("请先选择输出设备")
             self._update_playground_recording_actions()
             return
         self._playground_audio_busy = True
         self._update_playground_recording_actions()
-        self.audio_status.set_text("🔊 正在从默认扬声器/耳机回放录音…")
+        self.audio_status.set_text(f"🔊 正在回放到：{output.name}…")
 
         def work() -> None:
             try:
-                duration = play_recording(path)
+                result = play_recording(path, output_device=output)
+                gain_note = (
+                    f"；自动增益 +{result.gain_db:.1f} dB"
+                    if result.gain_db >= 0.5
+                    else "；原始音量无需增益"
+                )
                 message = (
-                    f"✅ 回放完成（{duration:.2f} 秒）。请以实际听感确认设备、音量和清晰度。"
+                    f"✅ 回放完成（{result.duration_seconds:.2f} 秒）；"
+                    f"后端：{result.backend}；输出：{result.output_name}"
+                    f"{gain_note}。"
                 )
             except Exception as exc:  # noqa: BLE001
                 message = f"❌ 回放失败：{exc}"
@@ -1054,7 +1390,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
     def _on_playground_transcribe(self, _button: Gtk.Button) -> None:
         path = self._playground_recording_path
         if path is None or not path.is_file():
-            self.playground_transcribe_status.set_text("请先录制 5 秒样本")
+            self.playground_transcribe_status.set_text("请先录制 3 秒样本")
             self._update_playground_recording_actions()
             return
         self._playground_audio_busy = True
@@ -1358,31 +1694,35 @@ class SettingsWindow(Gtk.ApplicationWindow):
         fcitx_status = integration_status("fcitx5", project_root=root)
         ibus_status = integration_status("ibus", project_root=root)
 
-        def framework_line(name: str, status) -> str:
+        def framework_text(name: str, status) -> str:
             if status.state == "complete":
                 return f"✅ VoCoType（{name}）：安装完整"
             if status.state == "partial":
-                return f"⚠️ VoCoType（{name}）：安装不完整；缺少 {', '.join(status.missing)}"
+                return (
+                    f"⚠️ VoCoType（{name}）：安装不完整\n"
+                    f"缺少：{', '.join(status.missing)}"
+                )
             return f"❌ VoCoType（{name}）：未安装"
 
         package_command = native_package_removal_command(root)
-        lines = []
+        environment_lines = []
         if self._last_lifecycle_notice:
-            lines.append(self._last_lifecycle_notice)
-        lines.extend(
+            environment_lines.append(self._last_lifecycle_notice)
+        environment_lines.extend(
             [
                 f"{'✅' if root else '❌'} 源码目录：{root or '未发现'}",
-                f"{'✅' if polkit_available() else '⚠️'} Polkit 授权：{'可用' if polkit_available() else '未检测到 pkexec'}",
+                f"{'✅' if polkit_available() else '⚠️'} Polkit 授权："
+                f"{'可用' if polkit_available() else '未检测到 pkexec'}",
                 (
                     "✅ 原生软件包：已安装"
                     if package_command
                     else "ℹ️ 原生软件包：未安装（当前可使用源码安装）"
                 ),
-                framework_line("Fcitx 5", fcitx_status),
-                framework_line("IBus", ibus_status),
             ]
         )
-        self.install_status.set_text("\n".join(lines))
+        self.install_environment_status.set_text("\n".join(environment_lines))
+        self.ibus_install_status.set_text(framework_text("IBus", ibus_status))
+        self.fcitx_install_status.set_text(framework_text("Fcitx 5", fcitx_status))
         return False
 
     def _open_install_dialog(self, framework: str) -> None:

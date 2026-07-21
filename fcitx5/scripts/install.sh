@@ -213,11 +213,11 @@ install_system_fcitx_integration() {
             return 1
         fi
         echo "AUTH_REQUIRED: 即将弹出管理员授权窗口以安装 VoCoType（Fcitx 5）系统 addon。"
-        pkexec "$(command -v bash)" "$SYSTEM_FCITX_HELPER" install "$module" "$addon" "$VOCOTYPE_VERSION"
+        pkexec --disable-internal-agent "$(command -v bash)" "$SYSTEM_FCITX_HELPER" install "$module" "$addon" "$VOCOTYPE_VERSION"
         return
     fi
     if command -v pkexec >/dev/null 2>&1 && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
-        pkexec "$(command -v bash)" "$SYSTEM_FCITX_HELPER" install "$module" "$addon" "$VOCOTYPE_VERSION"
+        pkexec --disable-internal-agent "$(command -v bash)" "$SYSTEM_FCITX_HELPER" install "$module" "$addon" "$VOCOTYPE_VERSION"
     elif command -v sudo >/dev/null 2>&1; then
         sudo "$(command -v bash)" "$SYSTEM_FCITX_HELPER" install "$module" "$addon" "$VOCOTYPE_VERSION"
     else
@@ -240,7 +240,7 @@ install_system_dependencies() {
         return 1
     fi
     echo "AUTH_REQUIRED: 即将弹出管理员授权窗口以安装 VoCoType（Fcitx 5）所需的系统依赖。"
-    pkexec "$(command -v bash)" "$SYSTEM_DEPS_HELPER" fcitx5
+    pkexec --disable-internal-agent "$(command -v bash)" "$SYSTEM_DEPS_HELPER" fcitx5
 }
 
 print_python_help() {

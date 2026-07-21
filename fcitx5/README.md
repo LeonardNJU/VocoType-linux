@@ -102,13 +102,13 @@ vocotype-doctor
 
 - `PTTKey`：主热键，默认 `F9`。
 - `PTTHoldThresholdMs`：超过指定时长才开始录音；默认 `0`，即按下立即开始。
-- `LongModeModifier`：润色模式临时反转修饰键，默认 `Shift`。
-- `PolishByDefault`：普通 F9 是否默认润色，默认关闭。
+- `LongModeModifier`：AI 润色修饰键，默认 `Shift`；按住该修饰键再按 F9 才会润色。
 - `PolishMinChars`：ASR 文本达到多少字符才调用 SLM，默认 `8`。
 - `PolishTimeoutMs`：流式输出空闲超时，默认 `20000` 毫秒。
 - `EnableThinking`：是否允许模型 reasoning；预览和最终提交仍会过滤 thinking。
 - `BlockWhenComposing`：当前输入法存在未提交组合时不启动录音，默认开启。
 - `StripTrailingPeriodOnCommit`：提交前移除末尾 `。` 或 `.`，默认关闭。
+- `PanelStyle`：F9 状态提示样式；`minimal` 为默认极简文案，`animated` 为绿黑录音动画。两种样式松开 F9 都会立即切换为 `⏳ 识别中`。
 
 `Fn` 通常不会作为普通 Fcitx key event 上报，因此一般不能直接作为 PTT 热键。
 
@@ -164,7 +164,7 @@ Contextual Paraformer ONNX，术语可以同时进入原生 hotword 编码器和
 ## AI 润色与实时预览
 
 SLM 默认关闭，在 `~/.config/vocotype/fcitx5-backend.json` 中配置。
-`PolishByDefault=false` 时，`F9` 只做 ASR，`Shift+F9` 才润色；设为 `true` 后两者反转。
+`F9` 始终只做 ASR，`Shift+F9` 始终在 ASR 后尝试 AI 润色；该行为与 IBus 一致。
 
 润色模式通过异步任务执行：module 先获得 `task_id`，随后每 100 ms 拉取
 `status / heartbeat / delta / final / error` 事件。远程模型的可见增量会显示在输入面板，

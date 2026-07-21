@@ -236,13 +236,13 @@ void VoCoTypeModule::applyConfig() {
     ptt_key_name_ = ptt_key.toString();
     ptt_hold_threshold_ms_ = config_.pttHoldThresholdMs.value();
     long_mode_modifier_ = modifier_state;
-    polish_by_default_ = config_.polishByDefault.value();
     polish_min_chars_ = std::max(0, config_.polishMinChars.value());
     polish_timeout_ms_ = std::max(1000, config_.polishTimeoutMs.value());
     enable_thinking_ = config_.enableThinking.value();
     block_when_composing_ = config_.blockWhenComposing.value();
     strip_trailing_period_on_commit_ =
         config_.stripTrailingPeriodOnCommit.value();
+    animate_panel_ = toLower(config_.panelStyle.value()) == "animated";
 }
 
 bool VoCoTypeModule::hasActiveComposition(fcitx::InputContext *ic) const {
@@ -255,8 +255,7 @@ bool VoCoTypeModule::hasActiveComposition(fcitx::InputContext *ic) const {
 }
 
 bool VoCoTypeModule::polishModeForStates(fcitx::KeyStates states) const {
-    const bool modifier_active = static_cast<bool>(states & long_mode_modifier_);
-    return polish_by_default_ ? !modifier_active : modifier_active;
+    return static_cast<bool>(states & long_mode_modifier_);
 }
 
 void VoCoTypeModule::handleKeyEvent(fcitx::KeyEvent &event) {
@@ -436,9 +435,14 @@ void VoCoTypeModule::startRecording(fcitx::InputContext *ic, bool long_mode) {
 
     if (long_mode) {
         std::thread([this]() { (void)ipc_client_->prewarmSlm(); }).detach();
-        startPanelAnimation(ic, PanelAnimationKind::RecordingLong);
+    }
+    if (animate_panel_) {
+        startPanelAnimation(
+            ic,
+            long_mode ? PanelAnimationKind::RecordingLong
+                      : PanelAnimationKind::Recording);
     } else {
-        startPanelAnimation(ic, PanelAnimationKind::Recording);
+        showPanelMessage(ic, "🎤 录音中...");
     }
 }
 
@@ -464,11 +468,9 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
     auto ic_ref = active_ic_;
     auto *ic = ic_ref.get();
     if (ic && transcribe && ic->hasFocus()) {
-        if (long_mode) {
-            startPanelAnimation(ic, PanelAnimationKind::Polishing);
-        } else {
-            showPanelMessage(ic, "⏳ 识别中...");
-        }
+        // Release is a synchronous UI boundary: never leave the recording
+        // animation visible while the recorder process is flushing.
+        showPanelMessage(ic, "⏳ 识别中");
     } else if (ic) {
         clearOwnedUI(ic);
     }
@@ -578,7 +580,7 @@ void VoCoTypeModule::startPolishPolling(fcitx::InputContext *ic,
     active_polish_after_seq_ = 0;
     polish_poll_in_flight_ = false;
     polish_poll_timer_.reset();
-    showPanelMessage(ic, "⏳ 识别中...");
+    showPanelMessage(ic, "⏳ 识别中");
     schedulePolishPoll(ic->watch());
 }
 

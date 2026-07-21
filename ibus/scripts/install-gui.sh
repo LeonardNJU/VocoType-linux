@@ -124,7 +124,7 @@ run_privileged_helper() {
         return 1
     }
     echo "AUTH_REQUIRED: 即将弹出管理员授权窗口以安装 $action 系统依赖。"
-    pkexec "$(command -v bash)" "$SYSTEM_DEPS_HELPER" "$action"
+    pkexec --disable-internal-agent "$(command -v bash)" "$SYSTEM_DEPS_HELPER" "$action"
 }
 
 needs_ibus_system_deps() {
@@ -392,7 +392,7 @@ if [[ "$COMPONENT_MODE" == system ]]; then
         command -v pkexec >/dev/null 2>&1 || { echo "需要 pkexec 安装系统 IBus component。" >&2; exit 6; }
         INSTALL_BIN=$(command -v install)
         echo "AUTH_REQUIRED: 即将弹出管理员授权窗口以注册 IBus 输入法。"
-        pkexec "$INSTALL_BIN" -D -m 0644 "$TEMP_COMPONENT" "$SYSTEM_COMPONENT_DIR/vocotype.xml"
+        pkexec --disable-internal-agent "$INSTALL_BIN" -D -m 0644 "$TEMP_COMPONENT" "$SYSTEM_COMPONENT_DIR/vocotype.xml"
     fi
     rm -f "$COMPONENT_DIR/vocotype.xml"
 else

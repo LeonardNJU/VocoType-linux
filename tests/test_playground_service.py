@@ -14,20 +14,37 @@ import soundfile
 from settings_center import playground_service
 
 
-def test_record_audio_is_fixed_to_five_seconds_and_writes_private_wav(
+def test_record_audio_is_fixed_to_three_seconds_streams_waveform_and_writes_private_wav(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
     calls: dict[str, object] = {}
-    frames = np.linspace(-0.5, 0.5, 80_000, dtype=np.float32).reshape(-1, 1)
+    waveform_updates: list[tuple[tuple[float, float], ...]] = []
 
-    fake_sd = SimpleNamespace(
-        rec=lambda count, **kwargs: (
-            calls.update({"count": count, **kwargs}) or frames.copy()
-        ),
-        wait=lambda: calls.update({"waited": True}),
+    class FakeInputStream:
+        def __init__(self, **kwargs):
+            calls.update(kwargs)
+            self.position = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            calls["closed"] = True
+
+        def read(self, count):
+            start = self.position
+            self.position += count
+            values = np.linspace(-0.5, 0.5, 48_000, dtype=np.float32)[
+                start : self.position
+            ]
+            return values.reshape(-1, 1), False
+
+    monkeypatch.setitem(
+        sys.modules,
+        "sounddevice",
+        SimpleNamespace(InputStream=FakeInputStream),
     )
-    monkeypatch.setitem(sys.modules, "sounddevice", fake_sd)
 
     def fake_write(path, samples, sample_rate, *, subtype):
         calls["write"] = (Path(path), np.asarray(samples).copy(), sample_rate, subtype)
@@ -40,28 +57,31 @@ def test_record_audio_is_fixed_to_five_seconds_and_writes_private_wav(
         device_name="USB microphone",
         sample_rate=16_000,
         output_path=output,
+        waveform_callback=waveform_updates.append,
     )
 
-    assert calls["count"] == 80_000
     assert calls["samplerate"] == 16_000
     assert calls["channels"] == 1
     assert calls["dtype"] == "float32"
     assert calls["device"] == 7
-    assert calls["waited"] is True
-    assert recording.duration_seconds == pytest.approx(5.0)
+    assert calls["closed"] is True
+    assert recording.frame_count == 48_000
+    assert recording.duration_seconds == pytest.approx(3.0)
     assert recording.path == output
+    assert waveform_updates
+    assert all(-1.0 <= low <= high <= 1.0 for update in waveform_updates for low, high in update)
     assert output.read_bytes() == b"fake-wav"
     assert output.stat().st_mode & 0o777 == 0o600
 
 
-def test_play_recording_uses_default_output_device(
+def test_play_recording_uses_selected_portaudio_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
     source = tmp_path / "recording.wav"
     source.write_bytes(b"wav")
     calls: dict[str, object] = {}
-    waveform = np.zeros(40_000, dtype=np.float32)
+    waveform = np.linspace(-0.02, 0.02, 40_000, dtype=np.float32)
     fake_sd = SimpleNamespace(
         play=lambda samples, **kwargs: calls.update(
             {"samples": np.asarray(samples), "kwargs": kwargs}
@@ -74,13 +94,105 @@ def test_play_recording_uses_default_output_device(
         "read",
         lambda *_args, **_kwargs: (waveform, 16_000),
     )
+    monkeypatch.setattr(
+        soundfile,
+        "info",
+        lambda *_args, **_kwargs: SimpleNamespace(frames=40_000, samplerate=16_000),
+    )
+    output = playground_service.OutputDevice(
+        device_id="6",
+        name="USB headphones",
+        backend="portaudio",
+    )
 
-    duration = playground_service.play_recording(source)
+    result = playground_service.play_recording(source, output_device=output)
 
-    assert duration == pytest.approx(2.5)
-    assert calls["kwargs"] == {"samplerate": 16_000}
-    assert "device" not in calls["kwargs"]
+    assert result.duration_seconds == pytest.approx(2.5)
+    assert result.backend == "PortAudio"
+    assert result.output_name == "USB headphones"
+    assert result.gain_db == pytest.approx(20.0 * np.log10(20.0))
+    assert float(np.max(np.abs(calls["samples"]))) == pytest.approx(0.4)
+    assert calls["kwargs"] == {"samplerate": 16_000, "device": 6}
     assert calls["waited"] is True
+
+
+def test_play_recording_targets_selected_pipewire_sink(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    source = tmp_path / "recording.wav"
+    source.write_bytes(b"wav")
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        soundfile,
+        "read",
+        lambda *_args, **_kwargs: (
+            np.linspace(-0.1, 0.1, 48_000, dtype=np.float32),
+            48_000,
+        ),
+    )
+    monkeypatch.setattr(
+        playground_service,
+        "playground_cache_dir",
+        lambda: tmp_path,
+    )
+    monkeypatch.setattr(
+        playground_service.shutil,
+        "which",
+        lambda command: "/usr/bin/pw-play" if command == "pw-play" else None,
+    )
+    monkeypatch.setattr(
+        playground_service.subprocess,
+        "run",
+        lambda argv, **_kwargs: calls.append(list(argv)) or SimpleNamespace(returncode=0),
+    )
+    output = playground_service.OutputDevice(
+        device_id="alsa_output.usb-speakers",
+        name="USB speakers",
+        backend="pipewire",
+    )
+
+    result = playground_service.play_recording(source, output_device=output)
+
+    assert len(calls) == 1
+    assert calls[0][:3] == [
+        "/usr/bin/pw-play",
+        "--target",
+        "alsa_output.usb-speakers",
+    ]
+    playback_path = Path(calls[0][3])
+    assert playback_path != source
+    assert not playback_path.exists()
+    assert result.backend == "PipeWire"
+    assert result.output_name == "USB speakers"
+    assert result.gain_db == pytest.approx(20.0 * np.log10(7.2), rel=1e-3)
+
+
+def test_prepare_playback_waveform_caps_gain_and_preserves_source():
+    source = np.array([-0.01, 0.0, 0.01], dtype=np.float32)
+    original = source.copy()
+
+    amplified, gain = playground_service.prepare_playback_waveform(source)
+
+    assert gain == pytest.approx(20.0)
+    assert amplified.tolist() == pytest.approx([-0.2, 0.0, 0.2])
+    assert source.tolist() == pytest.approx(original.tolist())
+
+
+def test_prepare_playback_waveform_rejects_silence():
+    with pytest.raises(ValueError, match="没有可听信号"):
+        playground_service.prepare_playback_waveform(
+            np.zeros(100, dtype=np.float32)
+        )
+
+
+def test_waveform_envelope_preserves_minimum_and_maximum():
+    envelope = playground_service.waveform_envelope(
+        np.array([-0.8, -0.2, 0.1, 0.7], dtype=np.float32),
+        columns=2,
+    )
+    assert envelope[0] == pytest.approx((-0.8, -0.2))
+    assert envelope[1] == pytest.approx((0.1, 0.7))
 
 
 def test_transcribe_recording_uses_existing_backend_socket(tmp_path: Path):
@@ -214,3 +326,36 @@ def test_slm_fingerprint_does_not_embed_direct_api_key():
     assert first != second
     assert "first-secret" not in first
     assert "second-secret" not in second
+
+
+def test_list_output_devices_marks_pipewire_default(monkeypatch: pytest.MonkeyPatch):
+    responses = {
+        ("/usr/bin/pactl", "get-default-sink"): SimpleNamespace(
+            stdout="sink.hdmi\n"
+        ),
+        ("/usr/bin/pactl", "--format=json", "list", "sinks"): SimpleNamespace(
+            stdout=json.dumps(
+                [
+                    {"name": "sink.speakers", "description": "USB Speakers"},
+                    {"name": "sink.hdmi", "description": "HDMI Output"},
+                ]
+            )
+        ),
+    }
+    monkeypatch.setattr(
+        playground_service.shutil,
+        "which",
+        lambda command: "/usr/bin/pactl" if command == "pactl" else None,
+    )
+    monkeypatch.setattr(
+        playground_service.subprocess,
+        "run",
+        lambda argv, **_kwargs: responses[tuple(argv)],
+    )
+
+    outputs = playground_service.list_output_devices()
+
+    assert [item.name for item in outputs] == ["HDMI Output", "USB Speakers"]
+    assert outputs[0].is_default is True
+    assert outputs[0].device_id == "sink.hdmi"
+    assert all(item.backend == "pipewire" for item in outputs)

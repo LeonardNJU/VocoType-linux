@@ -4,16 +4,22 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
+import shutil
 import socket
+import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 import numpy as np
 
-RECORDING_DURATION_SECONDS = 5.0
+RECORDING_DURATION_SECONDS = 3.0
 DEFAULT_BACKEND_SOCKET = Path("/tmp/vocotype-fcitx5.sock")
+PLAYBACK_TARGET_PEAK = 0.72
+PLAYBACK_MAX_GAIN = 20.0
 
 
 @dataclass(frozen=True)
@@ -22,6 +28,22 @@ class InputDevice:
     name: str
     sample_rate: int
     channels: int
+
+
+@dataclass(frozen=True)
+class OutputDevice:
+    device_id: str
+    name: str
+    backend: str
+    is_default: bool = False
+
+
+@dataclass(frozen=True)
+class PlaybackResult:
+    duration_seconds: float
+    backend: str
+    output_name: str
+    gain_db: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -72,6 +94,89 @@ def list_input_devices() -> list[InputDevice]:
     return result
 
 
+def list_output_devices() -> list[OutputDevice]:
+    """List desktop playback sinks, preferring PipeWire/Pulse routing."""
+
+    pactl = shutil.which("pactl")
+    if pactl:
+        try:
+            default_result = subprocess.run(
+                [pactl, "get-default-sink"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            default_sink = default_result.stdout.strip()
+            sinks_result = subprocess.run(
+                [pactl, "--format=json", "list", "sinks"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            sinks = json.loads(sinks_result.stdout)
+            outputs = [
+                OutputDevice(
+                    device_id=str(item["name"]),
+                    name=str(item.get("description") or item["name"]),
+                    backend="pipewire",
+                    is_default=str(item["name"]) == default_sink,
+                )
+                for item in sinks
+                if item.get("name")
+            ]
+            outputs.sort(key=lambda item: (not item.is_default, item.name.casefold()))
+            if outputs:
+                return outputs
+        except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+            pass
+
+    import sounddevice as sd
+
+    default_output = None
+    try:
+        default_output = int(sd.default.device[1])
+    except (TypeError, ValueError, IndexError):
+        pass
+    outputs: list[OutputDevice] = []
+    for index, item in enumerate(sd.query_devices()):
+        if int(item.get("max_output_channels", 0)) <= 0:
+            continue
+        outputs.append(
+            OutputDevice(
+                device_id=str(index),
+                name=str(item.get("name", f"Device {index}")),
+                backend="portaudio",
+                is_default=index == default_output,
+            )
+        )
+    outputs.sort(key=lambda item: (not item.is_default, item.name.casefold()))
+    return outputs
+
+
+def waveform_envelope(
+    samples: np.ndarray,
+    *,
+    columns: int = 12,
+) -> tuple[tuple[float, float], ...]:
+    """Downsample PCM into min/max columns suitable for a live waveform."""
+
+    waveform = np.asarray(samples, dtype=np.float32).reshape(-1)
+    if waveform.size == 0:
+        return ()
+    columns = max(1, min(int(columns), waveform.size))
+    result: list[tuple[float, float]] = []
+    for chunk in np.array_split(waveform, columns):
+        result.append(
+            (
+                float(np.clip(np.min(chunk), -1.0, 1.0)),
+                float(np.clip(np.max(chunk), -1.0, 1.0)),
+            )
+        )
+    return tuple(result)
+
+
 def record_audio(
     *,
     device_id: int,
@@ -79,8 +184,9 @@ def record_audio(
     sample_rate: int,
     duration_seconds: float = RECORDING_DURATION_SECONDS,
     output_path: Path | None = None,
+    waveform_callback: Callable[[tuple[tuple[float, float], ...]], None] | None = None,
 ) -> PlaygroundRecording:
-    """Record a fixed-duration mono WAV for explicit playback and ASR tests."""
+    """Record a fixed-duration mono WAV and stream waveform columns."""
 
     import sounddevice as sd
     import soundfile as sf
@@ -90,15 +196,30 @@ def record_audio(
     if duration_seconds <= 0:
         raise ValueError("录音时长必须大于 0 秒")
     frame_count = max(1, int(round(sample_rate * duration_seconds)))
-    frames = sd.rec(
-        frame_count,
+    blocksize = max(256, sample_rate // 20)
+    remaining = frame_count
+    chunks: list[np.ndarray] = []
+    with sd.InputStream(
         samplerate=sample_rate,
         channels=1,
         dtype="float32",
         device=int(device_id),
-    )
-    sd.wait()
-    samples = np.asarray(frames, dtype=np.float32).reshape(-1)
+        blocksize=blocksize,
+    ) as stream:
+        while remaining > 0:
+            requested = min(blocksize, remaining)
+            frames, _overflowed = stream.read(requested)
+            chunk = np.asarray(frames, dtype=np.float32).reshape(-1)
+            if chunk.size != requested:
+                raise RuntimeError(
+                    f"录音帧数异常：期望 {requested}，实际 {chunk.size}"
+                )
+            chunks.append(chunk.copy())
+            remaining -= chunk.size
+            if waveform_callback is not None:
+                waveform_callback(waveform_envelope(chunk))
+
+    samples = np.concatenate(chunks) if chunks else np.empty(0, dtype=np.float32)
     if samples.size != frame_count:
         raise RuntimeError(
             f"录音帧数异常：期望 {frame_count}，实际 {samples.size}"
@@ -132,24 +253,105 @@ def record_audio(
     )
 
 
-def play_recording(path: Path) -> float:
-    """Play a WAV through the system default output device and wait for finish."""
+def prepare_playback_waveform(
+    samples: np.ndarray,
+    *,
+    target_peak: float = PLAYBACK_TARGET_PEAK,
+    max_gain: float = PLAYBACK_MAX_GAIN,
+) -> tuple[np.ndarray, float]:
+    """Apply bounded auto gain for audible preview without changing the source WAV."""
 
-    import sounddevice as sd
+    waveform = np.asarray(samples, dtype=np.float32)
+    if waveform.size == 0:
+        raise ValueError("录音文件没有音频数据")
+    peak = float(np.max(np.abs(waveform)))
+    if peak < 1e-6:
+        raise ValueError("录音文件没有可听信号")
+    target_peak = float(np.clip(target_peak, 0.1, 0.95))
+    max_gain = max(1.0, float(max_gain))
+    gain = min(max_gain, max(1.0, target_peak / peak))
+    amplified = np.clip(waveform * gain, -0.98, 0.98).astype(np.float32, copy=False)
+    return amplified, gain
+
+
+def play_recording(
+    path: Path,
+    *,
+    output_device: OutputDevice | None = None,
+) -> PlaybackResult:
+    """Play a WAV through an explicit desktop sink with bounded auto gain."""
+
     import soundfile as sf
 
     source = Path(path).expanduser()
     if not source.is_file():
         raise FileNotFoundError(f"录音文件不存在：{source}")
     samples, sample_rate = sf.read(source, dtype="float32", always_2d=False)
-    waveform = np.asarray(samples, dtype=np.float32)
-    if waveform.size == 0:
-        raise ValueError("录音文件没有音频数据")
-    # Intentionally omit ``device``: playback must use the user's default
-    # speaker/headphones, not the selected input device.
-    sd.play(waveform, samplerate=int(sample_rate))
-    sd.wait()
-    return waveform.shape[0] / int(sample_rate)
+    waveform, gain = prepare_playback_waveform(samples)
+    duration = float(waveform.shape[0]) / int(sample_rate)
+    gain_db = 20.0 * math.log10(gain)
+    selected = output_device
+    if selected is None:
+        outputs = list_output_devices()
+        selected = next((item for item in outputs if item.is_default), None)
+        if selected is None and outputs:
+            selected = outputs[0]
+
+    temporary_path: Path | None = None
+    playback_source = source
+    if gain > 1.001:
+        cache_dir = playground_cache_dir()
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        fd, temporary_name = tempfile.mkstemp(
+            prefix=".playback-",
+            suffix=".wav",
+            dir=cache_dir,
+        )
+        os.close(fd)
+        temporary_path = Path(temporary_name)
+        sf.write(temporary_path, waveform, int(sample_rate), subtype="PCM_16")
+        os.chmod(temporary_path, 0o600)
+        playback_source = temporary_path
+
+    try:
+        if selected is not None and selected.backend == "pipewire":
+            pw_play = shutil.which("pw-play")
+            paplay = shutil.which("paplay")
+            if pw_play:
+                subprocess.run(
+                    [pw_play, "--target", selected.device_id, str(playback_source)],
+                    check=True,
+                    timeout=max(10.0, duration + 5.0),
+                )
+                return PlaybackResult(
+                    duration, "PipeWire", selected.name, gain_db
+                )
+            if paplay:
+                subprocess.run(
+                    [paplay, f"--device={selected.device_id}", str(playback_source)],
+                    check=True,
+                    timeout=max(10.0, duration + 5.0),
+                )
+                return PlaybackResult(
+                    duration, "PulseAudio", selected.name, gain_db
+                )
+
+        import sounddevice as sd
+
+        portaudio_device = None
+        output_name = "PortAudio 默认输出"
+        if selected is not None and selected.backend == "portaudio":
+            portaudio_device = int(selected.device_id)
+            output_name = selected.name
+        sd.play(waveform, samplerate=int(sample_rate), device=portaudio_device)
+        sd.wait()
+        return PlaybackResult(duration, "PortAudio", output_name, gain_db)
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def transcribe_recording(

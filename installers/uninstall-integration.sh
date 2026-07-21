@@ -63,6 +63,15 @@ SYSTEM_FCITX_MARKER="$SYSTEM_PREFIX/share/vocotype/.source-fcitx-integration"
 SYSTEM_FCITX_HELPER="$PROJECT_DIR/installers/manage-fcitx-system-integration.sh"
 NATIVE_MARKERS=("$PROJECT_DIR/.system-package" "$SYSTEM_PREFIX/share/vocotype/.system-package")
 
+
+run_pkexec() {
+    if [[ "$NON_INTERACTIVE" == true ]]; then
+        pkexec --disable-internal-agent "$@"
+    else
+        pkexec "$@"
+    fi
+}
+
 native_package_present() {
     local marker
     for marker in "${NATIVE_MARKERS[@]}"; do
@@ -163,7 +172,7 @@ remove_ibus() {
                     return 1
                 fi
                 echo "AUTH_REQUIRED: 即将弹出管理员授权窗口以移除系统 VoCoType（IBus）component。"
-                if ! pkexec "$(command -v rm)" -f "$SYSTEM_COMPONENT"; then
+                if ! run_pkexec "$(command -v rm)" -f "$SYSTEM_COMPONENT"; then
                     echo "SYSTEM_COMPONENT_REMOVE_FAILED: 管理员授权被取消或系统 component 删除失败：$SYSTEM_COMPONENT" >&2
                     return 1
                 fi
@@ -226,7 +235,7 @@ remove_fcitx() {
                     return 1
                 fi
                 echo "AUTH_REQUIRED: 即将弹出管理员授权窗口以移除系统 VoCoType（Fcitx 5）addon。"
-                if ! pkexec "$(command -v bash)" "$SYSTEM_FCITX_HELPER" uninstall; then
+                if ! run_pkexec "$(command -v bash)" "$SYSTEM_FCITX_HELPER" uninstall; then
                     echo "SYSTEM_FCITX_REMOVE_FAILED: 管理员授权被取消或系统 addon 删除失败。" >&2
                     return 1
                 fi
