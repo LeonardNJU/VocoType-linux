@@ -16,6 +16,7 @@ KEY_FILES = (
     "app/config.py",
     "app/funasr_server.py",
     "app/streaming_asr.py",
+    "app/voice_edit.py",
     "app/slm_polisher.py",
     "fcitx5/backend/fcitx5_server.py",
     "fcitx5/backend/audio_recorder.py",

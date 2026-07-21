@@ -5,7 +5,7 @@ VoCoType 保留两种 SLM provider：
 - `remote`：OpenAI-compatible HTTP API；默认使用 SSE 流式输出。
 - `local_ephemeral`：按需加载本地模型，录音时预热，空闲后释放。
 
-IBus 与 Fcitx 5 的 `Ctrl+F9` 语音编辑共用 `app/voice_edit.py` 的命令语义；远程 provider、本地 provider 和失败回退均保留。
+IBus 与 Fcitx 5 的 `Ctrl+F9` 都由 SLM 生成结构化编辑计划；`app/voice_edit.py` 只定义计划 schema、白名单和安全校验，不包含自然语言命令解析。远程 provider、本地 provider 和失败处理共用同一路径。
 Fcitx 5 在此基础上增加异步任务与输入面板实时预览。
 应用兼容边界见 [语音编辑兼容性与局限](voice-editing.md)。
 

@@ -14,6 +14,7 @@ slm_polisher = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = slm_polisher
 SPEC.loader.exec_module(slm_polisher)
 SLMPolisher = slm_polisher.SLMPolisher
+PolisherMetrics = slm_polisher.PolisherMetrics
 
 
 class _FakeResponse:
@@ -562,7 +563,11 @@ def test_remote_edit_preserves_edit_token_budget_with_streaming(monkeypatch):
     def _fake_stream(original, stripped, start, *, enable_thinking):
         captured["remote_max_tokens"] = polisher.remote_max_tokens
         captured["enable_thinking"] = enable_thinking
-        yield {"kind": "final", "text": "编辑结果", "reason": "ok"}
+        yield {
+            "kind": "final",
+            "text": '{"mode":"replace","new_text":"编辑结果","hint":""}',
+            "reason": "ok",
+        }
 
     monkeypatch.setattr(polisher, "_stream_remote", _fake_stream)
     out, metrics = polisher.edit_with_instruction(
@@ -576,3 +581,110 @@ def test_remote_edit_preserves_edit_token_budget_with_streaming(monkeypatch):
     assert metrics.reason == "ok"
     assert captured == {"remote_max_tokens": 384, "enable_thinking": False}
     assert polisher.remote_max_tokens == 0
+
+
+def test_voice_edit_planner_parses_key_actions_and_null_fields(monkeypatch):
+    polisher = SLMPolisher(
+        {
+            "enabled": True,
+            "provider": "remote",
+            "endpoint": "http://test.local/v1/chat/completions",
+        }
+    )
+
+    def fake_completion(**_kwargs):
+        return (
+            '{"mode":"key_actions","new_text":null,'
+            '"key_actions":[{"key":"z","modifiers":["ctrl"],"repeat":1}],'
+            '"hint":null}',
+            PolisherMetrics(True, True, 2.0, "ok"),
+        )
+
+    monkeypatch.setattr(polisher, "_request_edit_completion", fake_completion)
+    plan, metrics = polisher.plan_voice_edit(
+        context_text="当前文本",
+        instruction="撤销",
+        cursor_pos=4,
+        anchor_pos=4,
+    )
+
+    assert metrics.reason == "ok"
+    assert plan is not None
+    assert plan.mode == "key_actions"
+    assert plan.new_text == ""
+    assert plan.key_actions[0].key == "z"
+    assert plan.key_actions[0].modifiers == ("ctrl",)
+
+
+def test_voice_edit_planner_rejects_non_json_model_output(monkeypatch):
+    polisher = SLMPolisher(
+        {
+            "enabled": True,
+            "provider": "remote",
+            "endpoint": "http://test.local/v1/chat/completions",
+        }
+    )
+    monkeypatch.setattr(
+        polisher,
+        "_request_edit_completion",
+        lambda **_kwargs: (
+            "我认为应该撤销。",
+            PolisherMetrics(True, True, 1.0, "ok"),
+        ),
+    )
+
+    plan, metrics = polisher.plan_voice_edit(
+        context_text="当前文本",
+        instruction="撤销",
+        cursor_pos=4,
+        anchor_pos=4,
+    )
+
+    assert plan is None
+    assert metrics.reason == "bad_edit_plan"
+
+
+def test_voice_edit_prompt_requires_contextual_homophone_resolution():
+    from app.slm_polisher import DEFAULT_EDIT_SYSTEM_PROMPT
+
+    assert "同音词" in DEFAULT_EDIT_SYSTEM_PROMPT
+    assert "不能机械做字面字符串匹配" in DEFAULT_EDIT_SYSTEM_PROMPT
+    assert "严格 JSON" in DEFAULT_EDIT_SYSTEM_PROMPT
+    assert "绝不能输出 null" in DEFAULT_EDIT_SYSTEM_PROMPT
+    assert "ctrl+left / ctrl+right" in DEFAULT_EDIT_SYSTEM_PROMPT
+    assert "当前句首" in DEFAULT_EDIT_SYSTEM_PROMPT
+    assert "拆成多个动作" in DEFAULT_EDIT_SYSTEM_PROMPT
+
+
+def test_voice_edit_protocol_prompt_cannot_be_overridden():
+    polisher = SLMPolisher(
+        {
+            "enabled": True,
+            "edit_system_prompt": "只输出普通文本，不要 JSON",
+        }
+    )
+    assert polisher.edit_system_prompt == slm_polisher.DEFAULT_EDIT_SYSTEM_PROMPT
+    assert "严格 JSON" in polisher.edit_system_prompt
+
+
+def test_voice_edit_budget_scales_with_long_context(monkeypatch):
+    polisher = SLMPolisher({"enabled": True, "edit_max_tokens": 1024})
+    captured = {}
+
+    def fake_completion(**kwargs):
+        captured["token_budget"] = kwargs["token_budget"]
+        return (
+            '{"mode":"no_op","hint":""}',
+            PolisherMetrics(True, False, 1.0, "ok"),
+        )
+
+    monkeypatch.setattr(polisher, "_request_edit_completion", fake_completion)
+    plan, metrics = polisher.plan_voice_edit(
+        context_text="字" * 3000,
+        instruction="保持不变",
+        cursor_pos=3000,
+        anchor_pos=3000,
+    )
+    assert plan is not None and plan.mode == "no_op"
+    assert metrics.reason == "ok"
+    assert captured["token_budget"] == 6256

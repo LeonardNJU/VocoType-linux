@@ -1153,9 +1153,10 @@ def test_general_settings_exposes_minimum_recording_and_long_text_entries():
     assert '"最短有效录音（毫秒）"' in source
     assert 'audio_runtime["min_recording_ms"]' in source
     assert '"MinRecordingMs": int(self.min_recording_ms.get_value())' in source
-    assert "def _text_entry(self, *, width_chars: int = 40)" in source
-    assert "entry.set_width_chars(max(40, int(width_chars)))" in source
-    assert "entry.set_hexpand(True)" in source
+    assert "def _text_entry(self, *, width_chars: int = 30)" in source
+    assert "entry.set_width_chars(max(30, int(width_chars)))" in source
+    assert "entry.set_hexpand(False)" in source
+    assert "entry.set_halign(Gtk.Align.END)" in source
     # All ordinary single-line text fields go through the width helper. The
     # only direct Gtk.Entry construction is inside that helper itself.
     assert source.count("Gtk.Entry()") == 1

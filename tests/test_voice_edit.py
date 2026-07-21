@@ -1,102 +1,151 @@
 from __future__ import annotations
 
-from app.voice_edit import EditEnvironment, SurroundingSnapshot, VoiceEditCore
+from pathlib import Path
+
+import pytest
+
+from app.voice_edit import (
+    KeyAction,
+    SurroundingSnapshot,
+    VoiceEditPlan,
+    VoiceEditPlanError,
+)
 
 
-def snapshot(text: str, cursor: int | None = None, anchor: int | None = None):
-    resolved_cursor = len(text) if cursor is None else cursor
-    resolved_anchor = resolved_cursor if anchor is None else anchor
-    start, end = sorted((resolved_cursor, resolved_anchor))
-    return SurroundingSnapshot(
-        text=text,
-        cursor_pos=resolved_cursor,
-        anchor_pos=resolved_anchor,
-        selected_text=text[start:end],
+def test_snapshot_normalizes_null_and_derives_selection():
+    snapshot = SurroundingSnapshot.from_mapping(
+        {
+            "text": "alpha beta",
+            "cursor_pos": 5,
+            "anchor_pos": 0,
+            "selected_text": None,
+        }
     )
+    assert snapshot.text == "alpha beta"
+    assert snapshot.selected_text == "alpha"
 
 
-def test_direct_replace_is_framework_neutral():
-    core = VoiceEditCore()
-    result = core.apply_direct_command(
-        snapshot("今天使用旧名字。"),
-        "把旧名字改成 VoCoType",
+def test_replace_plan_accepts_complete_context_text():
+    plan = VoiceEditPlan.from_model_output(
+        {
+            "mode": "replace",
+            "new_text": "请使用 VoCoType。",
+            "record_history": True,
+            "hint": "已按上下文修正同音词",
+        },
+        original_text="请使用窝口太普。",
     )
-
-    assert result.handled is True
-    assert result.mode == "replace"
-    assert result.new_text == "今天使用VoCoType。"
-    assert result.record_history is True
-
-
-def test_navigation_returns_abstract_key_actions():
-    core = VoiceEditCore()
-    result = core.apply_direct_command(snapshot("abcdef"), "选中下一个词")
-
-    assert result.mode == "key_actions"
-    assert len(result.key_actions) == 1
-    action = result.key_actions[0]
-    assert action.key == "right"
-    assert action.modifiers == ("ctrl", "shift")
-    assert action.repeat == 1
+    assert plan.mode == "replace"
+    assert plan.new_text == "请使用 VoCoType。"
+    assert plan.record_history is True
+    assert plan.to_dict()["new_text"] == "请使用 VoCoType。"
 
 
-def test_copy_and_paste_state_is_shared_semantics():
-    core = VoiceEditCore()
-    selected = snapshot("alpha beta", cursor=5, anchor=0)
-    copied = core.apply_direct_command(selected, "复制选中")
-    assert copied.mode == "no_replace"
-    assert core.voice_clipboard == "alpha"
-
-    target = snapshot(" beta", cursor=0)
-    pasted = core.apply_direct_command(target, "粘贴")
-    assert pasted.new_text == "alpha beta"
-
-
-def test_internal_undo_and_redo_require_matching_applied_text():
-    core = VoiceEditCore()
-    original = "旧文本"
-    edited = "新文本"
-    core.mark_voice_edit_applied(original, edited, record_history=True)
-
-    undo = core.apply_direct_command(snapshot(edited), "撤销")
-    assert undo.mode == "replace"
-    assert undo.new_text == original
-    assert undo.record_history is False
-    core.mark_voice_edit_applied(edited, original, record_history=False)
-
-    redo = core.apply_direct_command(snapshot(original), "重做")
-    assert redo.new_text == edited
-    assert redo.record_history is False
-
-
-def test_undo_falls_back_to_application_key_when_state_changed():
-    core = VoiceEditCore()
-    core.mark_voice_edit_applied("旧", "新", record_history=True)
-
-    result = core.apply_direct_command(snapshot("用户又改了"), "撤销")
-    assert result.mode == "key_actions"
-    assert result.key_actions[0].key == "z"
-    assert result.key_actions[0].modifiers == ("ctrl",)
-
-
-def test_generation_request_is_rewritten_for_context_editing():
-    rewritten = VoiceEditCore.rewrite_insert_generation_instruction("写一段项目介绍")
-    assert "生成并插入文本" in rewritten
-    assert "项目介绍" in rewritten
-    assert "完整输入框文本" in rewritten
-
-
-def test_context_report_uses_adapter_environment():
-    core = VoiceEditCore()
-    result = core.apply_direct_command(
-        snapshot("第一句。第二句。"),
-        "显示上下文信息",
-        EditEnvironment(
-            supports_surrounding=True,
-            active=True,
-            replace_state="supported",
-        ),
+def test_key_action_plan_normalizes_null_text_and_clamps_repeat():
+    plan = VoiceEditPlan.from_model_output(
+        {
+            "mode": "key_actions",
+            "new_text": None,
+            "hint": None,
+            "key_actions": [
+                {"key": "left", "modifiers": ["ctrl"], "repeat": 999}
+            ],
+        },
+        original_text="上下文",
     )
-    assert result.mode == "commit_only"
-    assert "cap=1" in (result.new_text or "")
-    assert "del=supported" in (result.new_text or "")
+    assert plan.mode == "key_actions"
+    assert plan.new_text == ""
+    assert plan.hint == ""
+    assert plan.key_actions == (KeyAction("left", ("ctrl",), 100),)
+    payload = plan.to_dict()
+    assert payload["new_text"] == ""
+    assert payload["key_actions"][0]["repeat"] == 100
+
+
+def test_undo_and_navigation_are_ordinary_model_key_plans():
+    undo = VoiceEditPlan.from_model_output(
+        {
+            "mode": "key_actions",
+            "key_actions": [{"key": "z", "modifiers": ["ctrl"], "repeat": 1}],
+        }
+    )
+    previous_word = VoiceEditPlan.from_model_output(
+        {
+            "mode": "key_actions",
+            "key_actions": [
+                {"key": "left", "modifiers": ["ctrl"], "repeat": 1}
+            ],
+        }
+    )
+    sentence_start = VoiceEditPlan.from_model_output(
+        {
+            "mode": "key_actions",
+            "key_actions": [{"key": "home", "modifiers": [], "repeat": 1}],
+        }
+    )
+    assert undo.key_actions[0] == KeyAction("z", ("ctrl",), 1)
+    assert previous_word.key_actions[0] == KeyAction("left", ("ctrl",), 1)
+    assert sentence_start.key_actions[0] == KeyAction("home", (), 1)
+
+
+def test_no_op_normalizes_all_optional_null_fields():
+    plan = VoiceEditPlan.from_model_output(
+        {"mode": "no_op", "new_text": None, "hint": None, "reason": None},
+        original_text="保持原文",
+    )
+    assert plan.mode == "no_op"
+    assert plan.new_text == "保持原文"
+    assert plan.hint == ""
+    assert plan.reason == ""
+    assert plan.record_history is False
+
+
+def test_fenced_or_prefixed_json_is_extracted():
+    fenced = VoiceEditPlan.from_model_output(
+        '```json\n{"mode":"replace","new_text":"结果"}\n```'
+    )
+    prefixed = VoiceEditPlan.from_model_output(
+        '计划如下：{"mode":"no_op","hint":"无需修改"} trailing'
+    )
+    assert fenced.new_text == "结果"
+    assert prefixed.mode == "no_op"
+    assert prefixed.hint == "无需修改"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"mode": "replace", "new_text": None},
+        {"mode": "key_actions", "key_actions": []},
+        {
+            "mode": "key_actions",
+            "key_actions": [{"key": "shell", "modifiers": []}],
+        },
+        {
+            "mode": "key_actions",
+            "key_actions": [{"key": "left", "modifiers": ["root"]}],
+        },
+        {"mode": "unknown"},
+        {
+            "mode": "key_actions",
+            "key_actions": [
+                {"key": "left", "modifiers": [], "repeat": 1}
+                for _ in range(33)
+            ],
+        },
+    ],
+)
+def test_invalid_or_unsafe_plans_are_rejected(payload):
+    with pytest.raises(VoiceEditPlanError):
+        VoiceEditPlan.from_model_output(payload)
+
+
+def test_shared_module_contains_no_natural_language_command_parser():
+    source = (Path(__file__).resolve().parents[1] / "app/voice_edit.py").read_text(
+        encoding="utf-8"
+    )
+    assert "apply_direct_command" not in source
+    assert "normalize_command" not in source
+    assert "rewrite_insert_generation_instruction" not in source
+    assert "re.match" not in source
+    assert "Framework-neutral validation for SLM-generated" in source

@@ -18,6 +18,32 @@ using json = nlohmann::json;
 
 namespace vocotype {
 
+namespace {
+
+std::string jsonStringOr(const json &value,
+                         const char *key,
+                         const std::string &fallback = "") {
+    const auto it = value.find(key);
+    if (it == value.end() || !it->is_string()) {
+        return fallback;
+    }
+    return it->get<std::string>();
+}
+
+bool jsonBoolOr(const json &value, const char *key, bool fallback) {
+    const auto it = value.find(key);
+    return it != value.end() && it->is_boolean() ? it->get<bool>() : fallback;
+}
+
+int jsonIntOr(const json &value, const char *key, int fallback) {
+    const auto it = value.find(key);
+    return it != value.end() && it->is_number_integer()
+               ? it->get<int>()
+               : fallback;
+}
+
+} // namespace
+
 IPCClient::IPCClient(const std::string& socket_path)
     : socket_path_(socket_path) {
 }
@@ -157,21 +183,24 @@ VoiceEditResult IPCClient::editAudio(
         // so waiting here does not block Fcitx's event loop.
         const std::string response_str = sendRequest(request.dump(), 30000);
         const json response = json::parse(response_str);
-        result.success = response.value("success", false);
-        result.handled = response.value("handled", false);
-        result.record_history = response.value("record_history", true);
-        result.mode = response.value("mode", "");
-        result.new_text = response.value("new_text", "");
-        result.expected_text = response.value("expected_text", "");
-        result.hint = response.value("hint", "");
-        result.error = response.value("error", "");
-        result.instruction = response.value("instruction", "");
-        result.reason = response.value("reason", "");
+        result.success = jsonBoolOr(response, "success", false);
+        result.handled = jsonBoolOr(response, "handled", false);
+        result.record_history = jsonBoolOr(response, "record_history", true);
+        result.mode = jsonStringOr(response, "mode");
+        result.new_text = jsonStringOr(response, "new_text");
+        result.expected_text = jsonStringOr(response, "expected_text");
+        result.hint = jsonStringOr(response, "hint");
+        result.error = jsonStringOr(response, "error");
+        result.instruction = jsonStringOr(response, "instruction");
+        result.reason = jsonStringOr(response, "reason");
         if (response.contains("key_actions") && response["key_actions"].is_array()) {
             for (const auto& item : response["key_actions"]) {
+                if (!item.is_object()) {
+                    continue;
+                }
                 EditKeyAction action;
-                action.key = item.value("key", "");
-                action.repeat = item.value("repeat", 1);
+                action.key = jsonStringOr(item, "key");
+                action.repeat = std::clamp(jsonIntOr(item, "repeat", 1), 1, 100);
                 if (item.contains("modifiers") && item["modifiers"].is_array()) {
                     for (const auto& modifier : item["modifiers"]) {
                         if (modifier.is_string()) {
@@ -179,7 +208,9 @@ VoiceEditResult IPCClient::editAudio(
                         }
                     }
                 }
-                result.key_actions.push_back(std::move(action));
+                if (!action.key.empty()) {
+                    result.key_actions.push_back(std::move(action));
+                }
             }
         }
         if (!result.success && result.error.empty()) {
@@ -218,10 +249,10 @@ VoiceEditStartResult IPCClient::startVoiceEdit(
             }}
         };
         const json response = json::parse(sendRequest(request.dump()));
-        result.success = response.value("success", false);
-        result.task_id = response.value("task_id", "");
-        result.status = response.value("status", "");
-        result.error = response.value("error", "");
+        result.success = jsonBoolOr(response, "success", false);
+        result.task_id = jsonStringOr(response, "task_id");
+        result.status = jsonStringOr(response, "status");
+        result.error = jsonStringOr(response, "error");
         if (!result.success && result.error.empty()) {
             result.error = "Unknown edit start error";
         }
@@ -240,31 +271,36 @@ VoiceEditPollResult IPCClient::pollVoiceEditTask(const std::string& task_id) {
             {"task_id", task_id}
         };
         const json response = json::parse(sendRequest(request.dump()));
-        result.success = response.value("success", false);
-        result.task_id = response.value("task_id", task_id);
-        result.status = response.value("status", "");
-        result.phase = response.value("phase", "");
-        result.instruction = response.value("instruction", "");
-        result.error = response.value("error", "");
-        result.reason = response.value("reason", "");
+        result.success = jsonBoolOr(response, "success", false);
+        result.task_id = jsonStringOr(response, "task_id", task_id);
+        result.status = jsonStringOr(response, "status");
+        result.phase = jsonStringOr(response, "phase");
+        result.instruction = jsonStringOr(response, "instruction");
+        result.error = jsonStringOr(response, "error");
+        result.reason = jsonStringOr(response, "reason");
         if (response.contains("result") && response["result"].is_object()) {
             const auto& value = response["result"];
             auto& edit = result.result;
-            edit.success = value.value("success", false);
-            edit.handled = value.value("handled", false);
-            edit.record_history = value.value("record_history", true);
-            edit.mode = value.value("mode", "");
-            edit.new_text = value.value("new_text", "");
-            edit.expected_text = value.value("expected_text", "");
-            edit.hint = value.value("hint", "");
-            edit.error = value.value("error", "");
-            edit.instruction = value.value("instruction", result.instruction);
-            edit.reason = value.value("reason", result.reason);
+            edit.success = jsonBoolOr(value, "success", false);
+            edit.handled = jsonBoolOr(value, "handled", false);
+            edit.record_history = jsonBoolOr(value, "record_history", true);
+            edit.mode = jsonStringOr(value, "mode");
+            edit.new_text = jsonStringOr(value, "new_text");
+            edit.expected_text = jsonStringOr(value, "expected_text");
+            edit.hint = jsonStringOr(value, "hint");
+            edit.error = jsonStringOr(value, "error");
+            edit.instruction = jsonStringOr(
+                value, "instruction", result.instruction);
+            edit.reason = jsonStringOr(value, "reason", result.reason);
             if (value.contains("key_actions") && value["key_actions"].is_array()) {
                 for (const auto& item : value["key_actions"]) {
+                    if (!item.is_object()) {
+                        continue;
+                    }
                     EditKeyAction action;
-                    action.key = item.value("key", "");
-                    action.repeat = item.value("repeat", 1);
+                    action.key = jsonStringOr(item, "key");
+                    action.repeat = std::clamp(
+                        jsonIntOr(item, "repeat", 1), 1, 100);
                     if (item.contains("modifiers") && item["modifiers"].is_array()) {
                         for (const auto& modifier : item["modifiers"]) {
                             if (modifier.is_string()) {
@@ -272,7 +308,9 @@ VoiceEditPollResult IPCClient::pollVoiceEditTask(const std::string& task_id) {
                             }
                         }
                     }
-                    edit.key_actions.push_back(std::move(action));
+                    if (!action.key.empty()) {
+                        edit.key_actions.push_back(std::move(action));
+                    }
                 }
             }
         }
