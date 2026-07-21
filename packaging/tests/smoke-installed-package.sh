@@ -53,19 +53,19 @@ for candidate in \
   fi
 done
 if [[ -z "$streaming_worker" ]]; then
-  echo 'native streaming worker not found' >&2
-  exit 1
+  echo PACKAGE_STREAMING_RUNTIME_OPTIONAL_ABSENT
+else
+  check_path "$streaming_worker"
+  if ldd "$streaming_worker" | grep -q 'not found'; then
+    echo "unresolved library dependency in $streaming_worker" >&2
+    ldd "$streaming_worker" >&2
+    exit 1
+  fi
+  "$streaming_worker" --help >/dev/null
+  check_path /usr/share/licenses/vocotype-linux/native-streaming/onnxruntime/LICENSE
+  check_path /usr/share/licenses/vocotype-linux/native-streaming/funasr/LICENSE
+  echo "PACKAGE_STREAMING_RUNTIME_OK $streaming_worker"
 fi
-check_path "$streaming_worker"
-if ldd "$streaming_worker" | grep -q 'not found'; then
-  echo "unresolved library dependency in $streaming_worker" >&2
-  ldd "$streaming_worker" >&2
-  exit 1
-fi
-"$streaming_worker" --help >/dev/null
-check_path /usr/share/licenses/vocotype-linux/native-streaming/onnxruntime/LICENSE
-check_path /usr/share/licenses/vocotype-linux/native-streaming/funasr/LICENSE
-echo "PACKAGE_STREAMING_RUNTIME_OK $streaming_worker"
 
 if ldd "$module" | grep -q 'not found'; then
   echo "unresolved library dependency in $module" >&2

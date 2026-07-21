@@ -721,7 +721,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         streaming_card.pack_start(
             self._row(
                 "启用实时识别预览",
-                "首次使用会按需加载官方在线模型；本地 native worker 空闲后自动退出并释放内存。",
+                "可选功能，需要另行安装 native streaming runtime。首次使用会按需加载约 238 MB 官方在线模型；本地 native worker 空闲后自动退出并释放内存。",
                 self.asr_streaming_enabled,
             ),
             False,

@@ -1141,6 +1141,7 @@ def test_settings_center_exposes_optional_two_pass_preview_toggle():
     assert "实时识别预览（2-pass）" in source
     assert 'streaming["enabled"] = self.asr_streaming_enabled.get_active()' in source
     assert "松键后仍由原高精度离线模型给出最终结果" in source
+    assert "需要另行安装 native streaming runtime" in source
     assert "本地 native worker 空闲后自动退出" in source
 
 
