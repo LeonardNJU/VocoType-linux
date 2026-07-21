@@ -9,6 +9,16 @@ Production layout:
 - listener: `127.0.0.1:18088`
 - public endpoint: `https://feedback.vocotype-linux.lsamc.website/v1/feedback`
 
+After DNS points to the VPS, stage `nginx.conf` as
+`/tmp/vocotype-feedback-nginx-tls.conf` and run:
+
+```bash
+sudo /tmp/vocotype-enable-feedback-tls
+```
+
+The activation script obtains a dedicated Let's Encrypt certificate, installs
+the final HTTPS virtual host, validates Nginx, reloads it, and checks `/healthz`.
+
 The service stores no plaintext source IP. It keeps HMAC hashes in a short-lived
 rate-limit table and a pseudonymous installation hash with each report.
 
