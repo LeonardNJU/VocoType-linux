@@ -286,7 +286,7 @@ class Fcitx5Backend:
 
     职责：
     1. 接收语音识别请求，调用 FunASRServer
-    2. 管理远程/本地 SLM 的异步流式任务
+    2. 管理 OpenAI-compatible API 的异步流式任务
     3. 通过 IPC 向 Fcitx 5 全局 module 返回增量事件
     """
 
@@ -707,41 +707,190 @@ class Fcitx5Backend:
         # so the backend no longer maintains a parallel command/history state.
         return {"success": True}
 
+    def _handle_edit_request(self, req_type: str, request: dict) -> dict:
+        if req_type == 'edit_start':
+            if not str(request.get("audio_path", "")).strip():
+                return {"success": False, "error": "缺少 audio_path 参数"}
+            task = self._start_edit_task(request)
+            return {
+                "success": True,
+                "task_id": task.task_id,
+                "status": task.status,
+            }
+
+        if req_type == 'edit_poll':
+            task_id = str(request.get("task_id", "")).strip()
+            task = self._get_edit_task(task_id)
+            if task is None:
+                return {"success": False, "error": "编辑任务不存在或已过期"}
+            return task.snapshot()
+
+        if req_type == 'edit_cancel':
+            task_id = str(request.get("task_id", "")).strip()
+            task = self._get_edit_task(task_id)
+            if task is not None:
+                task.cancel()
+            return {"success": True}
+
+        if req_type == 'edit_audio':
+            return self._edit_audio(request)
+        return self._confirm_edit_applied(request)
+
+    def _handle_asr_preview_request(self, req_type: str, request: dict) -> dict:
+        if req_type == 'asr_preview_start':
+            return self._streaming_asr.start_session()
+
+        session_id = str(request.get('session_id', '')).strip()
+        if not session_id:
+            return {"success": False, "error": "缺少 session_id 参数"}
+
+        if req_type == 'asr_preview_close':
+            return self._streaming_asr.close_session(
+                session_id,
+                flush=bool(request.get('flush', False)),
+            )
+
+        encoded = request.get('pcm16', '')
+        if not isinstance(encoded, str):
+            return {"success": False, "error": "pcm16 必须是 base64 字符串"}
+        try:
+            pcm = base64.b64decode(encoded, validate=True)
+        except Exception:
+            return {"success": False, "error": "pcm16 base64 无效"}
+        if len(pcm) > MAX_PREVIEW_CHUNK_BYTES:
+            return {"success": False, "error": "实时音频块过大"}
+        if len(pcm) % 2:
+            return {"success": False, "error": "PCM16 字节数必须为偶数"}
+        return self._streaming_asr.feed(
+            session_id,
+            pcm,
+            is_final=bool(request.get('is_final', False)),
+        )
+
+    def _handle_polish_request(self, req_type: str, request: dict) -> dict:
+        if req_type == 'transcribe_start':
+            audio_path = request.get('audio_path')
+            long_mode = bool(request.get('long_mode', False))
+            polish_min_chars = int(request.get("polish_min_chars", 0) or 0)
+            polish_timeout_ms = int(request.get("polish_timeout_ms", 0) or 0)
+            enable_thinking = (
+                bool(request["enable_thinking"])
+                if "enable_thinking" in request
+                else None
+            )
+            if not audio_path:
+                return {"success": False, "error": "缺少 audio_path 参数"}
+            task = self._start_stream_task(
+                str(audio_path),
+                long_mode,
+                polish_min_chars,
+                polish_timeout_ms,
+                enable_thinking,
+            )
+            return {
+                "success": True,
+                "task_id": task.task_id,
+                "status": task.status,
+            }
+
+        task_id = str(request.get('task_id', '')).strip()
+        after_seq = (
+            int(request.get('after_seq', 0) or 0)
+            if req_type == 'polish_poll'
+            else 0
+        )
+        task = self._get_stream_task(task_id)
+        if req_type == 'polish_poll':
+            if task is None:
+                return {"success": False, "error": "任务不存在或已过期"}
+            return task.snapshot(after_seq, self._slm_stream_idle_timeout_s)
+
+        if task is not None:
+            task.cancel()
+        return {"success": True}
+
+    def _handle_transcribe_request(self, request: dict) -> dict:
+        audio_path = request.get('audio_path')
+        long_mode = bool(request.get('long_mode', False))
+        if not audio_path:
+            return {"success": False, "error": "缺少 audio_path 参数"}
+
+        asr_start = time.perf_counter()
+        with self._asr_lock:
+            result = self.asr_server.transcribe_audio(
+                audio_path,
+                options=self._asr_options,
+            )
+        asr_ms = (time.perf_counter() - asr_start) * 1000.0
+        slm_reason = "not_used"
+        slm_ms = 0.0
+        if result.get("success") and long_mode:
+            original = str(result.get("text", "")).strip()
+            if self._slm_polisher.should_polish(original, long_mode=True):
+                polished, metrics = self._slm_polisher.polish(
+                    original,
+                    long_mode=True,
+                )
+                slm_reason = metrics.reason
+                slm_ms = metrics.latency_ms
+                if self._slm_polisher.is_failure_reason(metrics.reason):
+                    result = {
+                        "success": False,
+                        "error": self._slm_polisher.format_failure_message(
+                            metrics.reason
+                        ),
+                        "original_text": original,
+                    }
+                else:
+                    result["text"] = polished
+            else:
+                slm_reason = (
+                    "disabled" if not self._slm_polisher.enabled else "too_short"
+                )
+        logger.info(
+            "Fcitx 同步转录流水线 mode=%s asr_ms=%.2f slm_ms=%.2f reason=%s",
+            "long" if long_mode else "plain",
+            asr_ms,
+            slm_ms,
+            slm_reason,
+        )
+        return result
+
+    def _dispatch_request(self, request: dict) -> dict:
+        req_type = request.get('type')
+        logger.debug("收到请求: type=%s", req_type)
+
+        if req_type in (
+            'edit_start',
+            'edit_poll',
+            'edit_cancel',
+            'edit_audio',
+            'edit_applied',
+        ):
+            return self._handle_edit_request(req_type, request)
+        if req_type in (
+            'asr_preview_start',
+            'asr_preview_feed',
+            'asr_preview_close',
+        ):
+            return self._handle_asr_preview_request(req_type, request)
+        if req_type in ('transcribe_start', 'polish_poll', 'polish_cancel'):
+            return self._handle_polish_request(req_type, request)
+        if req_type == 'transcribe':
+            return self._handle_transcribe_request(request)
+        if req_type == 'ping':
+            return {"pong": True}
+        return {"error": f"未知的请求类型: {req_type}"}
+
     def handle_client(self, conn: socket.socket):
-        """处理客户端请求
+        """Receive one JSON request, dispatch it, and close the IPC connection.
 
-        IPC 协议：
-        - 请求格式：JSON 字符串
-        - 响应格式：JSON 字符串
-
-        请求类型：
-        1. transcribe: 语音识别
-           {"type": "transcribe", "audio_path": "/tmp/xxx.wav", "long_mode": false}
-           -> {"success": true, "text": "识别结果"}
-
-        1b. transcribe_start: 异步语音识别/润色任务
-           {"type": "transcribe_start", "audio_path": "/tmp/xxx.wav", "long_mode": true, "polish_min_chars": 16, "polish_timeout_ms": 12000, "enable_thinking": false}
-           -> {"success": true, "task_id": "...", "status": "running"}
-
-        1c. polish_poll: 拉取异步任务事件
-           {"type": "polish_poll", "task_id": "...", "after_seq": 0}
-           -> {"success": true, "status": "running", "events": [...]}
-
-        1d. polish_cancel: 取消异步任务
-           {"type": "polish_cancel", "task_id": "..."}
-           -> {"success": true}
-
-        2. edit_start / edit_poll / edit_cancel: 异步共享语音编辑任务
-        2b. edit_audio / edit_applied: 同步兼容路径与成功确认
-
-
-        4. ping: 健康检查
-           {"type": "ping"}
-           -> {"pong": true}
+        The wire protocol is request/response JSON over a Unix socket. Async
+        transcription and edit operations return task IDs that are polled by
+        later connections; preview requests share the same transport.
         """
         try:
             conn.settimeout(REQUEST_TIMEOUT_S)
-            # 接收请求（读到 EOF）
             chunks = []
             total_bytes = 0
             while True:
@@ -751,194 +900,19 @@ class Fcitx5Backend:
                 chunks.append(chunk)
                 total_bytes += len(chunk)
                 if total_bytes > MAX_REQUEST_BYTES:
-                    response_str = json.dumps({"error": "Request too large"}, ensure_ascii=False)
+                    response_str = json.dumps(
+                        {"error": "Request too large"},
+                        ensure_ascii=False,
+                    )
                     conn.sendall(response_str.encode('utf-8'))
                     return
             if not chunks:
                 return
-            data = b''.join(chunks).decode('utf-8')
 
-            request = json.loads(data)
-            req_type = request.get('type')
-
-            logger.debug("收到请求: type=%s", req_type)
-
-            # 处理请求
-            if req_type == 'edit_start':
-                if not str(request.get("audio_path", "")).strip():
-                    response = {"success": False, "error": "缺少 audio_path 参数"}
-                else:
-                    task = self._start_edit_task(request)
-                    response = {
-                        "success": True,
-                        "task_id": task.task_id,
-                        "status": task.status,
-                    }
-
-            elif req_type == 'edit_poll':
-                task_id = str(request.get("task_id", "")).strip()
-                task = self._get_edit_task(task_id)
-                if task is None:
-                    response = {"success": False, "error": "编辑任务不存在或已过期"}
-                else:
-                    response = task.snapshot()
-
-            elif req_type == 'edit_cancel':
-                task_id = str(request.get("task_id", "")).strip()
-                task = self._get_edit_task(task_id)
-                if task is not None:
-                    task.cancel()
-                response = {"success": True}
-
-            elif req_type == 'edit_audio':
-                response = self._edit_audio(request)
-
-            elif req_type == 'edit_applied':
-                response = self._confirm_edit_applied(request)
-
-            elif req_type == 'asr_preview_start':
-                response = self._streaming_asr.start_session()
-
-            elif req_type == 'asr_preview_feed':
-                session_id = str(request.get('session_id', '')).strip()
-                encoded = request.get('pcm16', '')
-                if not session_id:
-                    response = {"success": False, "error": "缺少 session_id 参数"}
-                elif not isinstance(encoded, str):
-                    response = {"success": False, "error": "pcm16 必须是 base64 字符串"}
-                else:
-                    try:
-                        pcm = base64.b64decode(encoded, validate=True)
-                    except Exception:
-                        response = {"success": False, "error": "pcm16 base64 无效"}
-                    else:
-                        if len(pcm) > MAX_PREVIEW_CHUNK_BYTES:
-                            response = {"success": False, "error": "实时音频块过大"}
-                        elif len(pcm) % 2:
-                            response = {"success": False, "error": "PCM16 字节数必须为偶数"}
-                        else:
-                            response = self._streaming_asr.feed(
-                                session_id,
-                                pcm,
-                                is_final=bool(request.get('is_final', False)),
-                            )
-
-            elif req_type == 'asr_preview_close':
-                session_id = str(request.get('session_id', '')).strip()
-                if not session_id:
-                    response = {"success": False, "error": "缺少 session_id 参数"}
-                else:
-                    response = self._streaming_asr.close_session(
-                        session_id,
-                        flush=bool(request.get('flush', False)),
-                    )
-
-            elif req_type == 'transcribe_start':
-                audio_path = request.get('audio_path')
-                long_mode = bool(request.get('long_mode', False))
-                polish_min_chars = int(request.get("polish_min_chars", 0) or 0)
-                polish_timeout_ms = int(request.get("polish_timeout_ms", 0) or 0)
-                enable_thinking = (
-                    bool(request["enable_thinking"])
-                    if "enable_thinking" in request
-                    else None
-                )
-                if not audio_path:
-                    response = {"success": False, "error": "缺少 audio_path 参数"}
-                else:
-                    task = self._start_stream_task(
-                        str(audio_path),
-                        long_mode,
-                        polish_min_chars,
-                        polish_timeout_ms,
-                        enable_thinking,
-                    )
-                    response = {
-                        "success": True,
-                        "task_id": task.task_id,
-                        "status": task.status,
-                    }
-
-            elif req_type == 'polish_poll':
-                task_id = str(request.get('task_id', '')).strip()
-                after_seq = int(request.get('after_seq', 0) or 0)
-                task = self._get_stream_task(task_id)
-                if task is None:
-                    response = {"success": False, "error": "任务不存在或已过期"}
-                else:
-                    response = task.snapshot(after_seq, self._slm_stream_idle_timeout_s)
-
-            elif req_type == 'polish_cancel':
-                task_id = str(request.get('task_id', '')).strip()
-                task = self._get_stream_task(task_id)
-                if task is not None:
-                    task.cancel()
-                response = {"success": True}
-
-            elif req_type == 'transcribe':
-                # Backwards-compatible synchronous path. The global module uses
-                # this for plain ASR and transcribe_start for polishing.
-                audio_path = request.get('audio_path')
-                long_mode = bool(request.get('long_mode', False))
-                if not audio_path:
-                    response = {"success": False, "error": "缺少 audio_path 参数"}
-                else:
-                    asr_start = time.perf_counter()
-                    with self._asr_lock:
-                        result = self.asr_server.transcribe_audio(
-                            audio_path,
-                            options=self._asr_options,
-                        )
-                    asr_ms = (time.perf_counter() - asr_start) * 1000.0
-                    slm_reason = "not_used"
-                    slm_ms = 0.0
-                    if result.get("success") and long_mode:
-                        original = str(result.get("text", "")).strip()
-                        if self._slm_polisher.should_polish(
-                            original,
-                            long_mode=True,
-                        ):
-                            polished, metrics = self._slm_polisher.polish(
-                                original,
-                                long_mode=True,
-                            )
-                            slm_reason = metrics.reason
-                            slm_ms = metrics.latency_ms
-                            if self._slm_polisher.is_failure_reason(metrics.reason):
-                                result = {
-                                    "success": False,
-                                    "error": self._slm_polisher.format_failure_message(
-                                        metrics.reason
-                                    ),
-                                    "original_text": original,
-                                }
-                            else:
-                                result["text"] = polished
-                        else:
-                            slm_reason = (
-                                "disabled"
-                                if not self._slm_polisher.enabled
-                                else "too_short"
-                            )
-                    logger.info(
-                        "Fcitx 同步转录流水线 mode=%s asr_ms=%.2f slm_ms=%.2f reason=%s",
-                        "long" if long_mode else "plain",
-                        asr_ms,
-                        slm_ms,
-                        slm_reason,
-                    )
-                    response = result
-            elif req_type == 'ping':
-                # 健康检查
-                response = {"pong": True}
-
-            else:
-                response = {"error": f"未知的请求类型: {req_type}"}
-
-            # 发送响应
+            request = json.loads(b''.join(chunks).decode('utf-8'))
+            response = self._dispatch_request(request)
             response_str = json.dumps(response, ensure_ascii=False)
             conn.sendall(response_str.encode('utf-8'))
-
             logger.debug("已发送响应: %d 字节", len(response_str))
 
         except json.JSONDecodeError as exc:

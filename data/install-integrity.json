@@ -13,7 +13,7 @@
     "app/streaming_asr.py": "a0fde40d1d2b1de4b77682f6947353b1d27d3d3bd8486ddb6fc8f5fbfa98c7e9",
     "app/voice_edit.py": "8accb00abea6fdb89290ec8c8de19a51865915c5a97ce9e85de214954a5ae412",
     "fcitx5/backend/audio_recorder.py": "ebbad692b0261944543ac08cfb3e97ec48468c12c919dfbaea7c8d16fd88bcae",
-    "fcitx5/backend/fcitx5_server.py": "b67888386ed36cb819438b704c91e3780f3e07c6267a9d18b1698715e2f913c8",
+    "fcitx5/backend/fcitx5_server.py": "5950b3aef2f7c093161467dcb0098781b46301e5a366f7230c65133f46a82501",
     "ibus/engine.py": "5c6b8b7da841cf0dccd344bffe018a5a53104c6a7bf9e5b13baa1aff6732c0dd",
     "settings_center/application.py": "b7bd84fa2c658c0491be39270cbbaa028e476a7d0826be2deaee8c35d9236322",
     "settings_center/config_service.py": "cd4c4e0ec15bc3635c4e23e97c7914b662a5d5a2c8e9d2fb95f43e3537005e63",
