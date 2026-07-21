@@ -13,6 +13,11 @@ import sys
 import tempfile
 from pathlib import Path
 
+TOOLS_DIR = Path(__file__).resolve().parent
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
+from versioning import ReleaseVersion, normalize_expected_version
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -20,9 +25,10 @@ def read_version() -> str:
     namespace: dict[str, object] = {}
     exec((ROOT / "vocotype_version.py").read_text(encoding="utf-8"), namespace)
     version = str(namespace["__version__"])
-    if not version or any(part == "" for part in version.split(".")):
-        raise RuntimeError(f"invalid version: {version!r}")
-    return version
+    try:
+        return ReleaseVersion.parse(version).python
+    except ValueError as exc:
+        raise RuntimeError(f"invalid version: {version!r}") from exc
 
 
 def run(*argv: str, cwd: Path = ROOT) -> None:
@@ -148,11 +154,16 @@ def main() -> int:
     args = parser.parse_args()
 
     version = read_version()
-    if args.expected_version and args.expected_version.lstrip("v") != version:
-        parser.error(
-            f"expected version {args.expected_version.lstrip('v')}, "
-            f"but vocotype_version.py contains {version}"
-        )
+    if args.expected_version:
+        try:
+            expected = normalize_expected_version(args.expected_version)
+        except ValueError as exc:
+            parser.error(str(exc))
+        if expected != version:
+            parser.error(
+                f"expected version {expected}, "
+                f"but vocotype_version.py contains {version}"
+            )
 
     if not args.allow_dirty and args.treeish == "HEAD":
         dirty = git_output("status", "--porcelain", "--untracked-files=normal")

@@ -12,25 +12,29 @@ INSTALLERS = (
 )
 
 
-def test_pygobject_constraint_supports_ubuntu_22_04_and_python_3_12():
+def test_pygobject_is_built_in_ci_for_each_supported_distro():
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     dependencies = project["project"]["dependencies"]
-    assert "PyGObject>=3.46,<3.52" in dependencies
-    assert not any(
-        dependency.startswith("PyGObject") and ";" in dependency
-        for dependency in dependencies
-    )
+    assert "PyGObject>=3.46" in dependencies
+    release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    assert "PyGObject>=3.46,<3.52" in release
+    assert release.count("PyGObject>=3.56") >= 2
+    assert "build-runtime-wheelhouse.sh" in release
 
 
-def test_ibus_installer_checks_the_pkg_config_name_used_by_pygobject_3_50():
-    script = (ROOT / "ibus" / "scripts" / "install.sh").read_text(encoding="utf-8")
-    assert "pkg-config --exists gobject-introspection-1.0" in script
-    assert 'missing="$missing libgirepository1.0-dev"' in script
+def test_ibus_release_installers_check_runtime_not_build_dependencies():
+    gui = (ROOT / "ibus" / "scripts" / "install-gui.sh").read_text(encoding="utf-8")
+    cli = (ROOT / "ibus" / "scripts" / "install.sh").read_text(encoding="utf-8")
+    assert "from gi.repository import Gtk, IBus" in gui
+    assert "check_runtime_deps" in cli
+    for source in (gui, cli):
+        assert "check_build_deps" not in source
+        assert "libgirepository1.0-dev" not in source
 
 
 def test_default_remote_slm_budget_is_not_the_legacy_600ms_24_tokens():
     slm = DEFAULT_CONFIG["slm"]
-    assert slm["provider"] == "remote"
+    assert "provider" not in slm
     assert slm["timeout_ms"] == 20000
     assert slm["remote_stream"] is True
     assert slm["stream_idle_timeout_ms"] == 20000
@@ -39,16 +43,25 @@ def test_default_remote_slm_budget_is_not_the_legacy_600ms_24_tokens():
     assert slm["max_tokens"] == 128
 
 
-def test_installers_omit_endpoint_for_local_provider_and_use_provider_defaults():
+def test_installers_only_offer_openai_compatible_api():
     shared = COMMON_RUNTIME.read_text(encoding="utf-8")
-    assert 'slm.pop("endpoint", None)' in shared
+    for obsolete in (
+        "local_model",
+        "local_python",
+        "warmup_timeout_ms",
+        "keepalive_ms",
+        "ready_wait_ms",
+    ):
+        assert f'"{obsolete}"' in shared  # migration cleanup only
+    assert 'slm["endpoint"]' not in shared
+    assert '"endpoint": endpoint' in shared
     for path in INSTALLERS:
         script = path.read_text(encoding="utf-8")
-        assert "SLM_TIMEOUT_MS=12000" in script
-        assert "SLM_WARMUP_TIMEOUT_MS=90000" in script
-        assert "SLM_MAX_TOKENS=96" in script
-        assert 'SLM_PROVIDER="remote"\n            SLM_TIMEOUT_MS=20000' in script
-        assert "SLM_MAX_TOKENS=128" in script
+        assert "OpenAI-compatible API" in script
+        assert "不启动或管理模型进程" in script
+        assert "torch" not in script
+        assert "transformers" not in script
+        assert "local_ephemeral" not in script
 
 def test_default_asr_model_is_contextual_onnx_with_native_hotword_support():
     from app.funasr_config import MODELS
@@ -68,10 +81,10 @@ def test_installers_create_shared_terms_template_without_overwriting_legacy_file
 
 def test_installers_write_remote_streaming_defaults():
     shared = COMMON_RUNTIME.read_text(encoding="utf-8")
-    assert 'slm["remote_stream"] = True' in shared
-    assert 'slm["stream_idle_timeout_ms"] = timeout_ms' in shared
-    assert 'slm.setdefault("remote_max_tokens", 0)' in shared
-    assert 'slm.setdefault("extra_headers", {})' in shared
+    assert '"remote_stream": True' in shared
+    assert '"stream_idle_timeout_ms": timeout_ms' in shared
+    assert '"remote_max_tokens": int(slm.get("remote_max_tokens", 0) or 0)' in shared
+    assert '"extra_headers": slm.get("extra_headers", {})' in shared
 
 
 def test_official_two_pass_preview_is_optional_and_cpu_bounded_by_default():

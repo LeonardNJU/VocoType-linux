@@ -80,15 +80,30 @@ native_package_present() {
     return 1
 }
 
+native_package_name() {
+    local marker package
+    for marker in "${NATIVE_MARKERS[@]}"; do
+        [[ -f "$marker" ]] || continue
+        package=$(sed -n 's/^package=//p' "$marker" | head -1)
+        if [[ -n "$package" ]]; then
+            printf '%s\n' "$package"
+            return 0
+        fi
+    done
+    printf '%s\n' 'vocotype-linux'
+}
+
 native_package_command() {
+    local package
+    package=$(native_package_name)
     if command -v pacman >/dev/null 2>&1; then
-        printf '%s\n' 'sudo pacman -Rns vocotype-linux'
+        printf 'sudo pacman -Rns %s\n' "$package"
     elif command -v dnf >/dev/null 2>&1; then
-        printf '%s\n' 'sudo dnf remove vocotype-linux'
+        printf 'sudo dnf remove %s\n' "$package"
     elif command -v apt-get >/dev/null 2>&1; then
-        printf '%s\n' 'sudo apt remove vocotype-linux'
+        printf 'sudo apt remove %s\n' "$package"
     else
-        printf '%s\n' '请使用系统包管理器卸载 vocotype-linux'
+        printf '请使用系统包管理器卸载 %s\n' "$package"
     fi
 }
 
@@ -161,7 +176,7 @@ remove_ibus() {
 
     if [[ -f "$SYSTEM_COMPONENT" ]]; then
         if native_package_present; then
-            echo "系统 IBus component 由 vocotype-linux 软件包管理，本操作不会直接删除。"
+            echo "系统 IBus component 由 $(native_package_name) 软件包管理，本操作不会直接删除。"
         elif [[ "$REMOVE_SYSTEM_COMPONENT" == true ]]; then
             echo "正在移除源码/旧版安装器写入的系统 IBus component…"
             if [[ "$SYSTEM_PREFIX" != /usr ]]; then
@@ -220,7 +235,7 @@ remove_fcitx() {
         "$HOME/.local/bin/vocotype-fcitx5-recorder"
 
     if native_package_present; then
-        echo "系统 Fcitx addon 由 vocotype-linux 软件包管理，本操作不会直接删除。"
+        echo "系统 Fcitx addon 由 $(native_package_name) 软件包管理，本操作不会直接删除。"
     elif [[ -f "$SYSTEM_FCITX_MARKER" ]]; then
         if [[ "$REMOVE_SYSTEM_INTEGRATION" == true ]]; then
             echo "正在移除源码安装器管理的系统 VoCoType（Fcitx 5）addon…"

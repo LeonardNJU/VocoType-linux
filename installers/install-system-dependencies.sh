@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Install the fixed system dependency sets used by the graphical installer.
-# This script is invoked through pkexec, so all user-facing authentication is
-# handled by the desktop Polkit agent rather than a terminal password prompt.
+# Install fixed dependency sets for graphical setup. Release actions contain
+# runtime libraries only; source-only Fcitx builds use an explicit source action.
 set -euo pipefail
 
 ACTION="${1:-}"
@@ -13,9 +12,9 @@ else
 fi
 
 case "$ACTION" in
-    fcitx5|ibus|ibus-rime) ;;
+    fcitx5|fcitx5-source|ibus|ibus-rime) ;;
     *)
-        echo "Usage: $0 [--print-plan] {fcitx5|ibus|ibus-rime}" >&2
+        echo "Usage: $0 [--print-plan] {fcitx5|fcitx5-source|ibus|ibus-rime}" >&2
         exit 2
         ;;
 esac
@@ -36,6 +35,9 @@ if [[ "$DISTRO_KEYS" == *" debian "* ]] || [[ "$DISTRO_KEYS" == *" ubuntu "* ]];
     MANAGER="apt-get"
     case "$ACTION" in
         fcitx5)
+            PACKAGES=(fcitx5 fcitx5-config-qt libportaudio2)
+            ;;
+        fcitx5-source)
             PACKAGES=(
                 fcitx5 fcitx5-config-qt build-essential cmake pkg-config
                 libfcitx5-dev nlohmann-json3-dev libportaudio2
@@ -43,17 +45,15 @@ if [[ "$DISTRO_KEYS" == *" debian "* ]] || [[ "$DISTRO_KEYS" == *" ubuntu "* ]];
             ;;
         ibus)
             PACKAGES=(
-                ibus build-essential pkg-config libcairo2-dev libffi-dev
-                libgirepository1.0-dev libportaudio2 python3-dev python3-gi
+                ibus libportaudio2 python3-gi
                 gir1.2-ibus-1.0 gir1.2-gtk-3.0
             )
             ;;
         ibus-rime)
             PACKAGES=(
-                ibus build-essential pkg-config libcairo2-dev libffi-dev
-                libgirepository1.0-dev libportaudio2 python3-dev python3-gi
-                gir1.2-ibus-1.0 gir1.2-gtk-3.0 librime-dev ibus-rime
-                librime-data-luna-pinyin
+                ibus libportaudio2 python3-gi
+                gir1.2-ibus-1.0 gir1.2-gtk-3.0
+                ibus-rime librime-data-luna-pinyin
             )
             ;;
     esac
@@ -61,37 +61,41 @@ elif [[ "$DISTRO_KEYS" == *" fedora "* ]] || [[ "$DISTRO_KEYS" == *" rhel "* ]] 
     MANAGER="dnf"
     case "$ACTION" in
         fcitx5)
+            PACKAGES=(fcitx5 fcitx5-configtool portaudio)
+            ;;
+        fcitx5-source)
             PACKAGES=(
                 fcitx5 fcitx5-configtool gcc-c++ make cmake pkgconf-pkg-config
                 fcitx5-devel json-devel portaudio
             )
             ;;
         ibus)
-            PACKAGES=(
-                ibus python3-gobject gtk3 gcc-c++ make pkgconf-pkg-config
-                cairo-devel libffi-devel gobject-introspection-devel
-                python3-devel portaudio
-            )
+            PACKAGES=(ibus python3-gobject gtk3 portaudio)
             ;;
         ibus-rime)
-            PACKAGES=(
-                ibus python3-gobject gtk3 gcc-c++ make pkgconf-pkg-config
-                cairo-devel libffi-devel gobject-introspection-devel
-                python3-devel portaudio librime-devel ibus-rime rime-data
-            )
+            PACKAGES=(ibus python3-gobject gtk3 portaudio ibus-rime rime-data)
             ;;
     esac
 elif [[ "$DISTRO_KEYS" == *" arch "* ]] || [[ "$DISTRO_KEYS" == *" manjaro "* ]]; then
     MANAGER="pacman"
     case "$ACTION" in
         fcitx5)
-            PACKAGES=(base-devel fcitx5 fcitx5-configtool cmake pkgconf nlohmann-json portaudio)
+            PACKAGES=(fcitx5 fcitx5-configtool portaudio)
+            ;;
+        fcitx5-source)
+            PACKAGES=(
+                base-devel fcitx5 fcitx5-configtool cmake pkgconf
+                nlohmann-json portaudio
+            )
             ;;
         ibus)
-            PACKAGES=(base-devel ibus python-gobject gtk3 pkgconf cairo libffi gobject-introspection python portaudio)
+            PACKAGES=(ibus python-gobject gtk3 python portaudio)
             ;;
         ibus-rime)
-            PACKAGES=(base-devel ibus python-gobject gtk3 pkgconf cairo libffi gobject-introspection python portaudio librime ibus-rime rime-data)
+            PACKAGES=(
+                ibus python-gobject gtk3 python portaudio
+                librime ibus-rime rime-data
+            )
             ;;
     esac
 else

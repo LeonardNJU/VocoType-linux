@@ -10,6 +10,12 @@ import re
 import tarfile
 import zipfile
 from pathlib import Path, PurePosixPath
+import sys
+
+TOOLS_DIR = Path(__file__).resolve().parent
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
+from versioning import ReleaseVersion, normalize_expected_version
 
 HEX_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 SOURCE_REQUIRED = (
@@ -82,11 +88,13 @@ def validate_release(
         raise ValueError("unexpected release manifest identity")
     version = str(manifest.get("version", ""))
     commit = str(manifest.get("commit", ""))
-    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
-        raise ValueError(f"invalid release version: {version!r}")
+    try:
+        version = ReleaseVersion.parse(version).python
+    except ValueError as exc:
+        raise ValueError(f"invalid release version: {version!r}") from exc
     if not HEX_COMMIT.fullmatch(commit):
         raise ValueError(f"invalid commit: {commit!r}")
-    if expected_version and expected_version.lstrip("v") != version:
+    if expected_version and normalize_expected_version(expected_version) != version:
         raise ValueError(f"version mismatch: expected {expected_version}, found {version}")
     if expected_commit and expected_commit != commit:
         raise ValueError(f"commit mismatch: expected {expected_commit}, found {commit}")

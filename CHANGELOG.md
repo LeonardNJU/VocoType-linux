@@ -5,7 +5,7 @@ All notable changes to VoCoType Linux will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.0.0-rc.1] - 2026-07-21
 
 ### Added
 
@@ -17,21 +17,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added guarded Chinese ITN with `WeTextProcessing==1.2.0`, an expanded numeric regression matrix, and independently configurable compact date, time, distance, and currency styles.
 - Added a GTK settings center for graphical install/repair, synchronized IBus/Fcitx configuration, terminology editing, AI connection testing, Doctor checks, privacy-safe support bundles, tutorials, and feedback submission/GitHub fallback.
 - Added OpenAI-compatible SSE polishing events, Fcitx live previews, asynchronous start/poll/cancel tasks, OpenRouter reasoning/header support, and configurable stream idle timeouts.
-- Added one shared surrounding-text voice-editing core for IBus and Fcitx 5, including deterministic replacement/insertion/deletion/navigation, model-assisted rewriting, and undo/redo behavior.
+- Added one shared surrounding-text voice-editing pipeline for IBus and Fcitx 5. The configured SLM now interprets every command, resolves ASR homophones from context, and returns a validated `replace`, `key_actions`, or `no_op` plan; local adapters only verify and execute the plan.
 - Added optional native FunASR 2-pass streaming ASR previews for both IBus and Fcitx 5. Partial hypotheses update the preedit while recording, while the complete offline Contextual Paraformer pipeline remains the sole source of committed text.
 - Added installation-integrity manifests, local/remote version checks, a consolidated settings experience, framework-specific configuration panels, tutorials, and expanded Playground diagnostics.
 - Added an official privacy-conscious feedback service with multipart support-bundle uploads, deduplication, rate limits, retention policies, and an administrative triage CLI.
 
 ### Changed
 
-- Base DEB, RPM, and Arch packages now build fully offline and keep the optional native 2-pass preview runtime as a separately installable bundle.
+- DEB, RPM, and Arch releases now publish universal, IBus-only, and Fcitx5-only complete packages. All flavors include the audited native 2-pass runtime and locked Python 3.12 runtime closure; specialized flavors omit the other integration and its system dependency. Installation never compiles VoCoType or third-party dependencies locally.
 - Audio decoding and resampling now use soundfile, NumPy, and SciPy end to end; VoCoType passes contiguous NumPy waveforms directly to FunASR ONNX and no longer contains a GStreamer/PyGObject compatibility path.
 - User-facing configuration messages now describe one VoCoType configuration instead of implying that saving settings installs or configures both input frameworks.
-- Native packages install system integration without running pip, downloading models, writing user configuration, or prompting during the package-manager transaction; the graphical settings center performs per-user runtime setup afterward.
+- Native package-manager transactions remain offline and noninteractive. The graphical settings center creates the user runtime from package-local wheels and downloads only the selected models and Python runtime when needed.
 - The Fcitx module version now follows `vocotype_version.py`, and packaged installations reuse the system module/component instead of recompiling or requesting duplicate Polkit authorization.
 - The default ASR model is now the official Contextual Paraformer ONNX snapshot; both empty and configured native-hotword inference paths are supported.
 - Fcitx 5 no longer embeds `pyrime`, creates a separate Rime session, or requires users to add VoCoType as an input method.
-- Remote polishing no longer sends a fixed output-token limit by default; `remote_max_tokens` is explicit, while `max_tokens` remains the local-model budget.
+- AI polishing and voice editing now use one OpenAI-compatible API contract. The endpoint may be local or remote; VoCoType no longer contains a local model worker, scheduler, warmup, keepalive, or PyTorch/Transformers dependency path.
 - IBus and Fcitx 5 can optionally show mutable ASR preedit while recording; release immediately enters the original full-recording offline recognition path. Remote polishing calls can still consume SSE internally for idle-timeout and long-output improvements.
 - Numeric/ITN rewriting can now be disabled at runtime while terminology canonicalization remains active; compact styles default to ISO-like dates, 24-hour times, SI distance symbols, and `¥` currency output.
 - Python distribution metadata now describes the combined IBus/Fcitx 5 Linux package as `vocotype-linux`.
@@ -43,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Ubuntu 22.04/24.04 now install a Python 3.12-compatible PyGObject release without requiring the newer `girepository-2.0` toolchain.
 - IBus 1.5.26 no longer fails to import when optional `OSK` and `SYNC_PROCESS_KEY` capability constants are absent.
 - The system-Python installer validates the complete FunASR ONNX runtime before installing the IBus launcher.
-- Local ephemeral configs no longer contain a misleading HTTP endpoint.
+- Legacy `local_ephemeral` configurations are disabled with a migration message instead of attempting to start an embedded model worker.
 
 
 ## [2.2.3] - 2026-04-06

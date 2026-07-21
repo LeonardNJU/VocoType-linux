@@ -120,6 +120,28 @@ def local_reference_manifest(project_root: Path | None) -> dict[str, Any] | None
     return None
 
 
+def _runtime_root_flavor(root: RuntimeRoot) -> str:
+    if root.kind != "system":
+        return "fcitx5" if root.kind == "fcitx-user" else "ibus"
+    marker = root.path / ".system-package"
+    try:
+        for raw in marker.read_text(encoding="utf-8", errors="replace").splitlines():
+            if raw.startswith("flavor="):
+                value = raw.split("=", 1)[1].strip().lower()
+                return value if value in {"universal", "ibus", "fcitx5"} else "universal"
+    except OSError:
+        pass
+    return "universal"
+
+
+def _file_in_flavor(relative: str, flavor: str) -> bool:
+    if flavor == "ibus" and relative.startswith("fcitx5/"):
+        return False
+    if flavor == "fcitx5" and relative.startswith("ibus/"):
+        return False
+    return True
+
+
 def installed_runtime_roots(
     *,
     home: Path | None = None,
@@ -246,9 +268,15 @@ def probe_installation_integrity(
     for root in roots:
         version = _read_installed_version(root)
         versions[root.name] = version
-        detail_lines.append(f"[{root.name}] {root.path} (version={version})")
+        flavor = _runtime_root_flavor(root)
+        detail_lines.append(
+            f"[{root.name}] {root.path} (version={version}, flavor={flavor})"
+        )
         for relative, expected in files.items():
-            installed = _installed_path(root, str(relative))
+            relative_text = str(relative)
+            if not _file_in_flavor(relative_text, flavor):
+                continue
+            installed = _installed_path(root, relative_text)
             if installed is None:
                 continue
             checked += 1
@@ -265,6 +293,14 @@ def probe_installation_integrity(
                 )
 
     modules = _module_candidates(user_home, system_prefix)
+    check_fcitx_modules = any(
+        root.kind == "fcitx-user"
+        or (root.kind == "system" and _runtime_root_flavor(root) != "ibus")
+        for root in roots
+    )
+    if not check_fcitx_modules:
+        modules = ()
+        detail_lines.append("  SKIP Fcitx module：当前 package flavor 不包含 Fcitx 5")
     for module in modules:
         checked += 1
         payload = module.read_bytes()
@@ -287,7 +323,7 @@ def probe_installation_integrity(
         user_home / ".config/environment.d/fcitx5-vocotype.conf",
         system_prefix / "share/vocotype/.source-fcitx-integration",
     )
-    residues = [path for path in residue_paths if path.exists()]
+    residues = [path for path in residue_paths if path.exists()] if check_fcitx_modules else []
     for path in residues:
         detail_lines.append(f"  LEGACY 残留：{path}")
 

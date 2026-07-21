@@ -5,7 +5,6 @@ import io
 import json
 from pathlib import Path
 import sys
-import threading
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "app" / "slm_polisher.py"
 SPEC = importlib.util.spec_from_file_location("vocotype_slm_polisher", MODULE_PATH)
@@ -47,25 +46,7 @@ def test_polisher_not_long_mode_returns_original():
     assert metrics.reason == "not_long_mode"
 
 
-def test_local_provider_default_thinking_disabled():
-    polisher = SLMPolisher({"enabled": True, "provider": "local_ephemeral"})
-    assert polisher.enable_thinking is False
 
-
-def test_local_provider_default_keepalive_enabled():
-    polisher = SLMPolisher({"enabled": True, "provider": "local_ephemeral"})
-    assert polisher.keepalive_ms == 60000
-
-
-def test_local_provider_ignores_http_endpoint():
-    polisher = SLMPolisher(
-        {
-            "enabled": True,
-            "provider": "local_ephemeral",
-            "endpoint": "http://127.0.0.1:18080/v1/chat/completions",
-        }
-    )
-    assert polisher.endpoint == ""
 
 
 def test_remote_provider_has_network_safe_defaults():
@@ -74,55 +55,52 @@ def test_remote_provider_has_network_safe_defaults():
     assert polisher.max_tokens == 128
 
 
-def test_local_ready_timeout_uses_request_timeout_ceiling():
+
+
+
+
+def test_openai_compatible_api_is_the_only_provider_contract():
+    polisher = SLMPolisher({"enabled": True})
+    assert polisher.provider == "openai_compatible"
+    assert polisher.endpoint.endswith("/v1/chat/completions")
+    assert polisher.timeout_ms == 20000
+    assert polisher.max_tokens == 128
+    for obsolete in (
+        "prewarm",
+        "release",
+        "_polish_local",
+        "_start_local_worker_if_needed",
+        "_local_worker_request",
+    ):
+        assert not hasattr(polisher, obsolete)
+
+
+def test_legacy_builtin_local_provider_is_disabled_for_migration():
     polisher = SLMPolisher(
         {
             "enabled": True,
             "provider": "local_ephemeral",
-            "timeout_ms": 12000,
-            "ready_wait_ms": 2000,
-            "warmup_timeout_ms": 90000,
+            "endpoint": "http://127.0.0.1:11434/v1/chat/completions",
+            "model": "qwen3",
         }
     )
-    assert polisher._local_ready_timeout_s() == 12.0
+    assert polisher.enabled is False
+    assert polisher.legacy_local_provider is True
+    assert "旧版内置本地 SLM 已移除" in polisher.credential_warning
+    assert polisher.endpoint == "http://127.0.0.1:11434/v1/chat/completions"
 
 
-def test_local_ready_timeout_respects_short_request_timeout():
+def test_openai_compatible_endpoint_allows_no_api_key():
     polisher = SLMPolisher(
         {
             "enabled": True,
-            "provider": "local_ephemeral",
-            "timeout_ms": 1500,
-            "ready_wait_ms": 2000,
-            "warmup_timeout_ms": 90000,
+            "endpoint": "http://127.0.0.1:11434/v1",
+            "model": "qwen3",
+            "api_key": "",
         }
     )
-    assert polisher._local_ready_timeout_s() == 1.5
-
-
-def test_release_with_keepalive_delays_shutdown(monkeypatch):
-    class _FakeProc:
-        def poll(self):
-            return None
-
-    polisher = SLMPolisher(
-        {
-            "enabled": True,
-            "provider": "local_ephemeral",
-            "keepalive_ms": 30,
-        }
-    )
-    polisher._worker_proc = _FakeProc()
-    fired = threading.Event()
-
-    def _fake_shutdown_locked():
-        polisher._worker_proc = None
-        fired.set()
-
-    monkeypatch.setattr(polisher, "_shutdown_local_worker_locked", _fake_shutdown_locked)
-    polisher.release()
-    assert fired.wait(0.3)
-
+    assert polisher.endpoint == "http://127.0.0.1:11434/v1/chat/completions"
+    assert "Authorization" not in polisher._request_headers()
 
 def test_polisher_too_short_returns_original():
     polisher = SLMPolisher({"enabled": True, "min_chars": 20})
@@ -270,55 +248,18 @@ def test_extract_content_accepts_text_parts_and_choice_text():
         {"choices": [{"text": "兼容旧式 completion。"}]}
     ) == "兼容旧式 completion。"
 
-def test_polisher_local_retry_without_thinking(monkeypatch):
-    polisher = SLMPolisher(
-        {
-            "enabled": True,
-            "provider": "local_ephemeral",
-            "model": "Qwen/Qwen3.5-0.8B",
-            "local_model": "Qwen/Qwen3.5-0.8B",
-            "min_chars": 1,
-            "max_tokens": 512,
-            "enable_thinking": True,
-        }
-    )
-
-    monkeypatch.setattr(polisher, "_ensure_local_worker_ready", lambda timeout_s: (True, "ok"))
-    monkeypatch.setattr(polisher, "_shutdown_local_worker", lambda: None)
-
-    payloads = []
-
-    def _fake_local_worker_request(payload, timeout_s):
-        payloads.append(dict(payload))
-        if len(payloads) == 1:
-            return {"ok": False, "reason": "thinking_only"}
-        return {"ok": True, "text": "润色后的文本。"}
-
-    monkeypatch.setattr(polisher, "_local_worker_request", _fake_local_worker_request)
-
-    out, metrics = polisher.polish("原始文本", long_mode=True)
-    assert out == "润色后的文本。"
-    assert metrics.used is True
-    assert metrics.reason == "ok"
-    assert len(payloads) == 2
-    assert payloads[0]["enable_thinking"] is True
-    assert payloads[0]["max_tokens"] == 96
-    assert payloads[1]["enable_thinking"] is False
-    assert payloads[1]["max_tokens"] == 512
-    assert payloads[1]["temperature"] == 0.0
-
 
 def test_is_failure_reason():
     assert SLMPolisher.is_failure_reason("ok") is False
     assert SLMPolisher.is_failure_reason("too_short") is False
     assert SLMPolisher.is_failure_reason("timeout") is True
-    assert SLMPolisher.is_failure_reason("load_failed:No module named 'torch'") is True
+    assert SLMPolisher.is_failure_reason("request_error") is True
 
 
 def test_format_failure_message():
     assert SLMPolisher.format_failure_message("timeout") == "SLM 调用失败：请求超时"
     assert SLMPolisher.format_failure_message("remote_error") == "SLM 调用失败：远端服务返回错误（请查看日志）"
-    assert SLMPolisher.format_failure_message("load_failed:No module named 'torch'") == "SLM 调用失败：模型加载失败"
+    assert SLMPolisher.format_failure_message("request_error") == "SLM 调用失败：请求错误"
 
 
 def test_strip_thinking_tag_block():
@@ -461,28 +402,6 @@ def test_remote_stream_reports_structured_error(monkeypatch):
     assert events[-1]["kind"] == "error"
     assert events[-1]["reason"] == "remote_error"
 
-
-def test_local_stream_contract_keeps_local_provider(monkeypatch):
-    polisher = SLMPolisher(
-        {
-            "enabled": True,
-            "provider": "local_ephemeral",
-            "min_chars": 1,
-        }
-    )
-    monkeypatch.setattr(
-        polisher,
-        "_polish_local",
-        lambda original, stripped, start: (
-            "本地润色结果。",
-            slm_polisher.PolisherMetrics(True, True, 12.0, "ok"),
-        ),
-    )
-
-    events = list(polisher.stream_polish("原始文本", long_mode=True))
-    assert events[0]["kind"] == "status"
-    assert events[-1]["kind"] == "final"
-    assert events[-1]["text"] == "本地润色结果。"
 
 
 def test_remote_payload_omits_default_token_limit_and_maps_openrouter_reasoning():

@@ -3,7 +3,6 @@
 #
 # 用法: install.sh [--device <id>] [--sample-rate <rate>] [--skip-audio]
 #                            [--non-interactive] [--python-choice user|project|system]
-#                            [--slm-provider preserve|disabled|remote|local]
 #                            [--install-system-deps] [--bootstrap-uv]
 #   --device <id>      指定音频设备ID，跳过交互式配置
 #   --sample-rate <rate>  指定采样率（默认44100）
@@ -11,7 +10,6 @@
 #   --non-interactive  供图形设置中心调用，不读取终端输入
 #   --preserve-config  保留已有 SLM/运行配置
 #   --python-choice    非交互环境选择；默认 user
-#   --slm-provider     非交互 SLM 选择；默认 preserve
 #   --install-system-deps  缺依赖时通过 pkexec 弹出桌面授权并自动安装
 #   --bootstrap-uv     缺少兼容 Python 时在用户目录安装 uv/Python 3.12
 #
@@ -31,7 +29,6 @@ SAMPLE_RATE="44100"
 NON_INTERACTIVE=false
 PRESERVE_CONFIG=false
 PY_CHOICE_OVERRIDE="user"
-SLM_PROVIDER_OVERRIDE="preserve"
 INSTALL_SYSTEM_DEPS=false
 BOOTSTRAP_UV=false
 
@@ -59,10 +56,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --python-choice)
             PY_CHOICE_OVERRIDE="$2"
-            shift 2
-            ;;
-        --slm-provider)
-            SLM_PROVIDER_OVERRIDE="$2"
             shift 2
             ;;
         --install-system-deps)
@@ -93,6 +86,11 @@ VOCOTYPE_VERSION=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$PROJECT_DIR/vocotyp
 REUSE_SYSTEM_MODULE=false
 if [ -f "$PROJECT_DIR/.system-package" ] || [ -f /usr/share/vocotype/.system-package ]; then
     REUSE_SYSTEM_MODULE=true
+    if [ "$PY_CHOICE_OVERRIDE" != "user" ]; then
+        echo "错误: Release 包固定使用 Python 3.12 用户环境；不支持 $PY_CHOICE_OVERRIDE。" >&2
+        exit 2
+    fi
+    BOOTSTRAP_UV=true
 fi
 SYSTEM_FCITX_SOURCE_MARKER=/usr/share/vocotype/.source-fcitx-integration
 
@@ -114,20 +112,15 @@ source_system_fcitx_matches_build() {
     return 1
 }
 
-# SLM 可选配置（默认关闭）
+# OpenAI-compatible API 配置（默认关闭）
 ENABLE_SLM=0
-SLM_PROVIDER="local_ephemeral"
 SLM_ENDPOINT="http://127.0.0.1:18080/v1/chat/completions"
 SLM_MODEL="Qwen/Qwen3.5-0.8B"
-SLM_LOCAL_MODEL="$SLM_MODEL"
-SLM_LOCAL_PYTHON=""
-SLM_TIMEOUT_MS=12000
-SLM_WARMUP_TIMEOUT_MS=90000
+SLM_TIMEOUT_MS=20000
 SLM_MIN_CHARS=8
-SLM_MAX_TOKENS=96
+SLM_MAX_TOKENS=128
 SLM_ENABLE_THINKING=0
 SLM_API_KEY=""
-SLM_INSTALL_LOCAL_DEPS=0
 
 resolve_python_cmd() {
     local py="$1"
@@ -247,22 +240,10 @@ print_python_help() {
     echo ""
     echo "原因: VoCoType 使用 onnxruntime 运行语音识别模型，"
     echo "      而 onnxruntime 官方尚未支持 Python 3.13+。"
-    echo "      参考: https://github.com/microsoft/onnxruntime/issues/21292"
     echo ""
     echo "解决方案："
-    echo ""
-    echo "  【推荐】安装 uv（自动管理 Python 版本和虚拟环境）："
-    echo "    curl -LsSf https://astral.sh/uv/install.sh | sh"
-    echo "    然后重新打开终端，再运行本脚本"
-    echo ""
-    echo "  或手动安装 Python 3.12："
-    echo "    Fedora: sudo dnf install python3.12"
-    echo "    Ubuntu: sudo apt install python3.12"
-    echo "    Arch:   sudo pacman -S python312"
-    echo ""
-    echo "  或使用 conda 创建兼容环境（安装脚本可手动指定解释器）："
-    echo "    conda create -n vocotype python=3.12"
-    echo "    conda activate vocotype"
+    echo "  【推荐】安装 uv，让 VoCoType 自动管理 Python 3.12。"
+    echo "  或手动提供 Python 3.11/3.12。"
 }
 
 echo "=== VoCoType Fcitx 5 语音输入法安装 ==="
@@ -271,86 +252,36 @@ echo "项目目录: $PROJECT_DIR"
 echo ""
 
 if [ "$NON_INTERACTIVE" = true ]; then
-    case "$SLM_PROVIDER_OVERRIDE" in
-        preserve)
-            echo "非交互安装：保留已有 SLM 配置"
-            ;;
-        disabled)
-            ENABLE_SLM=0
-            ;;
-        remote)
-            ENABLE_SLM=1
-            SLM_PROVIDER="remote"
-            SLM_TIMEOUT_MS=20000
-            ;;
-        local|local_ephemeral)
-            ENABLE_SLM=1
-            SLM_PROVIDER="local_ephemeral"
-            SLM_INSTALL_LOCAL_DEPS=1
-            ;;
-        *)
-            echo "错误: 未知 --slm-provider: $SLM_PROVIDER_OVERRIDE"
-            exit 1
-            ;;
-    esac
+    if [ "$PRESERVE_CONFIG" = true ]; then
+        echo "非交互安装：保留已有 OpenAI-compatible API 配置"
+    else
+        ENABLE_SLM=0
+        echo "非交互安装：AI 功能保持关闭，稍后可在设置中心配置 API"
+    fi
 else
-    echo "是否启用长句 SLM 润色（Shift+F9）？"
-    echo "  [1] 不启用（默认）- 不安装 SLM 模型，保持最低资源占用"
-    echo "  [2] 启用 - 配置 SLM 润色"
+    echo "是否启用 AI 润色与语音编辑？"
+    echo "  [1] 不启用（默认）"
+    echo "  [2] 启用 - 连接 OpenAI-compatible API"
     echo ""
     read -r -p "请输入选项 (默认 1): " SLM_CHOICE
     case "$SLM_CHOICE" in
     2)
         ENABLE_SLM=1
         echo ""
-        echo "您选择启用 SLM 润色。"
-        echo "请选择 SLM 运行方式："
-        echo "  [1] 本地一次性加载（推荐）：按下 Shift+F9 预加载，润色后释放"
-        echo "  [2] 远程 HTTP 服务：调用已有 endpoint（OpenAI 兼容）"
-        read -r -p "请输入选项 (默认 1): " SLM_PROVIDER_CHOICE
-
-        if [ "$SLM_PROVIDER_CHOICE" = "2" ]; then
-            SLM_PROVIDER="remote"
-            SLM_TIMEOUT_MS=20000
-            SLM_WARMUP_TIMEOUT_MS=12000
-            SLM_MAX_TOKENS=128
-            read -r -p "SLM 模型名 (默认 $SLM_MODEL): " SLM_MODEL_INPUT
-            if [ -n "$SLM_MODEL_INPUT" ]; then
-                SLM_MODEL="$SLM_MODEL_INPUT"
-            fi
-
-            read -r -p "SLM Endpoint (默认 $SLM_ENDPOINT): " SLM_ENDPOINT_INPUT
-            if [ -n "$SLM_ENDPOINT_INPUT" ]; then
-                SLM_ENDPOINT="$SLM_ENDPOINT_INPUT"
-            fi
-            read -r -s -p "SLM API Key（可留空，输入时不回显）: " SLM_API_KEY_INPUT
-            echo ""
-            if [ -n "$SLM_API_KEY_INPUT" ]; then
-                SLM_API_KEY="$SLM_API_KEY_INPUT"
-            fi
-        else
-            SLM_PROVIDER="local_ephemeral"
-            SLM_TIMEOUT_MS=12000
-            SLM_WARMUP_TIMEOUT_MS=90000
-            SLM_MAX_TOKENS=96
-            SLM_ENABLE_THINKING=0
-            SLM_API_KEY=""
-            read -r -p "本地模型名/路径 (默认 $SLM_LOCAL_MODEL): " SLM_LOCAL_MODEL_INPUT
-            if [ -n "$SLM_LOCAL_MODEL_INPUT" ]; then
-                SLM_LOCAL_MODEL="$SLM_LOCAL_MODEL_INPUT"
-                SLM_MODEL="$SLM_LOCAL_MODEL_INPUT"
-            fi
-            read -r -p "是否安装本地 SLM 依赖（torch/transformers/sentencepiece/socksio）? (Y/n): " INSTALL_SLM_DEPS
-            if [[ ! "$INSTALL_SLM_DEPS" =~ ^[Nn]$ ]]; then
-                SLM_INSTALL_LOCAL_DEPS=1
-            fi
-        fi
+        echo "VoCoType 只调用 OpenAI-compatible API，不启动或管理模型进程。"
+        echo "本机 Ollama、llama.cpp、vLLM 与云端服务配置方式完全相同。"
+        read -r -p "模型名 (默认 $SLM_MODEL): " SLM_MODEL_INPUT
+        [ -n "$SLM_MODEL_INPUT" ] && SLM_MODEL="$SLM_MODEL_INPUT"
+        read -r -p "API Endpoint (默认 $SLM_ENDPOINT): " SLM_ENDPOINT_INPUT
+        [ -n "$SLM_ENDPOINT_INPUT" ] && SLM_ENDPOINT="$SLM_ENDPOINT_INPUT"
+        read -r -s -p "API Key（无鉴权服务可留空，输入时不回显）: " SLM_API_KEY_INPUT
+        echo ""
+        [ -n "$SLM_API_KEY_INPUT" ] && SLM_API_KEY="$SLM_API_KEY_INPUT"
         ;;
     ""|1|*)
         ENABLE_SLM=0
-        SLM_API_KEY=""
         echo ""
-        echo "已禁用 SLM 润色（Shift+F9 不会触发润色）。"
+        echo "已禁用 AI 润色与语音编辑。"
         ;;
     esac
 fi
@@ -470,7 +401,6 @@ if [ ${#missing_deps[@]} -gt 0 ]; then
         --non-interactive
         --skip-audio
         --python-choice "$PY_CHOICE_OVERRIDE"
-        --slm-provider "$SLM_PROVIDER_OVERRIDE"
     )
     [ "$PRESERVE_CONFIG" = true ] && restart_args+=(--preserve-config)
     [ "$INSTALL_SYSTEM_DEPS" = true ] && restart_args+=(--install-system-deps)
@@ -644,6 +574,10 @@ else
         PYTHON_CMD="$DEFAULT_UV_PYTHON"
         echo "使用 uv 管理 Python: $PYTHON_CMD"
     else
+        if [ "$REUSE_SYSTEM_MODULE" = true ]; then
+            echo "错误: Release 安装需要 uv 提供 Python 3.12；自动下载失败，未回退到不匹配的系统 Python。" >&2
+            exit 1
+        fi
         PYTHON_CMD=$(detect_system_python) || {
             echo "错误: 需要 Python 3.11-3.12，且 uv 自动安装未启用或失败。"
             print_python_help
@@ -685,18 +619,12 @@ import funasr_onnx  # noqa: F401
 PY
     then
         echo "系统 Python 缺少依赖。请先执行："
-        echo "  $PYTHON -m pip install -r $PROJECT_DIR/requirements.txt"
+        echo "  请重新运行设置中心，让安装器从预构建 wheels 修复运行环境。"
         exit 1
     fi
 else
-    if command -v uv &>/dev/null; then
-        echo "使用 uv 安装依赖..."
-        uv pip install -r "$PROJECT_DIR/requirements.txt" --python "$PYTHON"
-    else
-        echo "使用 pip 安装依赖..."
-        "$PYTHON" -m pip install --upgrade pip
-        "$PYTHON" -m pip install -r "$PROJECT_DIR/requirements.txt"
-    fi
+    echo "安装预构建 Python wheels..."
+    install_runtime_requirements "$PYTHON" "$PROJECT_DIR"
 fi
 
 echo "✓ Python 环境已配置"
@@ -705,47 +633,6 @@ emit_install_progress 70 "下载并校验 ASR、VAD 与标点模型"
 download_and_verify_asr_models "$PYTHON" "$INSTALL_DIR" || exit 1
 
 FCITX5_BACKEND_CONFIG="$HOME/.config/vocotype/fcitx5-backend.json"
-if [ "$PRESERVE_CONFIG" = true ] && [ -f "$FCITX5_BACKEND_CONFIG" ]; then
-    preserved_slm=$(
-        "$PYTHON" - "$FCITX5_BACKEND_CONFIG" << 'PY'
-import json
-import sys
-
-try:
-    with open(sys.argv[1], "r", encoding="utf-8") as handle:
-        config = json.load(handle)
-    slm = config.get("slm", {}) if isinstance(config, dict) else {}
-    enabled = 1 if bool(slm.get("enabled", False)) else 0
-    provider = str(slm.get("provider", "local_ephemeral"))
-except Exception:
-    enabled = 0
-    provider = "local_ephemeral"
-print(f"{enabled}	{provider}")
-PY
-    )
-    IFS=$'	' read -r ENABLE_SLM SLM_PROVIDER <<< "$preserved_slm"
-    if [ "$ENABLE_SLM" = "1" ] && [ "$SLM_PROVIDER" = "local_ephemeral" ]; then
-        SLM_INSTALL_LOCAL_DEPS=1
-        echo "检测到已有本地 SLM 配置，将验证/修复本地模型依赖"
-    fi
-fi
-
-if [ "$ENABLE_SLM" = "1" ] && [ "$SLM_PROVIDER" = "local_ephemeral" ] && [ "$SLM_INSTALL_LOCAL_DEPS" = "1" ]; then
-    echo ""
-    echo "安装本地 SLM 依赖（torch/transformers/sentencepiece/socksio）..."
-    if [ "$USE_SYSTEM_PYTHON" = "1" ]; then
-        if ! "$PYTHON" -c "import torch, transformers, sentencepiece, socksio" >/dev/null 2>&1; then
-            echo "⚠️  系统 Python 缺少本地 SLM 依赖，请手动安装："
-            echo "  $PYTHON -m pip install torch transformers sentencepiece socksio"
-            echo "   或改用虚拟环境重新安装。"
-        fi
-    elif command -v uv &>/dev/null; then
-        uv pip install torch transformers sentencepiece socksio --python "$PYTHON"
-    else
-        "$PYTHON" -m pip install torch transformers sentencepiece socksio
-    fi
-fi
-
 echo ""
 echo "[可选] 写入 SLM 配置..."
 if [ "$PRESERVE_CONFIG" = true ] && [ -f "$FCITX5_BACKEND_CONFIG" ]; then
@@ -755,15 +642,11 @@ else
         "$FCITX5_BACKEND_CONFIG" \
         "$PYTHON" \
         "$ENABLE_SLM" \
-        "$SLM_PROVIDER" \
         "$SLM_ENDPOINT" \
         "$SLM_MODEL" \
-        "$SLM_LOCAL_MODEL" \
-        "$SLM_LOCAL_PYTHON" \
         "$SLM_TIMEOUT_MS" \
         "$SLM_MIN_CHARS" \
         "$SLM_MAX_TOKENS" \
-        "$SLM_WARMUP_TIMEOUT_MS" \
         "$SLM_ENABLE_THINKING" \
         "$SLM_API_KEY"
     echo "✓ 已写入配置: $FCITX5_BACKEND_CONFIG"

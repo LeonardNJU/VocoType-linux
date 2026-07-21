@@ -2,6 +2,8 @@
 
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 export DEB_CXXFLAGS_MAINT_APPEND = -Wall -Wextra -Wpedantic
+PACKAGE_NAME ?= vocotype-linux
+PACKAGE_FLAVOR ?= universal
 
 %:
 	dh $@
@@ -9,15 +11,17 @@ export DEB_CXXFLAGS_MAINT_APPEND = -Wall -Wextra -Wpedantic
 override_dh_auto_configure:
 
 override_dh_auto_build:
-	@echo "Skipping optional native streaming runtime in the base package"
+	@echo "Using CI-prebuilt native runtime and Python wheelhouse"
 
 override_dh_auto_install:
 	./packaging/tools/stage-system-package.sh \
-		--destdir "$(CURDIR)/debian/vocotype-linux" \
+		--destdir "$(CURDIR)/debian/$(PACKAGE_NAME)" \
 		--prefix /usr \
 		--libdir "lib/$$(dpkg-architecture -qDEB_HOST_MULTIARCH)" \
-		--build-dir "$(CURDIR)/build/debian-fcitx" \
-		--skip-streaming-bundle
+		--build-dir "$(CURDIR)/build/debian-fcitx-$(PACKAGE_FLAVOR)" \
+		--flavor "$(PACKAGE_FLAVOR)" \
+		--require-streaming-bundle \
+		--require-wheelhouse
 
 override_dh_auto_test:
-	python3 -m compileall -q app settings_center ibus fcitx5/backend
+	python3 -m compileall -q app settings_center

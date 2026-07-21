@@ -53,19 +53,15 @@ write_slm_config_json() {
     local config_file="$1"
     local python_bin="$2"
     local enabled="$3"
-    local provider="$4"
-    local endpoint="$5"
-    local model="$6"
-    local local_model="$7"
-    local local_python="$8"
-    local timeout_ms="$9"
-    local min_chars="${10}"
-    local max_tokens="${11}"
-    local warmup_timeout_ms="${12}"
-    local enable_thinking="${13}"
-    local api_key="${14}"
+    local endpoint="$4"
+    local model="$5"
+    local timeout_ms="$6"
+    local min_chars="$7"
+    local max_tokens="$8"
+    local enable_thinking="$9"
+    local api_key="${10}"
 
-    "$python_bin" - "$config_file" "$enabled" "$provider" "$endpoint" "$model" "$local_model" "$local_python" "$timeout_ms" "$min_chars" "$max_tokens" "$warmup_timeout_ms" "$enable_thinking" "$api_key" << 'PY'
+    "$python_bin" - "$config_file" "$enabled" "$endpoint" "$model" "$timeout_ms" "$min_chars" "$max_tokens" "$enable_thinking" "$api_key" << 'PY'
 import json
 import os
 import sys
@@ -85,63 +81,152 @@ def load_json(path: str) -> dict[str, Any]:
 
 target = os.path.expanduser(sys.argv[1])
 enabled = bool(int(sys.argv[2]))
-provider = sys.argv[3]
-endpoint = sys.argv[4]
-model = sys.argv[5]
-local_model = sys.argv[6]
-local_python = sys.argv[7]
-timeout_ms = int(sys.argv[8])
-min_chars = int(sys.argv[9])
-max_tokens = int(sys.argv[10])
-warmup_timeout_ms = int(sys.argv[11])
-enable_thinking = bool(int(sys.argv[12]))
-api_key = sys.argv[13]
+endpoint = sys.argv[3]
+model = sys.argv[4]
+timeout_ms = int(sys.argv[5])
+min_chars = int(sys.argv[6])
+max_tokens = int(sys.argv[7])
+enable_thinking = bool(int(sys.argv[8]))
+api_key = sys.argv[9]
 
 cfg = load_json(target)
 slm = cfg.get("slm", {})
 if not isinstance(slm, dict):
     slm = {}
-
+for obsolete in (
+    "provider",
+    "local_model",
+    "local_python",
+    "local_device",
+    "local_dtype",
+    "warmup_timeout_ms",
+    "keepalive_ms",
+    "ready_wait_ms",
+):
+    slm.pop(obsolete, None)
 slm.update(
     {
         "enabled": enabled,
-        "provider": provider,
+        "endpoint": endpoint,
         "model": model,
-        "local_model": local_model,
-        "local_python": local_python,
         "timeout_ms": timeout_ms,
-        "warmup_timeout_ms": warmup_timeout_ms,
+        "stream_idle_timeout_ms": timeout_ms,
+        "remote_stream": True,
+        "transport_timeout_ms": int(slm.get("transport_timeout_ms", 0) or 0),
+        "remote_max_tokens": int(slm.get("remote_max_tokens", 0) or 0),
+        "extra_headers": slm.get("extra_headers", {}),
+        "extra_body": slm.get("extra_body", {}),
         "min_chars": min_chars,
         "max_tokens": max_tokens,
         "enable_thinking": enable_thinking,
         "api_key": api_key,
     }
 )
-if provider == "remote":
-    slm["endpoint"] = endpoint
-    slm["remote_stream"] = True
-    slm["stream_idle_timeout_ms"] = timeout_ms
-    slm.setdefault("transport_timeout_ms", 0)
-    slm.setdefault("remote_max_tokens", 0)
-    slm.setdefault("extra_headers", {})
-    slm.setdefault("extra_body", {})
-    slm.pop("max_tokens", None)
-else:
-    slm.pop("endpoint", None)
-    slm["max_tokens"] = max_tokens
 cfg["slm"] = slm
 
 os.makedirs(os.path.dirname(target), exist_ok=True)
 with open(target, "w", encoding="utf-8") as f:
     json.dump(cfg, f, ensure_ascii=False, indent=2)
     f.write("\n")
+os.chmod(target, 0o600)
 PY
+}
+
+
+find_system_streaming_worker() {
+    local candidate
+    for candidate in \
+        /usr/libexec/vocotype-streaming-worker \
+        /usr/lib/vocotype/vocotype-streaming-worker \
+        /usr/lib64/vocotype/vocotype-streaming-worker \
+        /usr/lib/*/vocotype/vocotype-streaming-worker; do
+        if [ -x "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+runtime_wheelhouse_dir() {
+    local project_dir="$1"
+    if [ -d "${VOCOTYPE_WHEELHOUSE_DIR:-}" ]; then
+        printf '%s\n' "$VOCOTYPE_WHEELHOUSE_DIR"
+    elif [ -d "$project_dir/wheelhouse" ]; then
+        printf '%s\n' "$project_dir/wheelhouse"
+    elif [ -d "$project_dir/vendor/wheelhouse" ]; then
+        printf '%s\n' "$project_dir/vendor/wheelhouse"
+    else
+        return 1
+    fi
+}
+
+install_runtime_requirements() {
+    local python_bin="$1"
+    local project_dir="$2"
+    local wheelhouse=""
+    wheelhouse=$(runtime_wheelhouse_dir "$project_dir" 2>/dev/null || true)
+    if [ -n "$wheelhouse" ]; then
+        if command -v uv >/dev/null 2>&1; then
+            uv pip install --python "$python_bin" \
+                --no-index --find-links "$wheelhouse" \
+                --only-binary :all: \
+                -r "$project_dir/requirements.txt"
+        else
+            "$python_bin" -m pip install \
+                --no-index --find-links "$wheelhouse" \
+                --only-binary=:all: \
+                -r "$project_dir/requirements.txt"
+        fi
+        return
+    fi
+    if [ -f "$project_dir/.system-package" ] || [ -f /usr/share/vocotype/.system-package ]; then
+        echo "错误: Release 安装缺少预构建 Python wheelhouse，拒绝在本机编译依赖。" >&2
+        return 1
+    fi
+    if command -v uv >/dev/null 2>&1; then
+        uv pip install --python "$python_bin" \
+            --only-binary :all: \
+            -r "$project_dir/requirements.txt"
+    else
+        "$python_bin" -m pip install \
+            --only-binary=:all: \
+            -r "$project_dir/requirements.txt"
+    fi
+}
+
+install_binary_packages() {
+    local python_bin="$1"
+    local project_dir="$2"
+    shift 2
+    local wheelhouse=""
+    local -a links=()
+    wheelhouse=$(runtime_wheelhouse_dir "$project_dir" 2>/dev/null || true)
+    if [ -n "$wheelhouse" ]; then
+        links=(--find-links "$wheelhouse")
+    fi
+    if command -v uv >/dev/null 2>&1; then
+        uv pip install --python "$python_bin" \
+            --only-binary :all: \
+            "${links[@]}" "$@"
+    else
+        "$python_bin" -m pip install \
+            --only-binary=:all: \
+            "${links[@]}" "$@"
+    fi
 }
 
 install_native_streaming_bundle() {
     local project_dir="$1"
     local source_dir="${VOCOTYPE_STREAMING_BUNDLE_DIR:-$project_dir/native/streaming_worker/build/bundle}"
     local target_dir="${VOCOTYPE_STREAMING_INSTALL_DIR:-$HOME/.local/lib/vocotype-streaming}"
+    local system_worker=""
+
+    system_worker=$(find_system_streaming_worker 2>/dev/null || true)
+    if [ -n "$system_worker" ]; then
+        echo "✓ 使用 Release 包内预编译 native streaming runtime: $system_worker"
+        return 0
+    fi
 
     case "$target_dir" in
         ""|/|"$HOME")
@@ -151,7 +236,11 @@ install_native_streaming_bundle() {
     esac
 
     if [ ! -x "$source_dir/bin/vocotype-streaming-worker" ] || [ ! -d "$source_dir/lib" ]; then
-        echo "提示: 未找到预编译 native streaming bundle；实时识别预览保持不可用，普通离线识别不受影响。"
+        if [ -f "$project_dir/.system-package" ] || [ -f /usr/share/vocotype/.system-package ]; then
+            echo "错误: Release 包缺少 native streaming runtime，安装不完整。" >&2
+            return 1
+        fi
+        echo "提示: 源码树未构建 native streaming bundle；实时识别预览保持不可用。"
         return 0
     fi
 

@@ -56,7 +56,7 @@ Playground 与安装状态相互独立，用于真实体验验证：
 - 将同一段录音发送给当前 VoCoType ASR 后台，显示可编辑的转录结果；
 - 输入文本测试 AI 润色；语音编辑区会真实录制口述指令，经 ASR 后调用编辑 backend；输出保持可编辑。
 
-AI 区域默认置灰。必须先在“AI 润色”页启用功能、配置 endpoint/模型，并点击“测活 AI 端点 / 模型”成功后，当前配置才会在本次设置中心会话中解锁。修改 Provider、endpoint、模型或凭据后会重新锁定，要求再次测活。
+AI 区域默认置灰。必须先在“AI 功能”页启用功能、配置 endpoint/模型，并点击“测活 AI 端点 / 模型”成功后，当前配置才会在本次设置中心会话中解锁。修改 endpoint、模型或凭据后会重新锁定，要求再次测活。
 
 录音文件保存在 `~/.cache/vocotype/playground/last-recording.wav`，权限为 `0600`，不会进入支持包。
 
@@ -73,12 +73,12 @@ AI 区域默认置灰。必须先在“AI 润色”页启用功能、配置 endp
 支持：
 
 - 启用/关闭润色；
-- 远程 OpenAI-compatible 或本地按需 provider；
+- 任意本机、局域网或云端 OpenAI-compatible API；
 - endpoint、模型、最少字符数和流式空闲超时；
 - 固定快捷键语义：F9 直出识别，Shift+F9 润色；
 - reasoning/thinking；
 - 直接 API Key 或环境变量凭据；
-- 端点 / 本地模型测活；测活结果用于解锁 Playground 的 AI 试用。
+- API 端点与模型测活；测活结果用于解锁 Playground 的 AI 试用。
 
 VoCoType 配置保存在 `~/.config/vocotype/`，文件权限为 `0600`。底层 integration 适配文件属于实现细节，设置中心不会把它们表述为安装了另一套输入法框架。直接 API Key 留空时保留旧值；可通过专门选项清除。
 

@@ -165,100 +165,35 @@ Contextual Paraformer ONNX，术语可以同时进入原生 hotword 编码器和
 
 ## 语音编辑（Ctrl+F9）
 
-按住 `Ctrl+F9` 说出编辑指令，松开后 VoCoType 会读取录音开始时的 surrounding text，并执行与 IBus 相同的共享编辑语义，例如：
+按住 `Ctrl+F9` 说出编辑指令。Module 会保存 surrounding text、光标和选区，再将上下文与 ASR 指令发送给已测活的 OpenAI-compatible API。模型负责所有自然语言理解与同音词消歧，并返回受限的 `replace`、`key_actions` 或 `no_op` JSON 计划；本地代码只复核快照并执行，不包含硬编码命令解析。
 
-- `把 A 改成 B`、`删除当前句`、`删除上一句`；
-- `在结尾插入……`、`清空输入框`、`删除选中内容`；
-- `全选`、`移动到开头`、`下一个词`；
-- `撤销`、`重做`；
-- 未命中确定性命令时，使用已配置的 AI 模型编辑完整上下文。
-
-为避免误改，Module 会在录音前保存文本、光标、选区和 InputContext 标识，并在执行前再次校验。替换操作采用“删除 → 等待客户端更新 surrounding text → 提交新文本”的流程；如果录音期间内容或焦点发生变化，本次编辑会被取消。
-
-确定性命令不要求启用 AI。自由形式改写或生成指令需要在设置中心启用 AI 编辑。应用不提供 surrounding text 时，`Ctrl+F9` 会提示不支持，而不会退化为不安全的全局按键或剪贴板修改。
+因此替换、翻译、LaTeX、撤销、重做、词级导航等操作都要求 AI API 已启用。录音期间焦点或正文发生变化时，本次计划会被取消。
 
 ## AI 润色与实时预览
 
-SLM 默认关闭，在 `~/.config/vocotype/fcitx5-backend.json` 中配置。
-`F9` 始终只做 ASR，`Shift+F9` 始终在 ASR 后尝试 AI 润色；该行为与 IBus 一致。
-
-润色模式通过异步任务执行：module 先获得 `task_id`，随后每 100 ms 拉取
-`status / heartbeat / delta / final / error` 事件。远程模型的可见增量会显示在输入面板，
-同时保留 ASR 原文；thinking/reasoning 不会进入预览。
-
-### 本地按需模型
+SLM 默认关闭，推荐在 `vocotype-settings` 中配置：
 
 ```json
 {
   "slm": {
     "enabled": true,
-    "provider": "local_ephemeral",
-    "model": "Qwen/Qwen3.5-0.8B",
-    "local_model": "Qwen/Qwen3.5-0.8B",
-    "warmup_timeout_ms": 90000,
-    "ready_wait_ms": 2000,
-    "keepalive_ms": 60000,
-    "timeout_ms": 12000,
-    "min_chars": 8,
-    "max_tokens": 96,
-    "enable_thinking": false
-  }
-}
-```
-
-本地 worker 暂时返回完整结果，但使用同一任务协议；录音时预热，完成后按既有保活策略释放。
-
-### 远程 OpenAI-compatible SSE
-
-```json
-{
-  "slm": {
-    "enabled": true,
-    "provider": "remote",
-    "model": "gpt-4o-mini",
-    "endpoint": "https://example.com/v1/chat/completions",
-    "api_key": "sk-***",
+    "model": "qwen3",
+    "endpoint": "http://127.0.0.1:11434/v1/chat/completions",
+    "api_key": "",
     "remote_stream": true,
     "stream_idle_timeout_ms": 20000,
-    "transport_timeout_ms": 0,
     "remote_max_tokens": 0,
     "min_chars": 8,
     "enable_thinking": false,
-    "retry_without_proxy": true,
-    "extra_headers": {},
-    "extra_body": {}
+    "edit_enabled": true,
+    "edit_max_tokens": 1024
   }
 }
 ```
 
-`remote_max_tokens=0` 表示不发送固定输出上限，避免长文本被旧的 128-token 默认值截断。
-`stream_idle_timeout_ms` 从最后一次 SSE 事件开始计时。OpenRouter 会自动映射 reasoning 参数和
-项目标识 header，用户显式配置的 `extra_headers` / `extra_body` 优先。
+端点可以是本机 Ollama、llama.cpp、vLLM，也可以是局域网或云端服务。VoCoType 对它们一视同仁，只调用 OpenAI-compatible API，不启动、预热或停止模型进程。无鉴权服务可留空 API Key。
 
-任务中按 `Escape` 可取消；开始普通键盘输入也会取消润色并把该按键继续交给当前输入法。
-调用失败时不会丢失已识别文字：输入面板保留 ASR 原文，按 `1`、空格或回车提交，
-按 `Escape` 放弃。
-
-完整协议与参数见 [`docs/guides/slm-streaming.md`](../docs/guides/slm-streaming.md)。
-
-## 行为边界
-
-### 正在输入拼音时按 F9
-
-默认 `BlockWhenComposing=true`。当当前输入法已有 preedit 或候选列表时，VoCoType
-会消耗本次 PTT 热键但不开始录音，不会清空 Rime composition。
-
-完成或取消当前组合后再按 F9 即可。可关闭该选项，但不建议这样做。
-
-### 录音中切换窗口
-
-VoCoType 在按下 PTT 时保存当前 `InputContext`。若焦点在录音中离开该输入框，录音会被取消；
-若焦点在异步识别期间离开，识别结果会被丢弃，不会提交到新窗口。
-
-### 没有文本输入框时
-
-Module 的“全局”范围是 Fcitx 5 的输入上下文，不是桌面 compositor 级全局热键。
-桌面、锁屏、游戏或没有活动文本输入框的场景不保证收到 F9。
+`Shift+F9` 使用异步任务轮询 `status / heartbeat / delta / final / error`，输入面板显示 SSE 可见增量和 ASR 原文；thinking/reasoning 不会进入预览或最终提交。按 `Escape`、输入其他按键或焦点变化都会取消任务。
 
 ## 故障排查
 

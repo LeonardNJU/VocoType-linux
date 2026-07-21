@@ -62,6 +62,9 @@ from .setup_manager import (
     install_or_repair,
     installation_paths,
     integration_status,
+    native_package_flavor,
+    native_package_name,
+    native_package_present,
     native_package_removal_command,
     parse_install_progress,
     polkit_available,
@@ -163,6 +166,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.set_size_request(900, 620)
         self.runtime_config = load_runtime_config()
         self.module_config = load_fcitx_module_config()
+        self.package_flavor = native_package_flavor() or "universal"
         self.last_doctor_checks: list[DoctorCheck] = []
         self.last_bundle_path: Path | None = None
         self._install_dialog: Gtk.Dialog | None = None
@@ -374,25 +378,21 @@ class SettingsWindow(Gtk.ApplicationWindow):
             box.pack_start(status, False, False, 0)
             return box
 
-        framework_box.pack_start(
-            framework_choice(
-                self.ibus_framework_radio,
-                "独立输入法引擎；安装后需要添加并切换到 VoCoType 输入源。",
-                self.ibus_choice_status,
-            ),
-            False,
-            False,
-            0,
+        self.ibus_framework_choice = framework_choice(
+            self.ibus_framework_radio,
+            "独立输入法引擎；安装后需要添加并切换到 VoCoType 输入源。",
+            self.ibus_choice_status,
+        )
+        self.fcitx_framework_choice = framework_choice(
+            self.fcitx_framework_radio,
+            "全局 Module；继续使用现有输入法，无需添加 VoCoType 输入源。",
+            self.fcitx_choice_status,
         )
         framework_box.pack_start(
-            framework_choice(
-                self.fcitx_framework_radio,
-                "全局 Module；继续使用现有输入法，无需添加 VoCoType 输入源。",
-                self.fcitx_choice_status,
-            ),
-            False,
-            False,
-            0,
+            self.ibus_framework_choice, False, False, 0
+        )
+        framework_box.pack_start(
+            self.fcitx_framework_choice, False, False, 0
         )
 
         summary.pack_start(environment_box, True, True, 0)
@@ -479,20 +479,29 @@ class SettingsWindow(Gtk.ApplicationWindow):
             panel.pack_start(actions, False, False, 0)
             return panel
 
-        lifecycle_stack.add_titled(
-            lifecycle_page("ibus", "IBus", restart_ibus_backend, restart_ibus),
-            "ibus",
-            "IBus",
+        self.ibus_lifecycle_page = lifecycle_page(
+            "ibus", "IBus", restart_ibus_backend, restart_ibus
+        )
+        self.fcitx_lifecycle_page = lifecycle_page(
+            "fcitx5", "Fcitx 5", restart_backend, restart_fcitx
         )
         lifecycle_stack.add_titled(
-            lifecycle_page(
-                "fcitx5", "Fcitx 5", restart_backend, restart_fcitx
-            ),
-            "fcitx5",
-            "Fcitx 5",
+            self.ibus_lifecycle_page, "ibus", "IBus"
+        )
+        lifecycle_stack.add_titled(
+            self.fcitx_lifecycle_page, "fcitx5", "Fcitx 5"
         )
         install_card.pack_start(lifecycle_stack, False, True, 0)
         content.pack_start(install_card, False, False, 0)
+
+        if self.package_flavor == "ibus":
+            self.fcitx_framework_choice.set_no_show_all(True)
+            self.fcitx_framework_choice.hide()
+            framework_title.set_text("当前安装包框架：IBus")
+        elif self.package_flavor == "fcitx5":
+            self.ibus_framework_choice.set_no_show_all(True)
+            self.ibus_framework_choice.hide()
+            framework_title.set_text("当前安装包框架：Fcitx 5")
 
         ui_config = self.runtime_config.get("ui")
         saved_framework = (
@@ -500,7 +509,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
             if isinstance(ui_config, dict)
             else ""
         )
-        if saved_framework not in {"ibus", "fcitx5"}:
+        if self.package_flavor in {"ibus", "fcitx5"}:
+            saved_framework = self.package_flavor
+        elif saved_framework not in {"ibus", "fcitx5"}:
             saved_framework = (
                 "fcitx5"
                 if "fcitx" in os.environ.get("XMODIFIERS", "").casefold()
@@ -539,11 +550,15 @@ class SettingsWindow(Gtk.ApplicationWindow):
         return page
 
     def _selected_framework(self) -> str:
+        if self.package_flavor in {"ibus", "fcitx5"}:
+            return self.package_flavor
         if self.fcitx_framework_radio.get_active():
             return "fcitx5"
         return "ibus"
 
     def _restore_lifecycle_framework(self, framework: str) -> bool:
+        if self.package_flavor in {"ibus", "fcitx5"}:
+            framework = self.package_flavor
         radio = (
             self.fcitx_framework_radio
             if framework == "fcitx5"
@@ -564,6 +579,8 @@ class SettingsWindow(Gtk.ApplicationWindow):
     ) -> None:
         if not button.get_active():
             return
+        if self.package_flavor in {"ibus", "fcitx5"} and framework != self.package_flavor:
+            return
         self.lifecycle_stack.set_visible_child_name(framework)
         if self._loading_values or self._restoring_lifecycle_framework:
             return
@@ -580,10 +597,14 @@ class SettingsWindow(Gtk.ApplicationWindow):
     def _update_framework_specific_content(self) -> None:
         if self._last_ibus_status is None or self._last_fcitx_status is None:
             return
-        preferred = preferred_installed_framework(
-            self._last_ibus_status,
-            self._last_fcitx_status,
-            self._selected_framework(),
+        preferred = (
+            self.package_flavor
+            if self.package_flavor in {"ibus", "fcitx5"}
+            else preferred_installed_framework(
+                self._last_ibus_status,
+                self._last_fcitx_status,
+                self._selected_framework(),
+            )
         )
         self._preferred_framework = preferred
         if not hasattr(self, "tutorial_page"):
@@ -722,7 +743,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         streaming_card.pack_start(
             self._row(
                 "启用实时识别预览",
-                "可选功能，需要另行安装 native streaming runtime。首次使用会按需加载约 238 MB 官方在线模型；本地 native worker 空闲后自动退出并释放内存。",
+                "v3 Release 已内置 native streaming runtime。首次使用只需按需下载约 238 MB 官方在线模型；本地 native worker 空闲后自动退出并释放内存。",
                 self.asr_streaming_enabled,
             ),
             False,
@@ -803,15 +824,12 @@ class SettingsWindow(Gtk.ApplicationWindow):
     def _slm_page(self) -> Gtk.Widget:
         page, content = self._page(
             "AI 润色与语音编辑",
-            "配置本地或 OpenAI-compatible 远程服务。Shift+F9 用于润色；Ctrl+F9 的所有指令理解、同音词消歧与导航规划也统一由该模型完成。",
+            "连接任意 OpenAI-compatible API。服务可运行在本机、局域网或云端；VoCoType 只发起请求，不负责启动或管理模型。Shift+F9 用于润色，Ctrl+F9 用于语音编辑。",
         )
         card = self._card()
         self.slm_enabled = self._switch()
         self.slm_remote_stream = self._switch()
         self.slm_thinking = self._switch()
-        self.slm_provider = Gtk.ComboBoxText()
-        self.slm_provider.append("remote", "远程 OpenAI-compatible")
-        self.slm_provider.append("local_ephemeral", "本地按需模型")
         self.slm_endpoint = self._text_entry()
         self.slm_model = self._text_entry()
         self.slm_api_key_env = self._text_entry()
@@ -825,22 +843,21 @@ class SettingsWindow(Gtk.ApplicationWindow):
         card.pack_start(
             self._row(
                 "启用 AI 功能",
-                "F9 始终直接输出；Shift+F9 调用润色；Ctrl+F9 必须通过模型结合 surrounding context 生成安全编辑计划。填好模型、端点与凭据后再打开；切换到 ON 时会自动真实测活。",
+                "F9 始终直接输出；Shift+F9 调用润色；Ctrl+F9 必须通过模型结合 surrounding context 生成安全编辑计划。填好模型和端点后再打开；API Key 可选，切换到 ON 时会自动真实测活。",
                 self.slm_enabled,
             ),
             False,
             False,
             0,
         )
-        card.pack_start(self._row("Provider", control=self.slm_provider), False, False, 0)
-        card.pack_start(self._row("API 地址", "可填写服务根地址或 /v1/chat/completions。", self.slm_endpoint), False, False, 0)
+        card.pack_start(self._row("API 地址", "OpenAI-compatible 服务地址；可填写服务根地址或 /v1/chat/completions。本机服务同样填写这里。", self.slm_endpoint), False, False, 0)
         card.pack_start(self._row("模型", control=self.slm_model), False, False, 0)
         card.pack_start(self._row("API Key 环境变量名（高级）", "这里只填写 DEEPSEEK_API_KEY 这类变量名，不要粘贴 sk-... 密钥。", self.slm_api_key_env), False, False, 0)
-        card.pack_start(self._row("直接 API Key", "把 sk-... 密钥粘贴在这里；配置文件权限固定为 0600。", self.slm_api_key), False, False, 0)
+        card.pack_start(self._row("直接 API Key", "可选。本地 Ollama、llama.cpp 等无鉴权服务可留空；配置文件权限固定为 0600。", self.slm_api_key), False, False, 0)
         card.pack_start(self._row("清除直接凭据", "切换到环境变量凭据时可清除旧值。", self.slm_clear_api_key), False, False, 0)
         card.pack_start(self._row("最少润色字符数", "0 表示不限制。", self.slm_min_chars), False, False, 0)
         card.pack_start(self._row("流式空闲超时（毫秒）", control=self.slm_timeout), False, False, 0)
-        card.pack_start(self._row("远程流式输出", "Fcitx 候选框实时显示可见增量。", self.slm_remote_stream), False, False, 0)
+        card.pack_start(self._row("流式输出", "支持 SSE 的端点可在候选框实时显示可见增量。", self.slm_remote_stream), False, False, 0)
         card.pack_start(self._row("允许 reasoning/thinking", "思考内容不会进入最终提交。", self.slm_thinking), False, False, 0)
         content.pack_start(card, False, False, 0)
         actions = Gtk.Box(spacing=8)
@@ -856,7 +873,6 @@ class SettingsWindow(Gtk.ApplicationWindow):
             "notify::active", self._on_slm_enabled_changed
         )
         for widget, signal in (
-            (self.slm_provider, "changed"),
             (self.slm_endpoint, "changed"),
             (self.slm_model, "changed"),
             (self.slm_api_key_env, "changed"),
@@ -1418,9 +1434,13 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self._slm_health_fingerprint = (
             str(slm.get("verified_fingerprint", "")).strip() or None
         )
-        self.slm_enabled.set_active(_as_bool(slm.get("enabled"), False))
-        provider = str(slm.get("provider", "remote"))
-        self.slm_provider.set_active_id(provider if provider in {"remote", "local_ephemeral"} else "remote")
+        legacy_provider = str(slm.get("provider", "")).strip().lower()
+        legacy_local = legacy_provider in {"local", "ephemeral", "local_once", "local_ephemeral"}
+        self.slm_enabled.set_active(_as_bool(slm.get("enabled"), False) and not legacy_local)
+        if legacy_local:
+            self.slm_test_status.set_text(
+                "⚠️ 旧版内置本地 SLM 已移除。请自行启动 OpenAI-compatible 服务，填写端点和模型后重新启用。"
+            )
         self.slm_endpoint.set_text(str(slm.get("endpoint", "")))
         self.slm_model.set_text(str(slm.get("model", "")))
         api_key_env = str(slm.get("api_key_env", ""))
@@ -1484,10 +1504,20 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 "API Key 环境变量名无效。请输入类似 DEEPSEEK_API_KEY 的变量名；"
                 "真正的 sk-... 密钥请填入“直接 API Key”。"
             )
+        for obsolete in (
+            "provider",
+            "local_model",
+            "local_python",
+            "local_device",
+            "local_dtype",
+            "warmup_timeout_ms",
+            "keepalive_ms",
+            "ready_wait_ms",
+        ):
+            result.pop(obsolete, None)
         result.update(
             {
                 "enabled": self.slm_enabled.get_active(),
-                "provider": self.slm_provider.get_active_id() or "remote",
                 "endpoint": self.slm_endpoint.get_text().strip(),
                 "model": self.slm_model.get_text().strip(),
                 "api_key_env": api_key_env,
@@ -1794,6 +1824,11 @@ class SettingsWindow(Gtk.ApplicationWindow):
         return False
 
     def _refresh_panel_style_status(self) -> bool:
+        if self.package_flavor == "ibus":
+            self.panel_style_status.set_text(
+                "✅ IBus 将在下次录音时读取此状态样式。"
+            )
+            return False
         supported, module = fcitx_panel_style_support()
         if supported:
             self.panel_style_status.set_text(
@@ -1828,7 +1863,14 @@ class SettingsWindow(Gtk.ApplicationWindow):
         except Exception as exc:  # noqa: BLE001
             self.panel_style_status.set_text(f"❌ 保存状态样式失败：{exc}")
             return
-        self.panel_style_status.set_text("⏳ 配置已保存；正在重载 Fcitx 5，IBus 将在下次录音读取新样式…")
+        if self.package_flavor == "ibus":
+            label = "极简" if style == "minimal" else "动画"
+            self.panel_style_status.set_text(
+                f"✅ IBus 已切换为{label}模式，下次录音生效。"
+            )
+            return
+        scope = "Fcitx 5" if self.package_flavor == "fcitx5" else "Fcitx 5；IBus 将在下次录音读取新样式"
+        self.panel_style_status.set_text(f"⏳ 配置已保存；正在重载 {scope}…")
 
         def work() -> None:
             supported, module = fcitx_panel_style_support()
@@ -1846,7 +1888,11 @@ class SettingsWindow(Gtk.ApplicationWindow):
             ok, detail = restart_fcitx()
             if ok:
                 label = "极简" if style == "minimal" else "动画"
-                message = f"✅ Fcitx 5 与 IBus 已统一切换为{label}模式。"
+                message = (
+                    f"✅ Fcitx 5 已切换为{label}模式。"
+                    if self.package_flavor == "fcitx5"
+                    else f"✅ Fcitx 5 与 IBus 已统一切换为{label}模式。"
+                )
             else:
                 message = f"❌ 配置已保存，但 Fcitx 5 重载失败：{detail}"
             GLib.idle_add(self._set_panel_style_status, message)
@@ -2133,23 +2179,12 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
     @staticmethod
     def _slm_validation_error(config: dict[str, Any]) -> str:
-        provider = str(config.get("provider", "remote")).strip().lower()
-        model = str(config.get("model", "")).strip()
-        if provider in {"local", "ephemeral", "local_once", "local_ephemeral"}:
-            local_model = str(config.get("local_model", "")).strip()
-            if not model and not local_model:
-                return "请先填写本地模型。"
-            return ""
         endpoint = str(config.get("endpoint", "")).strip()
+        model = str(config.get("model", "")).strip()
         if not endpoint:
             return "请先填写 OpenAI-compatible API 端点。"
         if not model:
             return "请先填写模型名称。"
-        direct_key = str(config.get("api_key", "")).strip()
-        env_name = str(config.get("api_key_env", "")).strip()
-        env_key = str(os.environ.get(env_name, "")).strip() if env_name else ""
-        if not direct_key and not env_key:
-            return "请先填写直接 API Key，或提供已设置的 API Key 环境变量。"
         return ""
 
     def _persist_slm_config(self, config: dict[str, Any]) -> None:
@@ -2620,15 +2655,23 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 f"{'✅' if polkit_available() else '⚠️'} Polkit 授权："
                 f"{'可用' if polkit_available() else '未检测到 pkexec'}",
                 (
-                    "✅ 原生软件包：已安装"
+                    f"✅ 原生软件包：已安装（{self.package_flavor}）"
                     if package_command
                     else "ℹ️ 原生软件包：未安装（当前可使用源码安装）"
                 ),
             ]
         )
         self.install_environment_status.set_text("\n".join(environment_lines))
-        self.ibus_install_status.set_text(framework_text("IBus", ibus_status))
-        self.fcitx_install_status.set_text(framework_text("Fcitx 5", fcitx_status))
+        self.ibus_install_status.set_text(
+            "ℹ️ 当前软件包不包含 IBus integration"
+            if self.package_flavor == "fcitx5"
+            else framework_text("IBus", ibus_status)
+        )
+        self.fcitx_install_status.set_text(
+            "ℹ️ 当前软件包不包含 Fcitx 5 integration"
+            if self.package_flavor == "ibus"
+            else framework_text("Fcitx 5", fcitx_status)
+        )
 
         def choice_text(status) -> str:
             if status.state == "complete":
@@ -2662,9 +2705,11 @@ class SettingsWindow(Gtk.ApplicationWindow):
         content = dialog.get_content_area()
         options_card = self._card()
         python_combo = Gtk.ComboBoxText()
-        python_combo.append("user", "用户级 Python 3.12（推荐）")
-        python_combo.append("project", "项目虚拟环境（开发用）")
-        python_combo.append("system", "系统 Python 3.11/3.12")
+        package_install = native_package_present()
+        python_combo.append("user", "用户级 Python 3.12（Release 固定环境）" if package_install else "用户级 Python 3.12（推荐）")
+        if not package_install:
+            python_combo.append("project", "项目虚拟环境（开发用）")
+            python_combo.append("system", "系统 Python 3.11/3.12")
         python_combo.set_active_id("user")
         preserve = Gtk.CheckButton(label="保留现有 AI 与运行配置（词典和音频始终保留）")
         preserve.set_active(True)
@@ -2672,7 +2717,16 @@ class SettingsWindow(Gtk.ApplicationWindow):
         install_deps.set_active(True)
         bootstrap_uv = Gtk.CheckButton(label="缺少兼容 Python 时自动安装 uv/Python 3.12 到用户目录")
         bootstrap_uv.set_active(True)
-        options_card.pack_start(self._row("Python 环境", control=python_combo), False, False, 0)
+        options_card.pack_start(
+            self._row(
+                "Python 环境",
+                "Release 包只使用与内置 wheels 匹配的 Python 3.12；源码安装才允许选择项目或系统环境。" if package_install else "源码安装可选择项目、用户或系统 Python。",
+                python_combo,
+            ),
+            False,
+            False,
+            0,
+        )
         options_card.pack_start(self._row("配置迁移", control=preserve), False, False, 0)
         options_card.pack_start(self._row("系统依赖", "需要权限时桌面会弹出密码/指纹授权框，不会打开终端。", install_deps), False, False, 0)
         options_card.pack_start(self._row("Python 引导", control=bootstrap_uv), False, False, 0)
@@ -2872,6 +2926,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         )
 
         package_command = native_package_removal_command()
+        package_label = native_package_name() or "vocotype-linux"
         source_fcitx_marker = Path(
             "/usr/share/vocotype/.source-fcitx-integration"
         ).is_file()
@@ -2920,7 +2975,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         content.pack_start(options_card, False, False, 8)
 
         warning = (
-            f"检测到 vocotype-linux 原生软件包。本操作只清理用户级 {framework_name} 运行环境；"
+            f"检测到 {package_label} 原生软件包。本操作只清理用户级 {framework_name} 运行环境；"
             f"如需删除 /usr 下的程序，请使用：{package_command}"
             if package_command
             else (

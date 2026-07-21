@@ -68,8 +68,6 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     },
     "slm": {
         "enabled": False,
-        "provider": "remote",
-        # 仅 remote provider 使用；local_ephemeral 通过 stdio 与本地 worker 通信。
         "endpoint": "http://127.0.0.1:18080/v1/chat/completions",
         "model": "Qwen/Qwen3.5-0.8B",
         "timeout_ms": 20000,
@@ -80,16 +78,6 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "remote_max_tokens": 0,
         "extra_headers": {},
         "extra_body": {},
-        # local_ephemeral 仅在长句模式下预加载，润色完成后释放模型
-        "warmup_timeout_ms": 90000,
-        # 空闲保活时长：长句结束后保留模型，便于连续输入复用
-        "keepalive_ms": 60000,
-        # 松键后最多额外等待模型就绪时长（避免长时间卡住）
-        "ready_wait_ms": 2000,
-        "local_model": "Qwen/Qwen3.5-0.8B",
-        "local_python": "",
-        "local_device": "cpu",
-        "local_dtype": "auto",
         "min_chars": 8,
         "max_tokens": 128,
         "temperature": 0.0,

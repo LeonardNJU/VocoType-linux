@@ -114,7 +114,7 @@ def test_backend_stream_pipeline_preserves_preview_and_final(tmp_path):
     assert snapshot["preview"] == "润色后文本"
     assert snapshot["original_text"] == "原始文本"
     assert polisher.received == ("原始文本", True, 4, False)
-    assert polisher.release_calls == 1
+    assert polisher.release_calls == 0
     assert not audio.exists()
 
 
@@ -139,7 +139,7 @@ def test_backend_stream_error_keeps_original_for_fallback(tmp_path):
     assert snapshot["status"] == "error"
     assert snapshot["error"] == "远端不可用"
     assert snapshot["original_text"] == "原始文本"
-    assert polisher.release_calls == 1
+    assert polisher.release_calls == 0
 
 
 def test_cpp_module_uses_async_start_poll_cancel_and_live_preview():
