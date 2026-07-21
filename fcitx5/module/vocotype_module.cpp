@@ -42,6 +42,9 @@ namespace {
 
 constexpr auto FCITX_CONFIG_PATH = "conf/vocotype.conf";
 constexpr uint64_t RECORDING_ANIMATION_INTERVAL_US = 200000;
+// X11/Wayland key repeat may deliver an artificial release immediately before
+// the repeated press. Delay the stop just long enough to observe and cancel it.
+constexpr uint64_t PTT_RELEASE_SETTLE_US = 80000;
 constexpr uint64_t POLISH_POLL_INTERVAL_US = 100000;
 constexpr uint64_t DUPLICATE_COMMIT_SUPPRESS_US = 250000;
 
@@ -213,6 +216,7 @@ VoCoTypeModule::VoCoTypeModule(fcitx::Instance *instance)
 }
 
 VoCoTypeModule::~VoCoTypeModule() {
+    cancelPendingRecordingStop();
     cancelPendingRecordingStart();
     cancelActivePolishTask();
     stopPanelAnimation();
@@ -317,7 +321,15 @@ void VoCoTypeModule::handleKeyEvent(fcitx::KeyEvent &event) {
     }
 
     if (!event.isRelease()) {
-        if (!is_recording_ && !ptt_pressed_) {
+        if (is_recording_ && ptt_release_timer_) {
+            // A repeated press following an artificial repeat-release proves
+            // that the physical key is still held. Keep the same recorder.
+            cancelPendingRecordingStop();
+        } else if (is_recording_ &&
+                   static_cast<bool>(key.states() & fcitx::KeyState::Repeat)) {
+            // Some frontends report only repeated presses, without a paired
+            // release. They must never restart or stop the recording session.
+        } else if (!is_recording_ && !ptt_pressed_) {
             if (block_when_composing_ && hasActiveComposition(ic)) {
                 FCITX_INFO() << "VoCoType hotkey ignored because current input method has active composition";
                 event.filterAndAccept();
@@ -328,7 +340,7 @@ void VoCoTypeModule::handleKeyEvent(fcitx::KeyEvent &event) {
             armPendingRecordingStart(ic, polishModeForStates(key.states()));
         }
     } else if (is_recording_) {
-        stopAndTranscribe();
+        armPendingRecordingStop();
     } else if (ptt_suppressed_) {
         cancelPendingRecordingStart();
     } else if (ptt_pressed_) {
@@ -347,6 +359,7 @@ void VoCoTypeModule::handleFocusOut(fcitx::InputContextEvent &event) {
     }
 
     cancelActivePolishTask();
+    cancelPendingRecordingStop();
     if (is_recording_) {
         FCITX_INFO() << "Input focus changed while recording; cancelling VoCoType session";
         stopRecording(false);
@@ -394,6 +407,29 @@ void VoCoTypeModule::cancelPendingRecordingStart() {
     pending_long_mode_ = false;
     pending_ptt_states_ = fcitx::KeyState::NoState;
     ptt_hold_timer_.reset();
+}
+
+void VoCoTypeModule::armPendingRecordingStop() {
+    if (!is_recording_ || ptt_release_timer_) {
+        return;
+    }
+    const uint64_t generation = recording_generation_;
+    ptt_release_timer_ = instance_->eventLoop().addTimeEvent(
+        CLOCK_MONOTONIC,
+        fcitx::now(CLOCK_MONOTONIC) + PTT_RELEASE_SETTLE_US,
+        0,
+        [this, generation](fcitx::EventSourceTime *, uint64_t) {
+            ptt_release_timer_.reset();
+            if (is_recording_ && generation == recording_generation_) {
+                stopAndTranscribe();
+            }
+            return false;
+        });
+    ptt_release_timer_->setOneShot();
+}
+
+void VoCoTypeModule::cancelPendingRecordingStop() {
+    ptt_release_timer_.reset();
 }
 
 void VoCoTypeModule::replayShortTapAsRegularKey(fcitx::InputContext *ic) {
@@ -550,11 +586,12 @@ void VoCoTypeModule::stopAndTranscribe() {
 }
 
 void VoCoTypeModule::stopRecording(bool transcribe) {
+    cancelPendingRecordingStop();
     if (!is_recording_) {
         return;
     }
 
-    // A PTT release must synchronously end the listening UI. The recorder
+    // A settled physical PTT release ends the listening UI. The recorder
     // process and ASR continue off the Fcitx event thread after this point.
     stopPanelAnimation();
     streaming_preview_visible_ = false;

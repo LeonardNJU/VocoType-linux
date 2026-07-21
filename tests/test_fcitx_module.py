@@ -51,15 +51,20 @@ def test_dead_fcitx_rime_handler_is_removed():
     assert not (ROOT / "fcitx5" / "backend" / "rime_handler.py").exists()
 
 
-def test_ptt_release_stops_listening_immediately_without_debounce():
+def test_ptt_release_ignores_repeat_release_press_pairs():
     source = (ROOT / "fcitx5/module/vocotype_module.cpp").read_text(encoding="utf-8")
     header = (ROOT / "fcitx5/module/vocotype_module.h").read_text(encoding="utf-8")
-    assert "PTT_RELEASE_DEBOUNCE_US" not in source
-    assert "armPendingRecordingStop" not in source
-    assert "ptt_release_timer_" not in header
-    assert "} else if (is_recording_) {\n        stopAndTranscribe();" in source
-    stop_body = source.split("void VoCoTypeModule::stopRecording(bool transcribe)", 1)[1]
-    assert stop_body.index("stopPanelAnimation();") < stop_body.index("is_recording_ = false;")
+    assert "PTT_RELEASE_SETTLE_US" in source
+    assert "armPendingRecordingStop();" in source
+    assert "cancelPendingRecordingStop();" in source
+    assert "KeyState::Repeat" in source
+    assert "ptt_release_timer_" in header
+    key_body = source.split("void VoCoTypeModule::handleKeyEvent", 1)[1].split(
+        "void VoCoTypeModule::handleFocusOut", 1
+    )[0]
+    assert key_body.index("cancelPendingRecordingStop();") < key_body.index(
+        "armPendingRecordingStop();"
+    )
 
 
 def test_live_asr_partials_replace_panel_preedit_but_never_commit():
