@@ -1,0 +1,58 @@
+name: PyGObject 3.50 compatibility
+
+on:
+  pull_request:
+    paths:
+      - "app/funasr_server.py"
+      - "tests/test_gst_pygobject_compat.py"
+      - ".github/workflows/gst-compat.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  gst-compat:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq >/tmp/apt-update.log 2>&1 || { cat /tmp/apt-update.log; exit 1; }
+          sudo apt-get install -y -qq \
+            libportaudio2 portaudio19-dev \
+            libcairo2-dev libgirepository1.0-dev gir1.2-gstreamer-1.0 \
+            gstreamer1.0-plugins-base pkg-config cmake g++ \
+            libfcitx5core-dev nlohmann-json3-dev \
+            >/tmp/apt-install.log 2>&1 || { cat /tmp/apt-install.log; exit 1; }
+      - name: Install Python dependencies
+        run: |
+          python -m pip install -q --upgrade pip >/tmp/pip.log 2>&1 || { cat /tmp/pip.log; exit 1; }
+          python -m pip install -q pytest "PyGObject==3.50.2" >>/tmp/pip.log 2>&1 || { cat /tmp/pip.log; exit 1; }
+          python -m pip install -q -e . >>/tmp/pip.log 2>&1 || { cat /tmp/pip.log; exit 1; }
+      - name: Reproduce and verify Gst.init compatibility
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          python -m pytest -q -s tests/test_gst_pygobject_compat.py > /tmp/gst-test.log 2>&1
+          status=$?
+          cat /tmp/gst-test.log
+          if [ "$status" -ne 0 ] && [ -n "${{ github.event.pull_request.number }}" ]; then
+            {
+              echo 'Focused PyGObject compatibility test failed:'
+              echo
+              echo '```text'
+              tail -n 80 /tmp/gst-test.log
+              echo '```'
+            } > /tmp/pr-comment.md
+            gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/pr-comment.md
+          fi
+          exit "$status"
