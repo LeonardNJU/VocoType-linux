@@ -42,6 +42,7 @@ from .setup_manager import (
     installation_paths,
     integration_status,
     native_package_removal_command,
+    parse_install_progress,
     polkit_available,
     restart_backend,
     restart_fcitx,
@@ -960,6 +961,18 @@ class SettingsWindow(Gtk.ApplicationWindow):
         notice.set_line_wrap(True)
         content.pack_start(notice, False, False, 8)
 
+        progress_label = Gtk.Label(
+            label=f"等待开始安装 VoCoType（{'IBus' if is_ibus else 'Fcitx 5'}）",
+            xalign=0,
+        )
+        progress_label.set_line_wrap(True)
+        progress_bar = Gtk.ProgressBar()
+        progress_bar.set_show_text(True)
+        progress_bar.set_fraction(0.0)
+        progress_bar.set_text("等待开始")
+        content.pack_start(progress_label, False, False, 4)
+        content.pack_start(progress_bar, False, False, 4)
+
         text_view = Gtk.TextView()
         text_view.set_editable(False)
         text_view.set_monospace(True)
@@ -968,12 +981,22 @@ class SettingsWindow(Gtk.ApplicationWindow):
         scroller.add(text_view)
         content.pack_start(scroller, True, True, 8)
         buffer = text_view.get_buffer()
-        state = {"running": False, "done": False, "configure_audio": False}
+        state = {"running": False, "done": False, "configure_audio": False, "fraction": 0.0}
         option_widgets = [python_combo, preserve, install_deps, bootstrap_uv, rime_enabled, rime_schema, component_mode]
 
         def append(line: str) -> None:
+            parsed_progress = parse_install_progress(line.strip())
+
             def update() -> bool:
                 if not dialog.get_visible():
+                    return False
+                if parsed_progress is not None:
+                    fraction, message = parsed_progress
+                    fraction = max(float(state["fraction"]), fraction)
+                    state["fraction"] = fraction
+                    progress_bar.set_fraction(fraction)
+                    progress_bar.set_text(f"{round(fraction * 100)}%")
+                    progress_label.set_text(f"⏳ {message}")
                     return False
                 end_iter = buffer.get_end_iter()
                 buffer.insert(end_iter, line + "\n")
@@ -989,6 +1012,20 @@ class SettingsWindow(Gtk.ApplicationWindow):
             audio_verified = bool(audio.get("tested_at")) and (
                 audio.get("tested_device_id") == audio.get("device_id")
             )
+            if ok and audio_verified:
+                state["fraction"] = 1.0
+                progress_bar.set_fraction(1.0)
+                progress_bar.set_text("✅ 100%")
+                progress_label.set_text("✅ 安装与麦克风验收全部完成")
+            elif ok:
+                state["fraction"] = min(float(state["fraction"]), 0.96)
+                progress_bar.set_fraction(float(state["fraction"]))
+                progress_bar.set_text("⚠️ 96%")
+                progress_label.set_text("⚠️ 程序已就绪，仍需完成麦克风验收")
+            else:
+                progress_bar.set_fraction(float(state["fraction"]))
+                progress_bar.set_text("❌ 安装失败")
+                progress_label.set_text("❌ 安装失败；请查看下方日志")
             if ok and not audio_verified:
                 state["configure_audio"] = True
                 self._last_lifecycle_notice = (
@@ -1017,6 +1054,12 @@ class SettingsWindow(Gtk.ApplicationWindow):
             if state["running"]:
                 return
             state["running"] = True
+            state["fraction"] = 0.02
+            progress_bar.set_fraction(0.02)
+            progress_bar.set_text("2%")
+            progress_label.set_text(
+                f"⏳ 正在准备安装 VoCoType（{'IBus' if is_ibus else 'Fcitx 5'}）…"
+            )
             self._last_lifecycle_notice = (
                 f"⏳ 正在安装 / 修复 VoCoType（{'IBus' if is_ibus else 'Fcitx 5'}）"
             )

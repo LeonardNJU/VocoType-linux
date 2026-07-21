@@ -146,9 +146,11 @@ def test_installers_require_models_and_post_install_validation():
     for source in (fcitx, ibus_gui, ibus_cli):
         assert "download_and_verify_asr_models" in source
         assert "validate-installed-integration.py" in source
-    assert "Loaded addon vocotype" in (
-        ROOT / "installers/validate-installed-integration.py"
-    ).read_text(encoding="utf-8")
+    validator = (ROOT / "installers/validate-installed-integration.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'required_addon="vocotype"' in validator
+    assert 'run([fcitx, "-r", "-d"]' not in validator
     assert fcitx.index("validate-installed-integration.py") < fcitx.index(
         "安装与运行验收完成"
     )
@@ -178,3 +180,29 @@ def test_make_clean_removes_python_build_metadata():
     assert "*.egg-info" in source
     assert "-name __pycache__" in source
     assert "-name '*.pyc'" in source
+
+
+def test_gui_installers_emit_determinate_progress_and_share_runtime_helpers():
+    fcitx = (ROOT / "fcitx5/scripts/install.sh").read_text(encoding="utf-8")
+    ibus = (ROOT / "ibus/scripts/install-gui.sh").read_text(encoding="utf-8")
+    common = (ROOT / "installers/runtime-common.sh").read_text(encoding="utf-8")
+    application = (ROOT / "settings_center/application.py").read_text(encoding="utf-8")
+
+    assert "emit_install_progress()" in common
+    assert 'source "$PROJECT_DIR/installers/runtime-common.sh"' in ibus
+    for source in (fcitx, ibus):
+        stages = [
+            int(line.split()[1])
+            for line in source.splitlines()
+            if line.strip().startswith("emit_install_progress ")
+        ]
+        assert stages == sorted(stages)
+        assert stages[0] <= 2
+        assert stages[-1] == 96
+        assert len(stages) >= 8
+
+    assert "progress_bar = Gtk.ProgressBar()" in application
+    assert "parse_install_progress(line.strip())" in application
+    assert 'progress_bar.set_text("❌ 安装失败")' in application
+    assert 'progress_bar.set_text("⚠️ 96%")' in application
+    assert 'progress_bar.set_text("✅ 100%")' in application

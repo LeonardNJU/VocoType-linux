@@ -29,6 +29,7 @@ from settings_center.setup_manager import (
     installer_command,
     integration_status,
     native_package_removal_command,
+    parse_install_progress,
     restart_fcitx,
 )
 from settings_center.support_bundle import create_support_bundle
@@ -673,30 +674,36 @@ def test_ibus_status_requires_runtime_and_python_environment(
     assert complete.state == "complete"
 
 
-def test_restart_fcitx_daemonizes_replacement_and_probes_dbus(monkeypatch: pytest.MonkeyPatch):
-    calls: list[list[str]] = []
+def test_restart_fcitx_uses_nonblocking_session_helper(monkeypatch: pytest.MonkeyPatch):
+    result = SimpleNamespace(
+        success=True,
+        message="Fcitx 5 已重新启动",
+        startup_log="",
+    )
+    calls: list[dict[str, object]] = []
 
-    def fake_which(command: str) -> str | None:
-        return f"/usr/bin/{command}" if command in {"fcitx5", "fcitx5-remote"} else None
+    def fake_restart(**kwargs):
+        calls.append(kwargs)
+        return result
 
-    environments: list[dict[str, str]] = []
-
-    def fake_run(command: list[str], **kwargs):
-        calls.append(command)
-        environments.append(kwargs["env"])
-        if command[0].endswith("fcitx5-remote"):
-            return SimpleNamespace(returncode=0, stdout="2\n", stderr="")
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr("settings_center.setup_manager.shutil.which", fake_which)
-    monkeypatch.setattr("settings_center.setup_manager.subprocess.run", fake_run)
-    monkeypatch.setattr("settings_center.setup_manager.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        "settings_center.setup_manager.restart_fcitx_session",
+        fake_restart,
+    )
 
     ok, message = restart_fcitx()
     assert ok, message
-    assert calls[0] == ["/usr/bin/fcitx5", "-r", "-d"]
-    assert calls[1] == ["/usr/bin/fcitx5-remote"]
-    assert all("FCITX_ADDON_DIRS" not in environment for environment in environments)
+    assert message == "Fcitx 5 已重新启动"
+    assert calls == [{"timeout": 10.0}]
+
+
+def test_install_progress_parser_accepts_only_structured_stages():
+    assert parse_install_progress("VOCOTYPE_PROGRESS:2:准备安装") == (0.02, "准备安装")
+    assert parse_install_progress("VOCOTYPE_PROGRESS:100:完成") == (1.0, "完成")
+    assert parse_install_progress("普通日志") is None
+    assert parse_install_progress("VOCOTYPE_PROGRESS:101:错误") is None
+    assert parse_install_progress("VOCOTYPE_PROGRESS:nope:错误") is None
+    assert parse_install_progress("VOCOTYPE_PROGRESS:50:") is None
 
 
 def test_native_package_removal_command_uses_available_package_manager(

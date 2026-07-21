@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 import configparser
-import json
 import os
 import shutil
 import subprocess
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Literal
 
 from app.download_models import inspect_required_models
+from app.fcitx_session import query_fcitx_addon_names, restart_fcitx_session
 
 ProgressCallback = Callable[[str], None]
 Framework = Literal["fcitx5", "ibus"]
+INSTALL_PROGRESS_PREFIX = "VOCOTYPE_PROGRESS:"
 InstallState = Literal["complete", "partial", "absent"]
 
 
@@ -147,54 +147,26 @@ def _models_verified(home: Path) -> bool:
     )
 
 
-def _query_fcitx_addon_loaded() -> bool:
-    busctl = shutil.which("busctl")
-    if busctl is None:
-        return False
-    environment = os.environ.copy()
-    runtime_dir = environment.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
-    if Path(runtime_dir).is_dir():
-        environment.setdefault("XDG_RUNTIME_DIR", runtime_dir)
-    bus_path = Path(runtime_dir) / "bus"
-    if bus_path.is_socket():
-        environment.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path={bus_path}")
-    if not environment.get("DBUS_SESSION_BUS_ADDRESS"):
-        return False
+def parse_install_progress(line: str) -> tuple[float, str] | None:
+    """Parse a structured installer stage into a GTK fraction and label."""
+
+    if not line.startswith(INSTALL_PROGRESS_PREFIX):
+        return None
+    payload = line[len(INSTALL_PROGRESS_PREFIX) :]
     try:
-        result = subprocess.run(
-            [
-                busctl,
-                "--user",
-                "--json=short",
-                "call",
-                "org.fcitx.Fcitx5",
-                "/controller",
-                "org.fcitx.Fcitx.Controller1",
-                "GetAddons",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=3,
-            check=False,
-            env=environment,
-        )
-        if result.returncode != 0:
-            return False
-        payload = json.loads(result.stdout)
-        rows = payload.get("data", [[]])[0]
-        return any(
-            isinstance(row, list) and row and str(row[0]) == "vocotype"
-            for row in rows
-        )
-    except (
-        OSError,
-        subprocess.SubprocessError,
-        json.JSONDecodeError,
-        AttributeError,
-        IndexError,
-        TypeError,
-    ):
-        return False
+        percent_text, message = payload.split(":", 1)
+        percent = int(percent_text)
+    except (ValueError, TypeError):
+        return None
+    message = message.strip()
+    if not 0 <= percent <= 100 or not message:
+        return None
+    return percent / 100.0, message
+
+
+def _query_fcitx_addon_loaded() -> bool:
+    names = query_fcitx_addon_names()
+    return names is not None and "vocotype" in names
 
 
 def _audio_verified(home: Path) -> bool:
@@ -525,43 +497,14 @@ def restart_backend() -> tuple[bool, str]:
 
 
 def restart_fcitx() -> tuple[bool, str]:
-    executable = shutil.which("fcitx5")
-    if executable is None:
-        return False, "未检测到 fcitx5"
-
-    # `fcitx5 -r` stays in the foreground. Running it with subprocess.run and
-    # a timeout kills the replacement instance, which leaves the desktop with
-    # no input method. Daemonize the replacement before waiting for it.
-    environment = os.environ.copy()
-    environment.pop("FCITX_ADDON_DIRS", None)
-    result = subprocess.run(
-        [executable, "-r", "-d"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
-        env=environment,
-    )
-    message = (result.stdout + result.stderr).strip()
-    if result.returncode != 0:
-        return False, message or "Fcitx 5 重启失败"
-
-    remote = shutil.which("fcitx5-remote")
-    if remote is not None:
-        time.sleep(0.35)
-        probe = subprocess.run(
-            [remote],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-            env=environment,
-        )
-        if probe.returncode not in {0, 1, 2}:
-            probe_message = (probe.stdout + probe.stderr).strip()
-            return False, probe_message or "Fcitx 5 已启动，但无法连接到其 D-Bus 服务"
-
-    return True, message or "Fcitx 5 已重新启动"
+    result = restart_fcitx_session(timeout=10.0)
+    detail = result.startup_log.strip()[-4000:]
+    if result.success:
+        return True, result.message
+    message = result.message
+    if detail:
+        message += "\n" + detail
+    return False, message
 
 
 def restart_ibus() -> tuple[bool, str]:

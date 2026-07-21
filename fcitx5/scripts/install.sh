@@ -266,6 +266,7 @@ print_python_help() {
 }
 
 echo "=== VoCoType Fcitx 5 语音输入法安装 ==="
+emit_install_progress 2 "准备安装 VoCoType（Fcitx 5）"
 echo "项目目录: $PROJECT_DIR"
 echo ""
 
@@ -358,6 +359,7 @@ echo ""
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 1. 检查 Fcitx 5
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+emit_install_progress 5 "检查 Fcitx 5 与系统依赖"
 echo "[1/8] 检查 Fcitx 5..."
 if ! command -v fcitx5 &>/dev/null; then
     echo "未检测到 Fcitx 5。"
@@ -377,6 +379,7 @@ echo "✓ Fcitx 5 已安装"
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 if [ "$REUSE_SYSTEM_MODULE" = true ]; then
     echo ""
+    emit_install_progress 15 "检查原生软件包提供的 Fcitx module"
     echo "[2/8] 原生软件包已提供 Fcitx 5 module"
     echo "✓ 跳过开发依赖检查"
     echo ""
@@ -395,6 +398,7 @@ else
 # 2. 检查编译依赖
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
+emit_install_progress 15 "检查 C++ module 编译依赖"
 echo "[2/8] 检查编译依赖..."
 missing_deps=()
 
@@ -479,6 +483,7 @@ echo "✓ 编译依赖已满足"
 # 3. 编译 C++ 全局 Module
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
+emit_install_progress 25 "编译 VoCoType Fcitx module"
 echo "[3/8] 编译 C++ 全局 Module..."
 mkdir -p "$PROJECT_DIR/fcitx5/module/build"
 cd "$PROJECT_DIR/fcitx5/module/build"
@@ -491,6 +496,7 @@ echo "✓ 编译成功"
 # 4. 安装系统级 C++ 全局 Module
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
+emit_install_progress 35 "安装系统 VoCoType（Fcitx 5）addon"
 echo "[4/8] 安装 VoCoType（Fcitx 5）系统 addon..."
 install_system_fcitx_integration || {
     echo "错误: 系统级 VoCoType（Fcitx 5）addon 安装失败。" >&2
@@ -510,6 +516,7 @@ echo "✓ 系统级 VoCoType（Fcitx 5）addon 已安装"
 # 5. 清理旧版 addon 路径覆盖
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
+emit_install_progress 45 "清理旧版 Fcitx 路径覆盖"
 echo "[5/8] 清理旧版 Fcitx addon 路径覆盖..."
 rm -f "$HOME/.config/environment.d/fcitx5-vocotype.conf"
 unset FCITX_ADDON_DIRS || true
@@ -521,6 +528,7 @@ fi
 # 6. 安装 Python 后端
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
+emit_install_progress 52 "安装 VoCoType Python 后端"
 echo "[6/8] 安装 Python 后端..."
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$INSTALL_DIR/scripts" "$INSTALL_DIR/installers"
@@ -552,6 +560,7 @@ echo "✓ Python 后端已安装"
 # 7. 配置 Python 环境
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
+emit_install_progress 60 "配置 Python 运行环境"
 echo "[7/8] 配置 Python 环境..."
 
 if [ "$NON_INTERACTIVE" = true ]; then
@@ -687,6 +696,7 @@ fi
 
 echo "✓ Python 环境已配置"
 
+emit_install_progress 70 "下载并校验 ASR、VAD 与标点模型"
 download_and_verify_asr_models "$PYTHON" "$INSTALL_DIR" || exit 1
 
 FCITX5_BACKEND_CONFIG="$HOME/.config/vocotype/fcitx5-backend.json"
@@ -758,6 +768,7 @@ fi
 # 8. 音频设备配置和 ASR 验收
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
+emit_install_progress 78 "检查麦克风配置"
 echo "[8/8] 音频设备配置..."
 
 if [ -n "$AUDIO_DEVICE" ]; then
@@ -795,6 +806,7 @@ fi
 # 安装图形设置中心入口
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
+emit_install_progress 84 "安装图形设置中心"
 echo "安装图形设置中心..."
 mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications" "$HOME/.local/share/icons/hicolor/192x192/apps"
 PYTHON_SED=$(escape_sed_replacement "$PYTHON")
@@ -845,6 +857,7 @@ echo "✓ 设置中心已安装，可运行: vocotype-settings"
 # 创建后台服务启动器
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
+emit_install_progress 88 "创建并启动后台服务"
 echo "创建后台服务启动器..."
 mkdir -p "$HOME/.local/bin"
 cat > "$HOME/.local/bin/vocotype-fcitx5-recorder" << 'EOF'
@@ -918,6 +931,7 @@ fi
 echo ""
 echo "严格验收将重载 Fcitx 5，并确认 VoCoType addon 实际创建成功。"
 echo ""
+emit_install_progress 94 "严格验收 Fcitx addon、后台服务与 IPC"
 echo "执行安装后严格验收..."
 if ! PYTHONPATH="$INSTALL_DIR${PYTHONPATH:+:$PYTHONPATH}" \
     "$PYTHON" "$PROJECT_DIR/installers/validate-installed-integration.py" \
@@ -925,6 +939,8 @@ if ! PYTHONPATH="$INSTALL_DIR${PYTHONPATH:+:$PYTHONPATH}" \
     echo "错误: VoCoType（Fcitx 5）未达到可运行状态，安装不能标记为成功。" >&2
     exit 1
 fi
+
+emit_install_progress 96 "VoCoType（Fcitx 5）程序安装与运行验收完成"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 完成
