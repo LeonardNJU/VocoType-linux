@@ -11,7 +11,6 @@ set -e
 # 解析命令行参数
 AUDIO_DEVICE=""
 SAMPLE_RATE="44100"
-AUDIO_VERIFIED=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -765,7 +764,6 @@ else
         echo "  $PYTHON $PROJECT_DIR/installers/setup-audio.py"
         exit 1
     fi
-    AUDIO_VERIFIED=true
 fi
 
 echo ""
@@ -1003,12 +1001,8 @@ if ! PYTHONPATH="$INSTALL_DIR${PYTHONPATH:+:$PYTHONPATH}" \
 fi
 
 echo ""
-if [ "$AUDIO_VERIFIED" = true ]; then
-    echo "=== ✅ VoCoType（IBus）安装与麦克风验收完成 ==="
-else
-    echo "=== ⚠️ VoCoType（IBus）程序与结构已就绪；麦克风验收尚未完成 ==="
-    echo "请在设置中心选择麦克风并执行“录音 2 秒测试”。"
-fi
+echo "=== ✅ VoCoType（IBus）安装与运行验收完成 ==="
+echo "麦克风回放、真实 ASR 和 AI 试用可在设置中心 Playground 独立完成。"
 echo ""
 
 if [ "$ENABLE_RIME" = "1" ]; then

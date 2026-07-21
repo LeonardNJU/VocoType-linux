@@ -19,6 +19,7 @@ SOURCE_REQUIRED = (
     "packaging/tools/stage-system-package.sh",
     "fcitx5/module/vocotype_module.cpp",
     "ibus/scripts/install-gui.sh",
+    "settings_center/playground_service.py",
     "data/metainfo/io.github.LeonardNJU.VoCoType.metainfo.xml",
 )
 SDIST_REQUIRED = (
@@ -27,12 +28,14 @@ SDIST_REQUIRED = (
     "packaging/tools/stage-system-package.sh",
     "fcitx5/module/vocotype_module.cpp",
     "ibus/scripts/install-gui.sh",
+    "settings_center/playground_service.py",
     "tests/test_release_packaging.py",
 )
 WHEEL_REQUIRED = (
     "app/config.py",
     "ibus/main.py",
     "settings_center/application.py",
+    "settings_center/playground_service.py",
     "vocotype_version.py",
     "share/vocotype/terms.yaml",
     "share/vocotype/ibus/vocotype.xml.in",

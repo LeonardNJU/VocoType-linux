@@ -16,7 +16,7 @@ Fcitx 5 在此基础上增加异步任务与输入面板实时预览。
 
 - `F9`：只做 ASR。
 - `Shift+F9`：ASR 后尝试 AI 润色。
-- `PolishByDefault=true` 时语义反转：`F9` 默认润色，`Shift+F9` 临时跳过。
+- `F9` 始终直接提交 ASR；`Shift+F9` 始终进入 AI 润色，IBus 与 Fcitx 5 行为一致。
 
 松开润色模式热键后，module 不会阻塞等待完整响应：
 

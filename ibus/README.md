@@ -49,7 +49,7 @@ IBus 与 Fcitx 5 共用 `~/.config/vocotype/terms.yaml`。默认 Contextual Para
 
 ## 安装
 
-图形设置中心会随 IBus 安装器一同安装。安装后运行 `vocotype-settings` 可管理 IBus 与 Fcitx 共用配置、Doctor 和反馈。
+图形设置中心会随 IBus 安装器一同安装。安装后运行 `vocotype-settings` 可管理 VoCoType 配置、Doctor 和反馈。
 
 ### 纯语音版（推荐新手）
 

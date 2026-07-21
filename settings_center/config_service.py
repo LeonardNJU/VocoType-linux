@@ -67,8 +67,9 @@ def load_runtime_config() -> dict[str, Any]:
     """Load the most complete runtime config and merge it with defaults."""
 
     merged = copy.deepcopy(DEFAULT_CONFIG)
-    # IBus first, Fcitx second: the Fcitx backend is the primary current UI
-    # target, while saving keeps both files synchronized.
+    # Integration-specific runtime files are adapters for one logical
+    # VoCoType configuration. Prefer the most recently relevant adapter while
+    # keeping this implementation detail out of user-facing messages.
     for path in (ibus_config_path(), fcitx_backend_path()):
         try:
             merged = _merge_dict(merged, load_json_mapping(path))
@@ -97,7 +98,7 @@ def atomic_write_json(path: Path, payload: Mapping[str, Any], *, mode: int = 0o6
 
 
 def save_runtime_config(config: Mapping[str, Any]) -> tuple[Path, Path]:
-    """Atomically synchronize IBus and Fcitx runtime configurations."""
+    """Persist one VoCoType configuration for all runtime adapters."""
 
     payload = copy.deepcopy(dict(config))
     for path in (ibus_config_path(), fcitx_backend_path()):
@@ -213,6 +214,9 @@ def load_fcitx_module_config() -> dict[str, str]:
 def save_fcitx_module_config(values: Mapping[str, Any]) -> Path:
     path = fcitx_module_config_path()
     existing = load_fcitx_module_config()
+    # Legacy builds allowed Fcitx to invert F9 and Shift+F9. The two input
+    # frameworks now share one contract: F9 is direct ASR, Shift+F9 polishes.
+    existing.pop("polishbydefault", None)
     for key, value in values.items():
         if isinstance(value, bool):
             existing[key.lower()] = "True" if value else "False"
@@ -222,12 +226,12 @@ def save_fcitx_module_config(values: Mapping[str, Any]) -> Path:
         "pttkey",
         "pttholdthresholdms",
         "longmodemodifier",
-        "polishbydefault",
         "polishminchars",
         "polishtimeoutms",
         "enablethinking",
         "blockwhencomposing",
         "striptrailingperiodoncommit",
+        "panelstyle",
     ]
     ordered = []
     seen = set()
@@ -246,12 +250,12 @@ def save_fcitx_module_config(values: Mapping[str, Any]) -> Path:
                     "pttkey": "PTTKey",
                     "pttholdthresholdms": "PTTHoldThresholdMs",
                     "longmodemodifier": "LongModeModifier",
-                    "polishbydefault": "PolishByDefault",
                     "polishminchars": "PolishMinChars",
                     "polishtimeoutms": "PolishTimeoutMs",
                     "enablethinking": "EnableThinking",
                     "blockwhencomposing": "BlockWhenComposing",
                     "striptrailingperiodoncommit": "StripTrailingPeriodOnCommit",
+                    "panelstyle": "PanelStyle",
                 }.get(key, key)
                 handle.write(f"{canonical}={value}\n")
             handle.flush()

@@ -2,20 +2,20 @@
 
 from __future__ import annotations
 
-import configparser
-import json
 import os
+import signal
 import shutil
 import subprocess
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Literal
 
 from app.download_models import inspect_required_models
+from app.fcitx_session import query_fcitx_addon_names, restart_fcitx_session
 
 ProgressCallback = Callable[[str], None]
 Framework = Literal["fcitx5", "ibus"]
+INSTALL_PROGRESS_PREFIX = "VOCOTYPE_PROGRESS:"
 InstallState = Literal["complete", "partial", "absent"]
 
 
@@ -140,6 +140,28 @@ def _group_present(paths: tuple[Path, ...]) -> bool:
     return any(path.is_file() for path in paths)
 
 
+def fcitx_panel_style_support(
+    *,
+    home: Path | None = None,
+    system_prefix: Path = Path("/usr"),
+) -> tuple[bool, Path | None]:
+    """Return whether an installed Fcitx module understands PanelStyle."""
+
+    paths = installation_paths(home=home, system_prefix=system_prefix).fcitx_modules
+    first_module: Path | None = None
+    for module in paths:
+        if not module.is_file():
+            continue
+        if first_module is None:
+            first_module = module
+        try:
+            if b"PanelStyle" in module.read_bytes():
+                return True, module
+        except OSError:
+            continue
+    return False, first_module
+
+
 def _models_verified(home: Path) -> bool:
     return all(
         bool(item.get("complete"))
@@ -147,71 +169,26 @@ def _models_verified(home: Path) -> bool:
     )
 
 
+def parse_install_progress(line: str) -> tuple[float, str] | None:
+    """Parse a structured installer stage into a GTK fraction and label."""
+
+    if not line.startswith(INSTALL_PROGRESS_PREFIX):
+        return None
+    payload = line[len(INSTALL_PROGRESS_PREFIX) :]
+    try:
+        percent_text, message = payload.split(":", 1)
+        percent = int(percent_text)
+    except (ValueError, TypeError):
+        return None
+    message = message.strip()
+    if not 0 <= percent <= 100 or not message:
+        return None
+    return percent / 100.0, message
+
+
 def _query_fcitx_addon_loaded() -> bool:
-    busctl = shutil.which("busctl")
-    if busctl is None:
-        return False
-    environment = os.environ.copy()
-    runtime_dir = environment.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
-    if Path(runtime_dir).is_dir():
-        environment.setdefault("XDG_RUNTIME_DIR", runtime_dir)
-    bus_path = Path(runtime_dir) / "bus"
-    if bus_path.is_socket():
-        environment.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path={bus_path}")
-    if not environment.get("DBUS_SESSION_BUS_ADDRESS"):
-        return False
-    try:
-        result = subprocess.run(
-            [
-                busctl,
-                "--user",
-                "--json=short",
-                "call",
-                "org.fcitx.Fcitx5",
-                "/controller",
-                "org.fcitx.Fcitx.Controller1",
-                "GetAddons",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=3,
-            check=False,
-            env=environment,
-        )
-        if result.returncode != 0:
-            return False
-        payload = json.loads(result.stdout)
-        rows = payload.get("data", [[]])[0]
-        return any(
-            isinstance(row, list) and row and str(row[0]) == "vocotype"
-            for row in rows
-        )
-    except (
-        OSError,
-        subprocess.SubprocessError,
-        json.JSONDecodeError,
-        AttributeError,
-        IndexError,
-        TypeError,
-    ):
-        return False
-
-
-def _audio_verified(home: Path) -> bool:
-    path = home / ".config/vocotype/audio.conf"
-    if not path.is_file():
-        return False
-    parser = configparser.ConfigParser(interpolation=None)
-    try:
-        parser.read(path, encoding="utf-8")
-        device_id = parser.get("audio", "device_id", fallback="").strip()
-        tested_device_id = parser.get(
-            "audio", "tested_device_id", fallback=""
-        ).strip()
-        tested_at = parser.get("audio", "tested_at", fallback="").strip()
-    except (configparser.Error, OSError, ValueError):
-        return False
-    return bool(tested_at and device_id and tested_device_id == device_id)
+    names = query_fcitx_addon_names()
+    return names is not None and "vocotype" in names
 
 
 def integration_status(
@@ -222,6 +199,7 @@ def integration_status(
     project_root: Path | None = None,
     fcitx_socket_path: Path = Path("/tmp/vocotype-fcitx5.sock"),
     fcitx_addon_loaded: bool | None = None,
+    fcitx_panel_style_supported: bool | None = None,
 ) -> IntegrationStatus:
     """Classify a framework integration as complete, partial, or absent."""
 
@@ -264,12 +242,18 @@ def integration_status(
     else:
         missing.append("必需模型")
 
-    if _audio_verified(user_home):
-        present.append("麦克风验收")
-    else:
-        missing.append("麦克风验收")
-
     if framework == "fcitx5":
+        panel_style_supported = (
+            fcitx_panel_style_support(
+                home=user_home, system_prefix=system_prefix
+            )[0]
+            if fcitx_panel_style_supported is None
+            else fcitx_panel_style_supported
+        )
+        if panel_style_supported:
+            present.append("F9 状态样式支持")
+        else:
+            missing.append("F9 状态样式支持（module 需要更新）")
         if fcitx_socket_path.is_socket():
             present.append("后端 IPC")
         else:
@@ -524,44 +508,46 @@ def restart_backend() -> tuple[bool, str]:
     return result.returncode == 0, message or ("后台服务已重启" if result.returncode == 0 else "后台服务重启失败")
 
 
+def restart_ibus_backend(*, proc_root: Path = Path("/proc")) -> tuple[bool, str]:
+    """Stop the VoCoType IBus engine so IBus relaunches it on next activation."""
+
+    stopped: list[int] = []
+    entries = proc_root.iterdir() if proc_root.is_dir() else ()
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        try:
+            cmdline = (entry / "cmdline").read_bytes().replace(b"\0", b" ").decode(
+                "utf-8", errors="replace"
+            )
+        except (FileNotFoundError, PermissionError, ProcessLookupError, OSError):
+            continue
+        if "ibus/main.py" not in cmdline or "--ibus" not in cmdline:
+            continue
+        pid = int(entry.name)
+        if pid == os.getpid():
+            continue
+        try:
+            os.kill(pid, signal.SIGTERM)
+            stopped.append(pid)
+        except ProcessLookupError:
+            continue
+        except PermissionError as exc:
+            return False, f"无法停止 VoCoType（IBus）后台 PID {pid}: {exc}"
+    if stopped:
+        return True, "VoCoType（IBus）后台已停止；下次切换到 VoCoType 时会自动重新启动"
+    return True, "VoCoType（IBus）后台当前未运行；下次切换到 VoCoType 时会自动启动"
+
+
 def restart_fcitx() -> tuple[bool, str]:
-    executable = shutil.which("fcitx5")
-    if executable is None:
-        return False, "未检测到 fcitx5"
-
-    # `fcitx5 -r` stays in the foreground. Running it with subprocess.run and
-    # a timeout kills the replacement instance, which leaves the desktop with
-    # no input method. Daemonize the replacement before waiting for it.
-    environment = os.environ.copy()
-    environment.pop("FCITX_ADDON_DIRS", None)
-    result = subprocess.run(
-        [executable, "-r", "-d"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
-        env=environment,
-    )
-    message = (result.stdout + result.stderr).strip()
-    if result.returncode != 0:
-        return False, message or "Fcitx 5 重启失败"
-
-    remote = shutil.which("fcitx5-remote")
-    if remote is not None:
-        time.sleep(0.35)
-        probe = subprocess.run(
-            [remote],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-            env=environment,
-        )
-        if probe.returncode not in {0, 1, 2}:
-            probe_message = (probe.stdout + probe.stderr).strip()
-            return False, probe_message or "Fcitx 5 已启动，但无法连接到其 D-Bus 服务"
-
-    return True, message or "Fcitx 5 已重新启动"
+    result = restart_fcitx_session(timeout=10.0)
+    detail = result.startup_log.strip()[-4000:]
+    if result.success:
+        return True, result.message
+    message = result.message
+    if detail:
+        message += "\n" + detail
+    return False, message
 
 
 def restart_ibus() -> tuple[bool, str]:

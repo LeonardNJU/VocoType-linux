@@ -37,15 +37,10 @@ FCITX_CONFIGURATION(
     fcitx::Option<fcitx::Key, fcitx::KeyConstrain> longModeModifier{
         this,
         "LongModeModifier",
-        "长句润色模式修饰键",
+        "AI 润色模式修饰键",
         fcitx::Key(FcitxKey_Shift_L),
         fcitx::KeyConstrain({fcitx::KeyConstrainFlag::AllowModifierLess,
                              fcitx::KeyConstrainFlag::AllowModifierOnly})};
-    fcitx::Option<bool> polishByDefault{
-        this,
-        "PolishByDefault",
-        "普通录音默认启用 AI 润色",
-        false};
     fcitx::Option<int, fcitx::IntConstrain> polishMinChars{
         this,
         "PolishMinChars",
@@ -73,6 +68,11 @@ FCITX_CONFIGURATION(
         "StripTrailingPeriodOnCommit",
         "提交时移除尾部句号",
         false};
+    fcitx::Option<std::string> panelStyle{
+        this,
+        "PanelStyle",
+        "状态提示样式（minimal 或 animated）",
+        "minimal"};
 );
 
 class VoCoTypeModule final : public fcitx::AddonInstance {
@@ -112,8 +112,6 @@ private:
 
     void armPendingRecordingStart(fcitx::InputContext *ic, bool long_mode);
     void cancelPendingRecordingStart();
-    void armPendingRecordingStop();
-    void cancelPendingRecordingStop();
     void replayShortTapAsRegularKey(fcitx::InputContext *ic);
 
     void startRecording(fcitx::InputContext *ic, bool long_mode);
@@ -159,12 +157,12 @@ private:
     fcitx::KeyStates long_mode_modifier_ = fcitx::KeyState::Shift;
     std::string ptt_key_name_ = "F9";
     int ptt_hold_threshold_ms_ = 0;
-    bool polish_by_default_ = false;
     int polish_min_chars_ = 8;
     int polish_timeout_ms_ = 20000;
     bool enable_thinking_ = false;
     bool block_when_composing_ = true;
     bool strip_trailing_period_on_commit_ = false;
+    bool animate_panel_ = false;
 
     bool ptt_pressed_ = false;
     bool is_recording_ = false;
@@ -179,7 +177,6 @@ private:
     FILE *recorder_stdout_ = nullptr;
 
     std::unique_ptr<fcitx::EventSourceTime> ptt_hold_timer_;
-    std::unique_ptr<fcitx::EventSourceTime> ptt_release_timer_;
     std::unique_ptr<fcitx::EventSourceTime> recording_animation_timer_;
     std::unique_ptr<fcitx::EventSourceTime> polish_poll_timer_;
     size_t recording_animation_frame_index_ = 0;

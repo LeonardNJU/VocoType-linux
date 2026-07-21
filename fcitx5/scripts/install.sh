@@ -213,11 +213,11 @@ install_system_fcitx_integration() {
             return 1
         fi
         echo "AUTH_REQUIRED: 即将弹出管理员授权窗口以安装 VoCoType（Fcitx 5）系统 addon。"
-        pkexec "$(command -v bash)" "$SYSTEM_FCITX_HELPER" install "$module" "$addon" "$VOCOTYPE_VERSION"
+        pkexec --disable-internal-agent "$(command -v bash)" "$SYSTEM_FCITX_HELPER" install "$module" "$addon" "$VOCOTYPE_VERSION"
         return
     fi
     if command -v pkexec >/dev/null 2>&1 && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
-        pkexec "$(command -v bash)" "$SYSTEM_FCITX_HELPER" install "$module" "$addon" "$VOCOTYPE_VERSION"
+        pkexec --disable-internal-agent "$(command -v bash)" "$SYSTEM_FCITX_HELPER" install "$module" "$addon" "$VOCOTYPE_VERSION"
     elif command -v sudo >/dev/null 2>&1; then
         sudo "$(command -v bash)" "$SYSTEM_FCITX_HELPER" install "$module" "$addon" "$VOCOTYPE_VERSION"
     else
@@ -240,7 +240,7 @@ install_system_dependencies() {
         return 1
     fi
     echo "AUTH_REQUIRED: 即将弹出管理员授权窗口以安装 VoCoType（Fcitx 5）所需的系统依赖。"
-    pkexec "$(command -v bash)" "$SYSTEM_DEPS_HELPER" fcitx5
+    pkexec --disable-internal-agent "$(command -v bash)" "$SYSTEM_DEPS_HELPER" fcitx5
 }
 
 print_python_help() {
@@ -266,6 +266,7 @@ print_python_help() {
 }
 
 echo "=== VoCoType Fcitx 5 语音输入法安装 ==="
+emit_install_progress 2 "准备安装 VoCoType（Fcitx 5）"
 echo "项目目录: $PROJECT_DIR"
 echo ""
 
@@ -358,6 +359,7 @@ echo ""
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 1. 检查 Fcitx 5
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+emit_install_progress 5 "检查 Fcitx 5 与系统依赖"
 echo "[1/8] 检查 Fcitx 5..."
 if ! command -v fcitx5 &>/dev/null; then
     echo "未检测到 Fcitx 5。"
@@ -377,6 +379,7 @@ echo "✓ Fcitx 5 已安装"
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 if [ "$REUSE_SYSTEM_MODULE" = true ]; then
     echo ""
+    emit_install_progress 15 "检查原生软件包提供的 Fcitx module"
     echo "[2/8] 原生软件包已提供 Fcitx 5 module"
     echo "✓ 跳过开发依赖检查"
     echo ""
@@ -395,6 +398,7 @@ else
 # 2. 检查编译依赖
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
+emit_install_progress 15 "检查 C++ module 编译依赖"
 echo "[2/8] 检查编译依赖..."
 missing_deps=()
 
@@ -479,6 +483,7 @@ echo "✓ 编译依赖已满足"
 # 3. 编译 C++ 全局 Module
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
+emit_install_progress 25 "编译 VoCoType Fcitx module"
 echo "[3/8] 编译 C++ 全局 Module..."
 mkdir -p "$PROJECT_DIR/fcitx5/module/build"
 cd "$PROJECT_DIR/fcitx5/module/build"
@@ -491,6 +496,7 @@ echo "✓ 编译成功"
 # 4. 安装系统级 C++ 全局 Module
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
+emit_install_progress 35 "安装系统 VoCoType（Fcitx 5）addon"
 echo "[4/8] 安装 VoCoType（Fcitx 5）系统 addon..."
 install_system_fcitx_integration || {
     echo "错误: 系统级 VoCoType（Fcitx 5）addon 安装失败。" >&2
@@ -510,6 +516,7 @@ echo "✓ 系统级 VoCoType（Fcitx 5）addon 已安装"
 # 5. 清理旧版 addon 路径覆盖
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
+emit_install_progress 45 "清理旧版 Fcitx 路径覆盖"
 echo "[5/8] 清理旧版 Fcitx addon 路径覆盖..."
 rm -f "$HOME/.config/environment.d/fcitx5-vocotype.conf"
 unset FCITX_ADDON_DIRS || true
@@ -521,6 +528,7 @@ fi
 # 6. 安装 Python 后端
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
+emit_install_progress 52 "安装 VoCoType Python 后端"
 echo "[6/8] 安装 Python 后端..."
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$INSTALL_DIR/scripts" "$INSTALL_DIR/installers"
@@ -552,6 +560,7 @@ echo "✓ Python 后端已安装"
 # 7. 配置 Python 环境
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
+emit_install_progress 60 "配置 Python 运行环境"
 echo "[7/8] 配置 Python 环境..."
 
 if [ "$NON_INTERACTIVE" = true ]; then
@@ -687,6 +696,7 @@ fi
 
 echo "✓ Python 环境已配置"
 
+emit_install_progress 70 "下载并校验 ASR、VAD 与标点模型"
 download_and_verify_asr_models "$PYTHON" "$INSTALL_DIR" || exit 1
 
 FCITX5_BACKEND_CONFIG="$HOME/.config/vocotype/fcitx5-backend.json"
@@ -758,6 +768,7 @@ fi
 # 8. 音频设备配置和 ASR 验收
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
+emit_install_progress 78 "保留或写入麦克风设备配置"
 echo "[8/8] 音频设备配置..."
 
 if [ -n "$AUDIO_DEVICE" ]; then
@@ -771,8 +782,8 @@ sample_rate = $SAMPLE_RATE
 EOF
     echo "✓ 音频配置已保存"
 elif [ "$SKIP_AUDIO" = true ]; then
-    # 图形安装由设置中心的“语音识别与 ITN”页面管理麦克风。
-    echo "跳过命令行音频向导；可在设置中心选择并测试麦克风。"
+    # 图形安装只安装程序；设备选择、回放和真实转录集中在 Playground。
+    echo "跳过命令行音频向导；可在设置中心 Playground 选择设备并试用。"
 else
     # 交互式配置
     echo ""
@@ -795,6 +806,7 @@ fi
 # 安装图形设置中心入口
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
+emit_install_progress 84 "安装图形设置中心"
 echo "安装图形设置中心..."
 mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications" "$HOME/.local/share/icons/hicolor/192x192/apps"
 PYTHON_SED=$(escape_sed_replacement "$PYTHON")
@@ -845,6 +857,7 @@ echo "✓ 设置中心已安装，可运行: vocotype-settings"
 # 创建后台服务启动器
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
+emit_install_progress 88 "创建并启动后台服务"
 echo "创建后台服务启动器..."
 mkdir -p "$HOME/.local/bin"
 cat > "$HOME/.local/bin/vocotype-fcitx5-recorder" << 'EOF'
@@ -918,6 +931,7 @@ fi
 echo ""
 echo "严格验收将重载 Fcitx 5，并确认 VoCoType addon 实际创建成功。"
 echo ""
+emit_install_progress 94 "严格验收 Fcitx addon、后台服务与 IPC"
 echo "执行安装后严格验收..."
 if ! PYTHONPATH="$INSTALL_DIR${PYTHONPATH:+:$PYTHONPATH}" \
     "$PYTHON" "$PROJECT_DIR/installers/validate-installed-integration.py" \
@@ -926,17 +940,15 @@ if ! PYTHONPATH="$INSTALL_DIR${PYTHONPATH:+:$PYTHONPATH}" \
     exit 1
 fi
 
+emit_install_progress 100 "VoCoType（Fcitx 5）程序安装与运行验收完成"
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 完成
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-if [ "$SKIP_AUDIO" = true ] || [ -n "$AUDIO_DEVICE" ]; then
-    echo "⚠️ VoCoType（Fcitx 5）程序与运行链路已就绪；麦克风验收尚未完成"
-    echo "请在设置中心选择麦克风并执行“录音 2 秒测试”。"
-else
-    echo "✅ VoCoType（Fcitx 5）安装与运行验收完成"
-fi
+echo "✅ VoCoType（Fcitx 5）安装与运行验收完成"
+echo "麦克风回放、真实 ASR 和 AI 试用可在设置中心 Playground 独立完成。"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "无需添加独立输入法条目；继续使用现有输入法，按住 F9 说话。"
 echo ""

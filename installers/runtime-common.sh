@@ -29,6 +29,12 @@ get_python_version() {
     "$1" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null
 }
 
+emit_install_progress() {
+    local percent="$1"
+    shift
+    printf 'VOCOTYPE_PROGRESS:%s:%s\n' "$percent" "$*"
+}
+
 download_and_verify_asr_models() {
     local python_bin="$1"
     local runtime_root="$2"

@@ -18,6 +18,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.download_models import inspect_required_models  # noqa: E402
+from app.fcitx_session import restart_fcitx_session  # noqa: E402
 
 SOCKET_PATH = Path("/tmp/vocotype-fcitx5.sock")
 SERVICE_NAME = "vocotype-fcitx5-backend.service"
@@ -185,25 +186,14 @@ def validate_fcitx(runtime_root: Path, timeout_s: float) -> None:
     )
     validate_models()
 
-    fcitx = shutil.which("fcitx5")
-    if fcitx is None:
-        raise RuntimeError("未检测到 fcitx5，无法重载并确认 addon 实际加载")
-    result = run([fcitx, "-r", "-d"], timeout=20.0)
-    startup_log = f"{result.stdout}\n{result.stderr}"
-    folded = startup_log.casefold()
-    load_failures = (
-        "failed to create addon: vocotype",
-        "could not load addon vocotype",
+    restart = restart_fcitx_session(
+        timeout=min(20.0, max(5.0, timeout_s)),
+        required_addon="vocotype",
     )
-    if result.returncode != 0 or any(token in folded for token in load_failures):
+    if not restart.success:
+        details = restart.startup_log.strip()[-6000:]
         raise RuntimeError(
-            "Fcitx 重载时未能创建 VoCoType addon：\n"
-            + startup_log.strip()[-6000:]
-        )
-    if "loaded addon vocotype" not in folded:
-        raise RuntimeError(
-            "Fcitx 重载日志没有确认 `Loaded addon vocotype`：\n"
-            + startup_log.strip()[-6000:]
+            restart.message + (f"\n{details}" if details else "")
         )
     emit("✅ 当前 Fcitx 实例已实际加载 VoCoType addon")
     wait_for_fcitx_backend(timeout_s)

@@ -50,6 +50,7 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$PROJECT_DIR/installers/runtime-common.sh"
 INSTALL_DIR="$HOME/.local/share/vocotype"
 COMPONENT_DIR="$HOME/.local/share/ibus/component"
 LIBEXEC_DIR="$HOME/.local/libexec"
@@ -123,7 +124,7 @@ run_privileged_helper() {
         return 1
     }
     echo "AUTH_REQUIRED: 即将弹出管理员授权窗口以安装 $action 系统依赖。"
-    pkexec "$(command -v bash)" "$SYSTEM_DEPS_HELPER" "$action"
+    pkexec --disable-internal-agent "$(command -v bash)" "$SYSTEM_DEPS_HELPER" "$action"
 }
 
 needs_ibus_system_deps() {
@@ -174,8 +175,10 @@ LAUNCHER
 }
 
 echo "=== VoCoType IBus 图形安装后端 ==="
+emit_install_progress 2 "准备安装 VoCoType（IBus）"
 echo "项目目录: $PROJECT_DIR"
 
+emit_install_progress 8 "检查 IBus 与系统依赖"
 NEED_SYSTEM_DEPS=0
 needs_ibus_system_deps && NEED_SYSTEM_DEPS=1
 if [[ "$RIME_MODE" == enabled ]]; then
@@ -205,6 +208,7 @@ if [[ "$RIME_MODE" == enabled ]]; then
     }
 fi
 
+emit_install_progress 20 "准备 IBus 用户运行目录"
 mkdir -p "$INSTALL_DIR" "$COMPONENT_DIR" "$LIBEXEC_DIR"
 USE_SYSTEM_PYTHON=0
 case "$PYTHON_CHOICE" in
@@ -213,6 +217,7 @@ case "$PYTHON_CHOICE" in
     system) USE_SYSTEM_PYTHON=1; PYTHON="" ;;
 esac
 
+emit_install_progress 30 "配置 Python 运行环境"
 if [[ "$USE_SYSTEM_PYTHON" == 1 ]]; then
     PYTHON=$(detect_system_python) || { echo "系统中没有 Python 3.11/3.12。" >&2; exit 4; }
     "$PYTHON" "$PROJECT_DIR/installers/check-python-runtime.py" || {
@@ -240,6 +245,7 @@ else
     fi
 fi
 
+emit_install_progress 55 "下载并校验 ASR、VAD 与标点模型"
 download_and_verify_asr_models "$PYTHON" "$PROJECT_DIR" || exit 1
 
 if [[ "$RIME_MODE" == enabled ]]; then
@@ -311,6 +317,7 @@ elif [[ "$SKIP_AUDIO" != true ]]; then
     exit 5
 fi
 
+emit_install_progress 70 "安装 VoCoType（IBus）运行代码"
 rm -rf "$INSTALL_DIR/app" "$INSTALL_DIR/settings_center" "$INSTALL_DIR/ibus"
 cp -r "$PROJECT_DIR/app" "$INSTALL_DIR/"
 cp -r "$PROJECT_DIR/settings_center" "$INSTALL_DIR/"
@@ -377,6 +384,7 @@ if [[ "$COMPONENT_MODE" == auto ]]; then
     fi
 fi
 
+emit_install_progress 82 "注册 VoCoType（IBus）component"
 if [[ "$COMPONENT_MODE" == system ]]; then
     if [[ -f "$SYSTEM_COMPONENT_DIR/vocotype.xml" ]] && cmp -s "$TEMP_COMPONENT" "$SYSTEM_COMPONENT_DIR/vocotype.xml"; then
         echo "✓ 系统 IBus component 已由软件包注册"
@@ -384,13 +392,14 @@ if [[ "$COMPONENT_MODE" == system ]]; then
         command -v pkexec >/dev/null 2>&1 || { echo "需要 pkexec 安装系统 IBus component。" >&2; exit 6; }
         INSTALL_BIN=$(command -v install)
         echo "AUTH_REQUIRED: 即将弹出管理员授权窗口以注册 IBus 输入法。"
-        pkexec "$INSTALL_BIN" -D -m 0644 "$TEMP_COMPONENT" "$SYSTEM_COMPONENT_DIR/vocotype.xml"
+        pkexec --disable-internal-agent "$INSTALL_BIN" -D -m 0644 "$TEMP_COMPONENT" "$SYSTEM_COMPONENT_DIR/vocotype.xml"
     fi
     rm -f "$COMPONENT_DIR/vocotype.xml"
 else
     install -D -m 0644 "$TEMP_COMPONENT" "$COMPONENT_DIR/vocotype.xml"
 fi
 
+emit_install_progress 90 "刷新 IBus 注册信息"
 if command -v ibus >/dev/null 2>&1 && [[ -n "${DBUS_SESSION_BUS_ADDRESS:-}${XDG_RUNTIME_DIR:-}" ]]; then
     echo "刷新 IBus 注册信息…"
     if command -v timeout >/dev/null 2>&1; then
@@ -402,6 +411,7 @@ if command -v ibus >/dev/null 2>&1 && [[ -n "${DBUS_SESSION_BUS_ADDRESS:-}${XDG_
     fi
 fi
 
+emit_install_progress 95 "严格验收 IBus launcher、component 与模型"
 echo "执行安装后严格验收…"
 if ! PYTHONPATH="$INSTALL_DIR${PYTHONPATH:+:$PYTHONPATH}" \
     "$PYTHON" "$PROJECT_DIR/installers/validate-installed-integration.py" \
@@ -410,5 +420,7 @@ if ! PYTHONPATH="$INSTALL_DIR${PYTHONPATH:+:$PYTHONPATH}" \
     exit 1
 fi
 
+emit_install_progress 100 "VoCoType（IBus）程序安装与结构验收完成"
 echo "✅ VoCoType（IBus）安装/修复与结构验收完成。"
+echo "麦克风回放、真实 ASR 和 AI 试用可在设置中心 Playground 独立完成。"
 echo "请在桌面输入源设置中添加“VoCoType Voice Input”。"
