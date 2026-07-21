@@ -20,6 +20,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "sample_rate": 16000,
         "block_ms": 20,
         "device": None,
+        # Recordings shorter than this are discarded before final ASR.
+        "min_recording_ms": 1000,
         # 单次录音的最大大小（字节），默认20MB
         # 达到此限制后将自动停止录音并开始转录
         "max_session_bytes": 20 * 1024 * 1024,

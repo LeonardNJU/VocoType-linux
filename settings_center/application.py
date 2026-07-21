@@ -65,6 +65,7 @@ from .setup_manager import (
     native_package_removal_command,
     parse_install_progress,
     polkit_available,
+    preferred_installed_framework,
     restart_backend,
     restart_fcitx,
     restart_ibus,
@@ -167,6 +168,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self._install_dialog: Gtk.Dialog | None = None
         self._uninstall_dialog: Gtk.Dialog | None = None
         self._last_lifecycle_notice: str | None = None
+        self._last_ibus_status = None
+        self._last_fcitx_status = None
+        self._preferred_framework: str | None = None
         self._slm_health_fingerprint: str | None = None
         cached_recording = last_recording_path()
         self._playground_recording_path: Path | None = (
@@ -222,7 +226,10 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.stack.add_titled(terms_page, "terms", "用户词典")
         self.stack.add_titled(slm_page, "slm", "AI 润色")
         self.stack.add_titled(self._doctor_page(), "doctor", "诊断")
-        self.stack.add_titled(self._tutorial_page(), "tutorial", "教程")
+        self.tutorial_page = self._tutorial_page()
+        self.tutorial_page.set_no_show_all(True)
+        self.tutorial_page.hide()
+        self.stack.add_titled(self.tutorial_page, "tutorial", "教程")
         self.stack.add_titled(self._feedback_page(), "feedback", "反馈")
 
     def _page(self, title: str, subtitle: str) -> tuple[Gtk.ScrolledWindow, Gtk.Box]:
@@ -244,6 +251,13 @@ class SettingsWindow(Gtk.ApplicationWindow):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         box.get_style_context().add_class("card")
         return box
+
+    def _text_entry(self, *, width_chars: int = 40) -> Gtk.Entry:
+        entry = Gtk.Entry()
+        entry.set_width_chars(max(40, int(width_chars)))
+        entry.set_max_width_chars(max(80, int(width_chars)))
+        entry.set_hexpand(True)
+        return entry
 
     def _section_heading(self, title: str, subtitle: str = "") -> Gtk.Box:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
@@ -291,12 +305,101 @@ class SettingsWindow(Gtk.ApplicationWindow):
             "从这里完成首次安装、升级或修复。配置与术语文件会被保留。",
         )
         install_card = self._card()
+
+        summary = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=22)
+        summary.set_border_width(14)
+        summary.set_hexpand(True)
+
+        environment_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=8
+        )
+        environment_box.set_hexpand(True)
+        environment_title = Gtk.Label(label="安装环境检查", xalign=0)
+        environment_title.get_style_context().add_class("row-title")
         self.install_environment_status = Gtk.Label(
             label="正在检查安装环境…", xalign=0
         )
         self.install_environment_status.set_line_wrap(True)
+        self.install_environment_status.set_selectable(True)
+        environment_box.pack_start(environment_title, False, False, 0)
+        environment_box.pack_start(
+            self.install_environment_status, False, False, 0
+        )
+
+        separator = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
+
+        framework_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=10
+        )
+        framework_box.set_hexpand(True)
+        framework_title = Gtk.Label(label="选择输入法框架", xalign=0)
+        framework_title.get_style_context().add_class("row-title")
+        framework_box.pack_start(framework_title, False, False, 0)
+
+        self.ibus_framework_radio = Gtk.RadioButton.new_with_label(
+            None, "IBus"
+        )
+        self.fcitx_framework_radio = Gtk.RadioButton.new_with_label_from_widget(
+            self.ibus_framework_radio, "Fcitx 5"
+        )
+        self.ibus_framework_radio.connect(
+            "toggled", self._on_framework_radio_toggled, "ibus"
+        )
+        self.fcitx_framework_radio.connect(
+            "toggled", self._on_framework_radio_toggled, "fcitx5"
+        )
+        self.ibus_choice_status = Gtk.Label(
+            label="正在检查安装状态…", xalign=0
+        )
+        self.fcitx_choice_status = Gtk.Label(
+            label="正在检查安装状态…", xalign=0
+        )
+
+        def framework_choice(
+            radio: Gtk.RadioButton,
+            description: str,
+            status: Gtk.Label,
+        ) -> Gtk.Widget:
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+            radio.set_halign(Gtk.Align.START)
+            box.pack_start(radio, False, False, 0)
+            description_label = Gtk.Label(label=description, xalign=0)
+            description_label.set_line_wrap(True)
+            description_label.set_margin_start(28)
+            description_label.get_style_context().add_class("row-subtitle")
+            status.set_line_wrap(True)
+            status.set_margin_start(28)
+            box.pack_start(description_label, False, False, 0)
+            box.pack_start(status, False, False, 0)
+            return box
+
+        framework_box.pack_start(
+            framework_choice(
+                self.ibus_framework_radio,
+                "独立输入法引擎；安装后需要添加并切换到 VoCoType 输入源。",
+                self.ibus_choice_status,
+            ),
+            False,
+            False,
+            0,
+        )
+        framework_box.pack_start(
+            framework_choice(
+                self.fcitx_framework_radio,
+                "全局 Module；继续使用现有输入法，无需添加 VoCoType 输入源。",
+                self.fcitx_choice_status,
+            ),
+            False,
+            False,
+            0,
+        )
+
+        summary.pack_start(environment_box, True, True, 0)
+        summary.pack_start(separator, False, False, 0)
+        summary.pack_start(framework_box, True, True, 0)
+        install_card.pack_start(summary, False, True, 0)
         install_card.pack_start(
-            self._row("安装环境", control=self.install_environment_status),
+            Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL),
             False,
             False,
             0,
@@ -316,7 +419,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
         ) -> Gtk.Widget:
             panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
             panel.set_border_width(14)
-            status = Gtk.Label(label=f"正在检查 VoCoType（{title}）…", xalign=0)
+            status = Gtk.Label(
+                label=f"正在检查 VoCoType（{title}）…", xalign=0
+            )
             status.set_line_wrap(True)
             if framework == "ibus":
                 self.ibus_install_status = status
@@ -329,24 +434,33 @@ class SettingsWindow(Gtk.ApplicationWindow):
             actions.set_column_homogeneous(True)
             actions.set_hexpand(True)
 
-            install_button = Gtk.Button(label=f"安装 / 修复 VoCoType（{title}）")
+            install_button = Gtk.Button(
+                label=f"安装 / 修复 VoCoType（{title}）"
+            )
             install_button.get_style_context().add_class("suggested-action")
             install_button.connect(
                 "clicked", lambda _button: self._open_install_dialog(framework)
             )
-            uninstall_button = Gtk.Button(label=f"卸载 VoCoType（{title}）")
+            uninstall_button = Gtk.Button(
+                label=f"卸载 VoCoType（{title}）"
+            )
             uninstall_button.connect(
-                "clicked", lambda _button: self._open_uninstall_dialog(framework)
+                "clicked",
+                lambda _button: self._open_uninstall_dialog(framework),
             )
             backend_button = Gtk.Button(label="重启 VoCoType 后台")
             backend_button.connect(
                 "clicked",
-                lambda _button: self._run_quick_action(restart_backend_action),
+                lambda _button: self._run_quick_action(
+                    restart_backend_action
+                ),
             )
             framework_button = Gtk.Button(label=f"重启 {title}")
             framework_button.connect(
                 "clicked",
-                lambda _button: self._run_quick_action(restart_framework_action),
+                lambda _button: self._run_quick_action(
+                    restart_framework_action
+                ),
             )
             for button in (
                 install_button,
@@ -364,14 +478,21 @@ class SettingsWindow(Gtk.ApplicationWindow):
             panel.pack_start(actions, False, False, 0)
             return panel
 
-        ibus_panel = lifecycle_page(
-            "ibus", "IBus", restart_ibus_backend, restart_ibus
+        lifecycle_stack.add_titled(
+            lifecycle_page("ibus", "IBus", restart_ibus_backend, restart_ibus),
+            "ibus",
+            "IBus",
         )
-        fcitx_panel = lifecycle_page(
-            "fcitx5", "Fcitx 5", restart_backend, restart_fcitx
+        lifecycle_stack.add_titled(
+            lifecycle_page(
+                "fcitx5", "Fcitx 5", restart_backend, restart_fcitx
+            ),
+            "fcitx5",
+            "Fcitx 5",
         )
-        lifecycle_stack.add_titled(ibus_panel, "ibus", "IBus")
-        lifecycle_stack.add_titled(fcitx_panel, "fcitx5", "Fcitx 5")
+        install_card.pack_start(lifecycle_stack, False, True, 0)
+        content.pack_start(install_card, False, False, 0)
+
         ui_config = self.runtime_config.get("ui")
         saved_framework = (
             str(ui_config.get("lifecycle_framework", "")).strip().lower()
@@ -384,37 +505,17 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 if "fcitx" in os.environ.get("XMODIFIERS", "").casefold()
                 else "ibus"
             )
-        lifecycle_stack.connect(
-            "notify::visible-child-name",
-            self._on_lifecycle_framework_changed,
-        )
-        GLib.idle_add(
-            self._restore_lifecycle_framework,
-            lifecycle_stack,
-            saved_framework,
-        )
-
-        lifecycle_switcher = Gtk.StackSwitcher()
-        lifecycle_switcher.set_stack(lifecycle_stack)
-        lifecycle_switcher.set_homogeneous(True)
-        lifecycle_switcher.set_hexpand(True)
-        lifecycle_switcher.set_halign(Gtk.Align.FILL)
-
-        lifecycle_container = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL, spacing=0
-        )
-        lifecycle_container.set_hexpand(True)
-        lifecycle_container.pack_start(lifecycle_switcher, False, True, 0)
-        lifecycle_container.pack_start(lifecycle_stack, False, True, 0)
-        install_card.pack_start(lifecycle_container, False, True, 0)
-        content.pack_start(install_card, False, False, 0)
+        GLib.idle_add(self._restore_lifecycle_framework, saved_framework)
 
         doctor_card = self._card()
         doctor_actions = Gtk.Box(spacing=8)
         doctor_button = Gtk.Button(label="运行快速检查")
         doctor_button.connect("clicked", self._on_run_doctor)
         open_doctor_button = Gtk.Button(label="查看详情")
-        open_doctor_button.connect("clicked", lambda _button: self.stack.set_visible_child_name("doctor"))
+        open_doctor_button.connect(
+            "clicked",
+            lambda _button: self.stack.set_visible_child_name("doctor"),
+        )
         doctor_actions.pack_start(doctor_button, False, False, 0)
         doctor_actions.pack_start(open_doctor_button, False, False, 0)
         self.overview_summary = Gtk.Label(label="尚未运行检查", xalign=0)
@@ -436,32 +537,74 @@ class SettingsWindow(Gtk.ApplicationWindow):
         GLib.idle_add(self._refresh_install_status)
         return page
 
-    def _restore_lifecycle_framework(
-        self, stack: Gtk.Stack, framework: str
-    ) -> bool:
-        stack.set_visible_child_name(framework)
+    def _selected_framework(self) -> str:
+        if self.fcitx_framework_radio.get_active():
+            return "fcitx5"
+        return "ibus"
+
+    def _restore_lifecycle_framework(self, framework: str) -> bool:
+        radio = (
+            self.fcitx_framework_radio
+            if framework == "fcitx5"
+            else self.ibus_framework_radio
+        )
+        radio.set_active(True)
+        self.lifecycle_stack.set_visible_child_name(framework)
         GLib.idle_add(self._finish_lifecycle_framework_restore)
         return False
 
     def _finish_lifecycle_framework_restore(self) -> bool:
         self._restoring_lifecycle_framework = False
+        self._update_framework_specific_content()
         return False
 
-    def _on_lifecycle_framework_changed(
-        self, stack: Gtk.Stack, _parameter: Any
+    def _on_framework_radio_toggled(
+        self, button: Gtk.RadioButton, framework: str
     ) -> None:
-        if self._loading_values or self._restoring_lifecycle_framework:
+        if not button.get_active():
             return
-        framework = stack.get_visible_child_name()
-        if framework not in {"ibus", "fcitx5"}:
+        self.lifecycle_stack.set_visible_child_name(framework)
+        if self._loading_values or self._restoring_lifecycle_framework:
             return
         try:
             self.runtime_config = update_runtime_sections(
                 {"ui": {"lifecycle_framework": framework}}
             )
         except Exception as exc:  # noqa: BLE001
-            self._last_lifecycle_notice = f"⚠️ 无法保存上次使用的框架：{exc}"
-            self._refresh_install_status()
+            self._last_lifecycle_notice = (
+                f"⚠️ 无法保存上次使用的框架：{exc}"
+            )
+        self._update_framework_specific_content()
+
+    def _update_framework_specific_content(self) -> None:
+        if self._last_ibus_status is None or self._last_fcitx_status is None:
+            return
+        preferred = preferred_installed_framework(
+            self._last_ibus_status,
+            self._last_fcitx_status,
+            self._selected_framework(),
+        )
+        self._preferred_framework = preferred
+        if not hasattr(self, "tutorial_page"):
+            return
+        if preferred is None:
+            if self.stack.get_visible_child_name() == "tutorial":
+                self.stack.set_visible_child_name("overview")
+            self.tutorial_page.set_no_show_all(True)
+            self.tutorial_page.hide()
+            return
+        self.tutorial_page.set_no_show_all(False)
+        self.tutorial_page.show_all()
+        self.tutorial_framework_stack.set_visible_child_name(preferred)
+        if preferred == "ibus":
+            self.tutorial_framework_title.set_text(
+                "当前教程：IBus（独立输入法引擎）"
+            )
+        else:
+            self.tutorial_framework_title.set_text(
+                "当前教程：Fcitx 5（全局 Module）"
+            )
+        self.tutorial_page.show()
 
     def _recognition_page(self) -> Gtk.Widget:
         page, content = self._page(
@@ -487,6 +630,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.audio_sample_rate.connect(
             "value-changed", self._on_audio_sample_rate_changed
         )
+        self.min_recording_ms = Gtk.SpinButton.new_with_range(0, 5000, 100)
+        self.min_recording_ms.set_value(1000)
+        self.min_recording_ms.set_numeric(True)
         refresh_audio = Gtk.Button(label="刷新音频设备")
         refresh_audio.connect("clicked", self._on_refresh_audio)
         self.audio_status = Gtk.Label(label="尚未枚举音频设备", xalign=0)
@@ -506,6 +652,16 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 "原生采样率",
                 "按设备原生采样率采集；ASR 会在内部重采样到模型需要的采样率。",
                 self.audio_sample_rate,
+            ),
+            False,
+            False,
+            0,
+        )
+        audio_card.pack_start(
+            self._row(
+                "最短有效录音（毫秒）",
+                "不足此时长的 F9 / Shift+F9 / Ctrl+F9 录音会直接丢弃，不进入 ASR；默认 1000 ms，0 表示关闭限制。",
+                self.min_recording_ms,
             ),
             False,
             False,
@@ -597,7 +753,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         content.pack_start(itn_card, False, False, 0)
 
         preview_card = self._card()
-        self.preview_input = Gtk.Entry()
+        self.preview_input = self._text_entry()
         self.preview_input.set_text("二零二六年五月十一号下午三点二十分跑了三百二十米，花了一百二十八元")
         self.preview_input.connect("activate", self._on_preview)
         preview_button = Gtk.Button(label="生成 ITN 预览")
@@ -655,11 +811,11 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.slm_provider = Gtk.ComboBoxText()
         self.slm_provider.append("remote", "远程 OpenAI-compatible")
         self.slm_provider.append("local_ephemeral", "本地按需模型")
-        self.slm_endpoint = Gtk.Entry()
-        self.slm_model = Gtk.Entry()
-        self.slm_api_key_env = Gtk.Entry()
+        self.slm_endpoint = self._text_entry()
+        self.slm_model = self._text_entry()
+        self.slm_api_key_env = self._text_entry()
         self.slm_api_key_env.set_placeholder_text("例如 DEEPSEEK_API_KEY（这里只填变量名）")
-        self.slm_api_key = Gtk.Entry()
+        self.slm_api_key = self._text_entry()
         self.slm_api_key.set_visibility(False)
         self.slm_api_key.set_placeholder_text("直接粘贴 sk-...；留空则保留现有凭据")
         self.slm_clear_api_key = Gtk.CheckButton(label="清除已保存的直接 API Key")
@@ -919,7 +1075,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         edit_source_scroll = Gtk.ScrolledWindow()
         edit_source_scroll.set_min_content_height(110)
         edit_source_scroll.add(self.playground_edit_source)
-        self.playground_ai_instruction = Gtk.Entry()
+        self.playground_ai_instruction = self._text_entry()
         self.playground_ai_instruction.set_text("把 A 替换成 B")
         examples = Gtk.Box(spacing=6)
         for label, key in (
@@ -1025,19 +1181,91 @@ class SettingsWindow(Gtk.ApplicationWindow):
         return page
 
     def _tutorial_page(self) -> Gtk.Widget:
-        page, content = self._page("教程", "完成安装后，无需把 VoCoType 添加为输入法。它作为 Fcitx 全局 module 增强现有输入法。")
-        card = self._card()
-        steps = [
-            ("1. 安装或修复", "在“概览与安装”点击安装/修复，然后注销并重新登录一次，让桌面会话读取用户 addon 路径。"),
-            ("2. 保留原输入法", "继续使用雾凇拼音、Rime、Mozc 或任意 Fcitx 5 输入法，不再切换到 VoCoType。"),
-            ("3. Playground 验证", "先录音 3 秒并回放，再测试真实 ASR；AI 润色需先在 AI 页面完成端点/模型测活。"),
-            ("4. 语音输入", "按住 F9 说话，松开识别；Shift+F9 使用 AI 润色。"),
-            ("5. 添加术语", "在用户词典中加入项目名、人名和专业术语。hotword 提高识别概率，aliases 保证标准拼写。"),
-            ("6. 排障", "F9 无响应时先运行 Doctor；支持包可直接附到 GitHub issue。"),
+        page, content = self._page(
+            "教程",
+            "教程会根据当前已安装的集成和“概览与安装”中的框架选择自动切换。",
+        )
+        self.tutorial_framework_title = Gtk.Label(xalign=0)
+        self.tutorial_framework_title.get_style_context().add_class(
+            "section-title"
+        )
+        content.pack_start(
+            self.tutorial_framework_title, False, False, 0
+        )
+
+        tutorial_stack = Gtk.Stack()
+        tutorial_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        tutorial_stack.set_transition_duration(120)
+        tutorial_stack.set_hexpand(True)
+        self.tutorial_framework_stack = tutorial_stack
+
+        def tutorial_panel(steps: list[tuple[str, str]]) -> Gtk.Widget:
+            card = self._card()
+            for title, description in steps:
+                card.pack_start(
+                    self._row(title, description), False, False, 0
+                )
+            return card
+
+        ibus_steps = [
+            (
+                "1. 安装 IBus 集成",
+                "在“概览与安装”选择 IBus，执行安装 / 修复，并按提示重启 IBus。",
+            ),
+            (
+                "2. 添加并切换输入法",
+                "在系统“键盘 / 输入源”中添加 VoCoType，然后切换到 VoCoType 输入法；IBus 版本不是全局插件。",
+            ),
+            (
+                "3. 选择文本输入方案",
+                "可以启用 VoCoType 内置 Rime，也可以只把它作为语音输入引擎使用。",
+            ),
+            (
+                "4. Playground 验证",
+                "先测试麦克风、回放与真实 ASR；AI 润色需先完成端点 / 模型测活。",
+            ),
+            (
+                "5. 使用语音功能",
+                "按住 F9 普通识别，Shift+F9 润色，Ctrl+F9 语音编辑；语音编辑依赖应用提供 surrounding text。",
+            ),
+            (
+                "6. 排障",
+                "F9 无响应时运行 Doctor，重点检查 IBus component、引擎进程、安装哈希与输入源是否正确。",
+            ),
         ]
-        for title, description in steps:
-            card.pack_start(self._row(title, description), False, False, 0)
-        content.pack_start(card, False, False, 0)
+        fcitx_steps = [
+            (
+                "1. 安装 Fcitx 5 集成",
+                "在“概览与安装”选择 Fcitx 5，执行安装 / 修复，并按提示重启 Fcitx 5。",
+            ),
+            (
+                "2. 不要添加 VoCoType 输入法",
+                "VoCoType 是全局 Module。继续使用雾凇拼音、Rime、Mozc 或其他现有输入法，直接按 F9 即可。",
+            ),
+            (
+                "3. Playground 验证",
+                "先测试麦克风、回放与真实 ASR；AI 润色需先完成端点 / 模型测活。",
+            ),
+            (
+                "4. 使用语音功能",
+                "按住 F9 普通识别，Shift+F9 润色，Ctrl+F9 语音编辑；语音编辑依赖应用提供 surrounding text。",
+            ),
+            (
+                "5. 添加术语",
+                "在用户词典中加入项目名、人名和专业术语；hotword 提高识别概率，aliases 统一最终拼写。",
+            ),
+            (
+                "6. 排障",
+                "F9 无响应时运行 Doctor，重点检查全局 Module、后台服务、安装哈希与旧版残留。",
+            ),
+        ]
+        tutorial_stack.add_titled(
+            tutorial_panel(ibus_steps), "ibus", "IBus"
+        )
+        tutorial_stack.add_titled(
+            tutorial_panel(fcitx_steps), "fcitx5", "Fcitx 5"
+        )
+        content.pack_start(tutorial_stack, False, True, 0)
         return page
 
     def _feedback_page(self) -> Gtk.Widget:
@@ -1065,7 +1293,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             0,
         )
 
-        self.feedback_contact = Gtk.Entry()
+        self.feedback_contact = self._text_entry()
         self.feedback_contact.set_placeholder_text("可选：邮箱或 GitHub 用户名")
         form_card.pack_start(
             self._row(
@@ -1130,7 +1358,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         advanced_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         advanced_box.set_border_width(12)
         self.feedback_use_custom_endpoint = Gtk.CheckButton(label="启用自定义端点")
-        self.feedback_endpoint = Gtk.Entry()
+        self.feedback_endpoint = self._text_entry()
         self.feedback_endpoint.set_placeholder_text("https://example.org/v1/feedback")
         self.feedback_use_custom_endpoint.connect(
             "toggled",
@@ -1172,6 +1400,12 @@ class SettingsWindow(Gtk.ApplicationWindow):
         if not isinstance(ui, dict):
             ui = {}
         feedback = self.runtime_config.get("feedback", {})
+        audio_runtime = self.runtime_config.get("audio", {})
+        if not isinstance(audio_runtime, dict):
+            audio_runtime = {}
+        self.min_recording_ms.set_value(
+            max(0, min(5000, int(audio_runtime.get("min_recording_ms", 1000))))
+        )
         self.asr_streaming_enabled.set_active(
             _as_bool(asr_streaming.get("enabled"), False)
         )
@@ -1291,6 +1525,13 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 streaming = {}
             streaming["enabled"] = self.asr_streaming_enabled.get_active()
             config["asr_streaming"] = streaming
+            audio_runtime = config.get("audio")
+            if not isinstance(audio_runtime, dict):
+                audio_runtime = {}
+            audio_runtime["min_recording_ms"] = int(
+                self.min_recording_ms.get_value()
+            )
+            config["audio"] = audio_runtime
             config["normalization"] = self._current_normalization()
             ui = config.get("ui")
             if not isinstance(ui, dict):
@@ -1317,6 +1558,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             save_runtime_config(config)
             save_fcitx_module_config(
                 {
+                    "MinRecordingMs": int(self.min_recording_ms.get_value()),
                     "PolishMinChars": int(self.slm_min_chars.get_value()),
                     "PolishTimeoutMs": int(self.slm_timeout.get_value()),
                     "EnableThinking": self.slm_thinking.get_active(),
@@ -1595,7 +1837,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 else:
                     message = (
                         "⚠️ 配置已保存，但当前系统 module 版本过旧；"
-                        "请在概览页的 Fcitx 5 页签执行安装 / 修复。"
+                        "请在概览页选择 Fcitx 5 后执行安装 / 修复。"
                     )
                 GLib.idle_add(self._set_panel_style_status, message)
                 GLib.idle_add(self._refresh_install_status)
@@ -2386,6 +2628,19 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.install_environment_status.set_text("\n".join(environment_lines))
         self.ibus_install_status.set_text(framework_text("IBus", ibus_status))
         self.fcitx_install_status.set_text(framework_text("Fcitx 5", fcitx_status))
+
+        def choice_text(status) -> str:
+            if status.state == "complete":
+                return "✅ 已安装完整"
+            if status.state == "partial":
+                return "⚠️ 已安装但不完整"
+            return "○ 尚未安装，可选择后执行安装"
+
+        self.ibus_choice_status.set_text(choice_text(ibus_status))
+        self.fcitx_choice_status.set_text(choice_text(fcitx_status))
+        self._last_ibus_status = ibus_status
+        self._last_fcitx_status = fcitx_status
+        self._update_framework_specific_content()
         return False
 
     def _open_install_dialog(self, framework: str) -> None:
@@ -2422,7 +2677,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         options_card.pack_start(self._row("Python 引导", control=bootstrap_uv), False, False, 0)
 
         rime_enabled = Gtk.CheckButton(label="在 VoCoType IBus 内集成 Rime 拼音")
-        rime_schema = Gtk.Entry()
+        rime_schema = self._text_entry()
         rime_schema.set_text("luna_pinyin")
         component_mode = Gtk.ComboBoxText()
         component_mode.append("auto", "自动（GNOME/Debian 使用系统 component）")

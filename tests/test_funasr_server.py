@@ -170,3 +170,35 @@ terms:
     assert model.hotwords == "Ghostty VoCoType"
     assert result["text"] == "Ghostty"
     term_lexicon._reset_term_lexicon_cache()
+
+
+def test_configured_minimum_audio_duration_skips_half_second_capture(tmp_path):
+    audio_path = tmp_path / "half-second.wav"
+    _write_wav(audio_path, sample_count=8000)
+    server = _server_with_model(_FailIfCalledASR())
+
+    result = server.transcribe_audio(
+        str(audio_path),
+        options={"use_punc": False, "min_audio_seconds": 1.0},
+    )
+
+    assert result["success"] is True
+    assert result["text"] == ""
+    assert result["reason"] == "audio_too_short"
+    assert result["duration"] == 0.5
+
+
+def test_configured_minimum_audio_duration_accepts_one_second_capture(tmp_path):
+    audio_path = tmp_path / "one-second.wav"
+    _write_wav(audio_path, sample_count=16000)
+    model = _RecordingASR()
+    server = _server_with_model(model)
+
+    result = server.transcribe_audio(
+        str(audio_path),
+        options={"use_punc": False, "min_audio_seconds": 1.0},
+    )
+
+    assert model.calls == 1
+    assert result["success"] is True
+    assert result["raw_text"] == "测试"

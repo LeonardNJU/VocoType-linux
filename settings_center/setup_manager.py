@@ -58,6 +58,24 @@ class IntegrationStatus:
     missing: tuple[str, ...]
 
 
+def preferred_installed_framework(
+    ibus_status: IntegrationStatus,
+    fcitx_status: IntegrationStatus,
+    selected: Framework,
+) -> Framework | None:
+    """Resolve which installed framework should drive framework-specific UI."""
+
+    ibus_installed = ibus_status.state != "absent"
+    fcitx_installed = fcitx_status.state != "absent"
+    if ibus_installed and fcitx_installed:
+        return selected if selected in {"ibus", "fcitx5"} else "fcitx5"
+    if ibus_installed:
+        return "ibus"
+    if fcitx_installed:
+        return "fcitx5"
+    return None
+
+
 def _unique_paths(paths: list[Path]) -> tuple[Path, ...]:
     return tuple(dict.fromkeys(paths))
 

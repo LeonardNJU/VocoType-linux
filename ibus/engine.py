@@ -156,10 +156,12 @@ class VoCoTypeEngine(IBus.Engine):
         self._streaming_session_id = ""
         self._streaming_enabled = False
         self._panel_style = "minimal"
+        self._min_recording_ms = 1000
         self._recording_animation_source: Optional[int] = None
         self._recording_animation_index = 0
         self._streaming_preview_text = ""
         self._recording_generation = 0
+        self._recording_started_at = 0.0
         self._edit_snapshot: Optional[SurroundingSnapshot] = None
         self._voice_edit_core = VoiceEditCore(history_limit=self.EDIT_HISTORY_LIMIT)
         self._engine_enabled = False
@@ -174,6 +176,7 @@ class VoCoTypeEngine(IBus.Engine):
         )
         self._slm_polisher = SLMPolisher(self._runtime_config.get("slm", {}))
         logger.info("IBus SLM 长句润色: enabled=%s", self._slm_polisher.enabled)
+        self._configure_recording_limits(self._runtime_config)
         self._configure_streaming_asr(self._runtime_config)
         self._configure_panel_style(self._runtime_config)
 
@@ -986,6 +989,19 @@ class VoCoTypeEngine(IBus.Engine):
         self._streaming_preview_text = ""
         self._clear_auxiliary_text()
 
+    def _configure_recording_limits(self, config: dict) -> None:
+        audio = config.get("audio", {})
+        if not isinstance(audio, dict):
+            audio = {}
+        try:
+            value = int(audio.get("min_recording_ms", 1000))
+        except (TypeError, ValueError):
+            value = 1000
+        self._min_recording_ms = max(0, min(5000, value))
+        self._asr_options["min_audio_seconds"] = (
+            self._min_recording_ms / 1000.0
+        )
+
     def _configure_streaming_asr(self, config: dict) -> None:
         cfg = dict(config.get("asr_streaming", {}) or {})
         enabled = bool(cfg.get("enabled", False))
@@ -1088,10 +1104,19 @@ class VoCoTypeEngine(IBus.Engine):
                 logger.debug("IBus 实时预览仍在退出；不等待，优先最终离线识别")
 
     def _render_streaming_preview(self, text: str, generation: int) -> bool:
+        eligible = (
+            self._min_recording_ms <= 0
+            or (
+                self._recording_started_at > 0
+                and (time.monotonic() - self._recording_started_at) * 1000.0
+                >= self._min_recording_ms
+            )
+        )
         if (
             self._is_recording
             and generation == self._recording_generation
             and not self._recording_edit_mode
+            and eligible
         ):
             self._streaming_preview_text = text
             self._render_recording_status()
@@ -1111,13 +1136,15 @@ class VoCoTypeEngine(IBus.Engine):
         )
         self._slm_polisher = SLMPolisher(latest.get("slm", {}))
         previous_polisher.release()
+        self._configure_recording_limits(latest)
         self._configure_streaming_asr(latest)
         self._configure_panel_style(latest)
         logger.info(
-            "VoCoType 运行配置已重新加载: slm_enabled=%s streaming_enabled=%s normalization_enabled=%s",
+            "VoCoType 运行配置已重新加载: slm_enabled=%s streaming_enabled=%s normalization_enabled=%s min_recording_ms=%s",
             self._slm_polisher.enabled,
             self._streaming_enabled,
             self._asr_options["normalization"].get("enabled", True),
+            self._min_recording_ms,
         )
 
     def _start_voice_edit_recording(self):
@@ -1486,6 +1513,7 @@ class VoCoTypeEngine(IBus.Engine):
                 callback=audio_callback,
             )
             self._stream.start()
+            self._recording_started_at = time.monotonic()
 
             self._start_streaming_preview(sample_rate)
 
@@ -1534,6 +1562,7 @@ class VoCoTypeEngine(IBus.Engine):
             self._is_recording = False
             self._recording_long_mode = False
             self._recording_edit_mode = False
+            self._recording_started_at = 0.0
             self._clear_recording_status()
             self._update_preedit(f"❌ 录音失败: {e}")
             GLib.timeout_add(2000, self._clear_preedit)
@@ -1562,6 +1591,7 @@ class VoCoTypeEngine(IBus.Engine):
         self._is_recording = False
         self._recording_long_mode = False
         self._recording_edit_mode = False
+        self._recording_started_at = 0.0
         self._stop_streaming_preview()
         self._clear_recording_status()
         self._clear_preedit()
@@ -1598,6 +1628,7 @@ class VoCoTypeEngine(IBus.Engine):
         self._is_recording = False
         self._recording_long_mode = False
         self._recording_edit_mode = False
+        self._recording_started_at = 0.0
         self._stop_streaming_preview()
         self._clear_recording_status()
         self._edit_snapshot = None
@@ -1629,9 +1660,16 @@ class VoCoTypeEngine(IBus.Engine):
             mode_name = "normal"
         logger.info("录音完成，时长: %.2f秒, mode=%s", duration, mode_name)
 
-        # 检查是否太短
-        if duration < 0.3:
+        # Reject short captures before final ASR. This guards against key noise
+        # and tiny buffers being decoded as random letters or syllables.
+        if (
+            self._min_recording_ms > 0
+            and duration * 1000.0 < self._min_recording_ms
+        ):
             self._clear_preedit()
+            self._show_nonintrusive_error(
+                f"录音过短（至少 {self._min_recording_ms} ms）"
+            )
             if long_mode or edit_mode:
                 self._slm_polisher.release()
             return

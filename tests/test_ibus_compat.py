@@ -68,3 +68,25 @@ def test_ibus_release_does_not_wait_for_online_tail_flush():
     )[0]
     assert "thread.join(timeout=0.1)" in stop_body
     assert "flush=True" not in stop_body
+
+
+def test_ibus_rejects_short_recordings_and_hides_early_streaming_partials():
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "ibus/engine.py").read_text(
+        encoding="utf-8"
+    )
+    assert "self._min_recording_ms = 1000" in source
+    assert 'audio.get("min_recording_ms", 1000)' in source
+    assert 'self._asr_options["min_audio_seconds"]' in source
+    final_body = source.split("    def _stop_and_transcribe", 1)[1].split(
+        "    def _update_preedit", 1
+    )[0]
+    assert "duration * 1000.0 < self._min_recording_ms" in final_body
+    assert "录音过短（至少 {self._min_recording_ms} ms）" in final_body
+    preview_body = source.split("    def _render_streaming_preview", 1)[1].split(
+        "    def _reload_runtime_config", 1
+    )[0]
+    assert "eligible = (" in preview_body
+    assert "time.monotonic() - self._recording_started_at" in preview_body
+    assert "and eligible" in preview_body

@@ -314,6 +314,7 @@ void VoCoTypeModule::applyConfig() {
     ptt_key_sym_ = ptt_key.sym();
     ptt_key_name_ = ptt_key.toString();
     ptt_hold_threshold_ms_ = config_.pttHoldThresholdMs.value();
+    min_recording_ms_ = std::max(0, config_.minRecordingMs.value());
     long_mode_modifier_ = modifier_state;
     polish_min_chars_ = std::max(0, config_.polishMinChars.value());
     polish_timeout_ms_ = std::max(1000, config_.polishTimeoutMs.value());
@@ -848,6 +849,7 @@ void VoCoTypeModule::startRecording(
     bool long_mode,
     bool edit_mode,
     const VoiceEditSnapshot &edit_snapshot) {
+    edit_hint_timer_.reset();
     cancelActiveVoiceEditTask();
     cancelActivePolishTask();
     if (is_recording_ || !ic || !ic->hasFocus()) {
@@ -932,6 +934,7 @@ void VoCoTypeModule::startRecording(
     recorder_lock_fd_ = recorder_lock_fd;
     recorder_output_state_ = std::make_shared<RecorderOutputState>();
     is_recording_ = true;
+    recording_started_us_ = fcitx::now(CLOCK_MONOTONIC);
     ptt_pressed_ = true;
     ptt_suppressed_ = false;
     streaming_preview_visible_ = false;
@@ -1030,6 +1033,19 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
         return;
     }
 
+    const uint64_t stopped_at_us = fcitx::now(CLOCK_MONOTONIC);
+    const uint64_t elapsed_us =
+        recording_started_us_ > 0 && stopped_at_us >= recording_started_us_
+            ? stopped_at_us - recording_started_us_
+            : 0;
+    const bool recording_too_short =
+        transcribe && min_recording_ms_ > 0 &&
+        elapsed_us < static_cast<uint64_t>(min_recording_ms_) * 1000ULL;
+    if (recording_too_short) {
+        transcribe = false;
+    }
+    recording_started_us_ = 0;
+
     // A settled physical PTT release ends the listening UI. The recorder
     // process and ASR continue off the Fcitx event thread after this point.
     stopPanelAnimation();
@@ -1054,7 +1070,13 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
 
     auto ic_ref = active_ic_;
     auto *ic = ic_ref.get();
-    if (ic && transcribe && ic->hasFocus()) {
+    if (ic && recording_too_short && ic->hasFocus()) {
+        showTemporaryMessage(
+            ic,
+            "⚠️ 录音过短（至少 " + std::to_string(min_recording_ms_) +
+                " ms）");
+        active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
+    } else if (ic && transcribe && ic->hasFocus()) {
         // Release is a synchronous UI boundary: never leave the recording
         // animation visible while the recorder process is flushing.
         if (edit_mode) {
@@ -1670,6 +1692,14 @@ void VoCoTypeModule::showStreamingPreview(
     fcitx::InputContext *ic, const std::string &text) {
     if (!ic || text.empty()) {
         return;
+    }
+    if (min_recording_ms_ > 0) {
+        const uint64_t now_us = fcitx::now(CLOCK_MONOTONIC);
+        if (recording_started_us_ == 0 || now_us < recording_started_us_ ||
+            now_us - recording_started_us_ <
+                static_cast<uint64_t>(min_recording_ms_) * 1000ULL) {
+            return;
+        }
     }
     streaming_preview_visible_ = true;
     streaming_preview_text_ = text;

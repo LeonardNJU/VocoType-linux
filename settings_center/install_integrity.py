@@ -14,20 +14,24 @@ from vocotype_version import __version__
 KEY_FILES = (
     "vocotype_version.py",
     "app/config.py",
+    "app/funasr_server.py",
     "app/streaming_asr.py",
     "app/slm_polisher.py",
     "fcitx5/backend/fcitx5_server.py",
     "fcitx5/backend/audio_recorder.py",
     "ibus/engine.py",
     "settings_center/application.py",
+    "settings_center/config_service.py",
     "settings_center/doctor.py",
     "settings_center/playground_service.py",
+    "settings_center/setup_manager.py",
     "settings_center/install_integrity.py",
     "settings_center/version_check.py",
 )
 
 FCITX_BINARY_MARKERS = (
     b"PanelStyle",
+    b"MinRecordingMs",
     "🎤 录音中...".encode("utf-8"),
     "🟢 正在听".encode("utf-8"),
     b"Suppressed duplicate VoCoType recording start",
