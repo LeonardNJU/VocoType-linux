@@ -23,7 +23,7 @@ def debian_values(meta: dict[str, object]) -> dict[str, str]:
     if includes_fcitx:
         build += ["cmake", "g++", "pkg-config", "libfcitx5core-dev", "nlohmann-json3-dev"]
     depends = [
-        "${shlibs:Depends}", "${misc:Depends}", "python3 (>= 3.10)",
+        "${shlibs:Depends}", "${misc:Depends}", "python3 (>= 3.11)",
         "python3-gi", "python3-yaml", "gir1.2-gtk-3.0", "libportaudio2",
         "pkexec | policykit-1",
     ]

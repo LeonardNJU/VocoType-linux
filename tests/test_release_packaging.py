@@ -676,6 +676,8 @@ def test_native_packages_include_minimal_settings_runtime_dependencies(tmp_path:
         control = _render_package_metadata("debian", flavor, tmp_path)
         spec = _render_package_metadata("rpm", flavor, tmp_path)
         pkgbuild = _render_package_metadata("arch", flavor, tmp_path)
+        assert "python3 (>= 3.11)" in control
+        assert "python3 (>= 3.10)" not in control
         assert "python3-gi" in control and "python3-yaml" in control
         assert "pkexec | policykit-1" in control
         assert "python3-gobject" in spec and "python3-pyyaml" in spec
