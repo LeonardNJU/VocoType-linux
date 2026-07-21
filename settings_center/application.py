@@ -1103,28 +1103,15 @@ class SettingsWindow(Gtk.ApplicationWindow):
             paths = installation_paths()
             fcitx_module_present = any(path.is_file() for path in paths.fcitx_modules)
             backend_service_present = any(path.is_file() for path in paths.fcitx_services)
+            details = ["✅ VoCoType 配置已保存。"]
             if backend_service_present:
                 backend_ok, backend_message = restart_backend()
-            else:
-                backend_ok, backend_message = True, "未安装 Fcitx 后台服务"
+                details.append(
+                    "Fcitx 后台服务已重启" if backend_ok else backend_message
+                )
             if fcitx_module_present and shutil.which("fcitx5"):
                 fcitx_ok, fcitx_message = restart_fcitx()
-            else:
-                fcitx_ok, fcitx_message = True, "未启用 Fcitx module"
-            details = [
-                "配置已同步写入 IBus 与 Fcitx。",
-                (
-                    "Fcitx 后台服务已重启"
-                    if backend_service_present and backend_ok
-                    else backend_message
-                ),
-                (
-                    "Fcitx 5 已重载"
-                    if fcitx_module_present and fcitx_ok
-                    else fcitx_message
-                ),
-                "IBus 会在下一次按下录音键时自动重载配置。",
-            ]
+                details.append("Fcitx 5 已重载" if fcitx_ok else fcitx_message)
             GLib.idle_add(
                 self._message,
                 "保存成功",
@@ -2035,7 +2022,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         content = dialog.get_content_area()
         options_card = self._card()
         purge_runtime = Gtk.CheckButton(label="同时删除该 integration 的 Python 虚拟环境与运行缓存（共享 ASR 模型保留）")
-        remove_user_data = Gtk.CheckButton(label="同时删除共享配置、术语和音频设置")
+        remove_user_data = Gtk.CheckButton(label="同时删除 VoCoType 用户配置、术语和音频设置")
         options_card.pack_start(
             self._row(
                 "运行环境",
@@ -2049,7 +2036,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         options_card.pack_start(
             self._row(
                 "共享用户数据",
-                "此选项会影响 IBus 与 Fcitx 5；默认关闭。",
+                "此选项会删除 VoCoType 的统一用户配置；所有已安装 integration 都会受影响。默认关闭。",
                 remove_user_data,
             ),
             False,

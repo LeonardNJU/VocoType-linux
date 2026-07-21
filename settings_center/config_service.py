@@ -67,8 +67,9 @@ def load_runtime_config() -> dict[str, Any]:
     """Load the most complete runtime config and merge it with defaults."""
 
     merged = copy.deepcopy(DEFAULT_CONFIG)
-    # IBus first, Fcitx second: the Fcitx backend is the primary current UI
-    # target, while saving keeps both files synchronized.
+    # Integration-specific runtime files are adapters for one logical
+    # VoCoType configuration. Prefer the most recently relevant adapter while
+    # keeping this implementation detail out of user-facing messages.
     for path in (ibus_config_path(), fcitx_backend_path()):
         try:
             merged = _merge_dict(merged, load_json_mapping(path))
@@ -97,7 +98,7 @@ def atomic_write_json(path: Path, payload: Mapping[str, Any], *, mode: int = 0o6
 
 
 def save_runtime_config(config: Mapping[str, Any]) -> tuple[Path, Path]:
-    """Atomically synchronize IBus and Fcitx runtime configurations."""
+    """Persist one VoCoType configuration for all runtime adapters."""
 
     payload = copy.deepcopy(dict(config))
     for path in (ibus_config_path(), fcitx_backend_path()):

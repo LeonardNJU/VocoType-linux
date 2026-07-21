@@ -27,7 +27,7 @@ VoCoType 使用 WeTextProcessing 中文 FST ITN 和产品级数字规则。运�
 }
 ```
 
-Fcitx 与 IBus 共用这组语义。设置中心保存时会同步写入两份运行配置。
+这组语义属于 VoCoType 配置，与当前使用 IBus 还是 Fcitx 5 无关。
 
 ## 开关语义
 

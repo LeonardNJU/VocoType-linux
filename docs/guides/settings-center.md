@@ -1,6 +1,6 @@
 # VoCoType 图形设置中心
 
-VoCoType 设置中心统一管理 Fcitx 5 与 IBus 的运行配置，并提供安装、卸载、预览、诊断、日志打包和反馈入口。
+VoCoType 设置中心管理统一的 VoCoType 配置，并提供 IBus 与 Fcitx 5 integration 的安装、卸载、预览、诊断、日志打包和反馈入口。
 
 ## 启动
 
@@ -75,19 +75,12 @@ AI 区域默认置灰。必须先在“AI 润色”页启用功能、配置 endp
 - 启用/关闭润色；
 - 远程 OpenAI-compatible 或本地按需 provider；
 - endpoint、模型、最少字符数和流式空闲超时；
-- F9 是否默认润色；
+- 固定快捷键语义：F9 直出识别，Shift+F9 润色；
 - reasoning/thinking；
 - 直接 API Key 或环境变量凭据；
 - 端点 / 本地模型测活；测活结果用于解锁 Playground 的 AI 试用。
 
-运行配置同步写入：
-
-```text
-~/.config/vocotype/fcitx5-backend.json
-~/.config/vocotype/ibus.json
-```
-
-文件权限为 `0600`。直接 API Key 留空时保留旧值；可通过专门选项清除。
+VoCoType 配置保存在 `~/.config/vocotype/`，文件权限为 `0600`。底层 integration 适配文件属于实现细节，设置中心不会把它们表述为安装了另一套输入法框架。直接 API Key 留空时保留旧值；可通过专门选项清除。
 
 ### Doctor
 
@@ -96,7 +89,7 @@ Doctor 会继续执行所有检查，而不是在第一个错误处停止。当�
 - Python 版本与核心依赖；
 - Fcitx 5、全局 module 和旧版输入法条目；
 - systemd 用户服务与 Unix socket ping；
-- IBus/Fcitx JSON 配置；
+- VoCoType 运行配置；
 - 用户词典 YAML；
 - 麦克风输入设备；
 - ITN 实际预览。

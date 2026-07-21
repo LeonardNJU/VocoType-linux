@@ -918,7 +918,7 @@ class VoCoTypeEngine(IBus.Engine):
         self._slm_polisher = SLMPolisher(latest.get("slm", {}))
         previous_polisher.release()
         logger.info(
-            "IBus 运行配置已重新加载: slm_enabled=%s normalization_enabled=%s",
+            "VoCoType 运行配置已重新加载: slm_enabled=%s normalization_enabled=%s",
             self._slm_polisher.enabled,
             self._asr_options["normalization"].get("enabled", True),
         )

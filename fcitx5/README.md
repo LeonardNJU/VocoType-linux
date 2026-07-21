@@ -287,6 +287,6 @@ VoCoType module 不处理 Rime 普通按键。请直接按 `fcitx5-rime` 的方�
 bash fcitx5/scripts/uninstall.sh
 ```
 
-默认保留 `~/.local/share/vocotype-fcitx5/.venv`、共享 ModelScope 模型缓存和 `~/.config/vocotype/`。使用 `--purge-runtime` 删除 Fcitx 的虚拟环境与运行缓存；只有明确使用 `--remove-user-data` 时才会删除 IBus 与 Fcitx 共用的术语、hotword、音频和 AI 配置。使用 `--keep-system-integration` 才会显式保留源码安装器管理的系统 addon。
+默认保留 `~/.local/share/vocotype-fcitx5/.venv`、共享 ModelScope 模型缓存和 `~/.config/vocotype/`。使用 `--purge-runtime` 删除 Fcitx 的虚拟环境与运行缓存；只有明确使用 `--remove-user-data` 时才会删除 VoCoType 的术语、hotword、音频和 AI 配置。使用 `--keep-system-integration` 才会显式保留源码安装器管理的系统 addon。
 
 若 module 来自 DEB、RPM 或 Arch 包，卸载脚本不会直接删除 `/usr/lib*/fcitx5/vocotype.so`；请按设置中心显示的命令卸载 `vocotype-linux` 软件包。
