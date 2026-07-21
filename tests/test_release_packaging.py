@@ -61,6 +61,7 @@ def test_repository_layout_groups_tools_by_responsibility():
         "installers/uninstall-integration.sh",
         "fcitx5/scripts/install.sh",
         "installers/check-python-runtime.py",
+        "installers/migrate-fcitx-profile.py",
         "packaging/tools/build-release.py",
         "packaging/tests/smoke-installed-package.sh",
         "packaging/tests/smoke-ibus-registry.sh",

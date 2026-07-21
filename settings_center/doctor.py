@@ -22,6 +22,10 @@ from .config_service import (
     terms_path,
 )
 from app.download_models import inspect_required_models
+from app.fcitx_session import (
+    legacy_fcitx_profile_references,
+    parse_fcitx_addon_states,
+)
 from .setup_manager import installation_paths
 
 
@@ -297,34 +301,39 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
             )
         try:
             payload = json.loads(result.stdout)
-            rows = payload.get("data", [[]])[0]
-            loaded_names = {
-                str(row[0])
-                for row in rows
-                if isinstance(row, list) and row
-            }
-        except (json.JSONDecodeError, AttributeError, IndexError, TypeError) as exc:
+            addon_states = parse_fcitx_addon_states(payload)
+            if addon_states is None:
+                raise ValueError("GetAddons 返回结构不完整")
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
             return _fail(
                 "fcitx_loaded",
                 "Fcitx addon 加载",
                 "无法解析 Fcitx GetAddons 响应",
                 f"{exc}: {result.stdout[:2000]}",
             )
-        if "vocotype" in loaded_names:
+        if addon_states.get("vocotype") is True:
             return _pass(
                 "fcitx_loaded",
                 "Fcitx addon 加载",
-                "当前 Fcitx 实例已实际创建 VoCoType 全局 addon",
+                "当前 Fcitx 实例已启用 VoCoType 全局 addon",
             )
         installed = "\n".join(
             str(path)
             for path in [*paths.fcitx_modules, *paths.fcitx_addons]
             if path.is_file()
         )
+        if "vocotype" in addon_states:
+            return _fail(
+                "fcitx_loaded",
+                "Fcitx addon 加载",
+                "VoCoType addon 已被发现，但当前处于禁用状态",
+                installed,
+                "重新运行安装 / 修复；安装器会自动启用 addon 并重启 Fcitx 5。",
+            )
         return _fail(
             "fcitx_loaded",
             "Fcitx addon 加载",
-            "文件存在，但当前 Fcitx 实例没有创建 VoCoType addon",
+            "文件存在，但当前 Fcitx 实例没有发现 VoCoType addon",
             installed,
             "重新运行安装 / 修复并完成 Polkit 更新；然后重启 Fcitx 5。",
         )
@@ -357,16 +366,25 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
 
     def legacy_check() -> DoctorCheck:
         legacy = Path.home() / ".local/share/fcitx5/inputmethod/vocotype.conf"
+        profile = Path.home() / ".config/fcitx5/profile"
+        profile_references = legacy_fcitx_profile_references(profile)
         if ibus_vocotype_installed and not fcitx_vocotype_installed:
             return _info("legacy_entry", "旧版输入法条目", "IBus-only 环境无需检查")
-        if not legacy.exists():
+        if not legacy.exists() and not profile_references:
             return _pass("legacy_entry", "旧版输入法条目", "未发现旧版独立输入法条目")
+        details = []
+        if legacy.exists():
+            details.append(str(legacy))
+        if profile_references:
+            details.append(
+                f"{profile}: " + ", ".join(profile_references)
+            )
         return _warn(
             "legacy_entry",
             "旧版输入法条目",
-            "仍存在旧版 VoCoType 输入法描述",
-            str(legacy),
-            f"删除 {legacy} 后重启 Fcitx。",
+            "Fcitx 仍引用已经废弃的独立 VoCoType 输入法",
+            "\n".join(details),
+            "重新运行安装 / 修复；安装器会备份 profile、恢复 Rime 并清理旧条目。",
         )
 
     checks.append(_check("legacy_entry", "旧版输入法条目", legacy_check))

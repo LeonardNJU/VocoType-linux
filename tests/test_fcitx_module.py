@@ -42,6 +42,7 @@ def test_installer_builds_module_and_removes_legacy_input_method():
     ).read_text(encoding="utf-8")
     assert '"$PROJECT_DIR/fcitx5/module/build"' in installer
     assert 'rm -f "$HOME/.local/share/fcitx5/inputmethod/vocotype.conf"' in installer
+    assert 'installers/migrate-fcitx-profile.py' in installer
     assert "uv pip install pyrime" not in installer
     assert '"$PYTHON" -m pip install pyrime' not in installer
 

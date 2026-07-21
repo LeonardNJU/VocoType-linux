@@ -1030,10 +1030,11 @@ def test_setup_manager_does_not_launch_terminal_emulators():
 
 
 @pytest.mark.parametrize(
-    ("addon_rows", "expected_status"),
+    ("addon_rows", "expected_status", "expected_summary"),
     [
-        ([['vocotype', 'VoCoType Voice Input', '', 3, True, True]], 'pass'),
-        ([['clipboard', 'Clipboard', '', 3, True, True]], 'fail'),
+        ([['vocotype', 'VoCoType Voice Input', '', 3, True, True]], 'pass', '已启用'),
+        ([['vocotype', 'VoCoType Voice Input', '', 3, True, False]], 'fail', '禁用状态'),
+        ([['clipboard', 'Clipboard', '', 3, True, True]], 'fail', '没有发现'),
     ],
 )
 def test_doctor_uses_live_fcitx_getaddons_for_loaded_state(
@@ -1041,6 +1042,7 @@ def test_doctor_uses_live_fcitx_getaddons_for_loaded_state(
     tmp_path: Path,
     addon_rows: list[list[object]],
     expected_status: str,
+    expected_summary: str,
 ):
     import settings_center.doctor as doctor_module
 
@@ -1088,8 +1090,7 @@ def test_doctor_uses_live_fcitx_getaddons_for_loaded_state(
     monkeypatch.setattr(doctor_module, '_run', fake_run)
     check = next(item for item in run_doctor() if item.check_id == 'fcitx_loaded')
     assert check.status == expected_status
-    if expected_status == 'fail':
-        assert '没有创建 VoCoType addon' in check.summary
+    assert expected_summary in check.summary
 
 
 def test_doctor_reports_polkit_readiness(monkeypatch: pytest.MonkeyPatch):

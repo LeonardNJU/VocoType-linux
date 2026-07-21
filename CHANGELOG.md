@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fcitx repair now removes stale legacy `vocotype` input-method references from the user profile, restores Rime as the group default when available, backs up the original profile, and distinguishes a discovered addon from an enabled addon before reporting success.
 - Ubuntu 22.04/24.04 now install a Python 3.12-compatible PyGObject release without requiring the newer `girepository-2.0` toolchain.
 - IBus 1.5.26 no longer fails to import when optional `OSK` and `SYNC_PROCESS_KEY` capability constants are absent.
 - The system-Python installer validates the complete FunASR ONNX runtime before installing the IBus launcher.

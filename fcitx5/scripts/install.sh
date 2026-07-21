@@ -926,6 +926,15 @@ if ! systemctl --user enable --now vocotype-fcitx5-backend.service; then
 fi
 echo "✓ 后台服务已启用并启动"
 
+echo ""
+emit_install_progress 92 "迁移旧版 Fcitx 输入法配置"
+echo "检查旧版独立 VoCoType 输入法残留..."
+if ! PYTHONPATH="$INSTALL_DIR${PYTHONPATH:+:$PYTHONPATH}" \
+    "$PYTHON" "$PROJECT_DIR/installers/migrate-fcitx-profile.py"; then
+    echo "错误: 无法安全迁移旧版 Fcitx profile，安装已停止。" >&2
+    exit 1
+fi
+
 if [ "$PYTHON" = "$PROJECT_DIR/.venv/bin/python" ]; then
     echo "⚠️  当前选择的是项目虚拟环境。若重命名或删除仓库目录，需要重新安装或改用用户级环境。"
 fi
