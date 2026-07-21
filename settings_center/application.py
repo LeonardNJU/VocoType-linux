@@ -2341,11 +2341,15 @@ class SettingsWindow(Gtk.ApplicationWindow):
                     config.pop("verified_fingerprint", None)
                     config.pop("verified_at", None)
                     self._persist_slm_config(config)
-                except Exception:
-                    pass
-                self.slm_test_status.set_text(
-                    "⚠️ AI 配置已更改，功能已自动关闭；重新打开开关即可测活。"
-                )
+                except Exception as exc:  # noqa: BLE001
+                    self.slm_test_status.set_text(
+                        f"❌ AI 配置已更改，但无法保存自动关闭状态：{exc}"
+                    )
+                else:
+                    self._reload_backend_after_slm_change()
+                    self.slm_test_status.set_text(
+                        "⚠️ AI 配置已更改，功能已自动关闭；重新打开开关即可测活。"
+                    )
         if self.playground_ai_controls is not None:
             self._update_playground_slm_gate()
 
