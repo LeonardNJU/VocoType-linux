@@ -11,6 +11,7 @@ Options:
   --libexecdir DIR      Executable helper directory (default: PREFIX/libexec)
   --build-dir DIR       CMake build directory (default: build/package-fcitx)
   --skip-module-build   Stage files without compiling the Fcitx module
+  --require-streaming-bundle  Fail if the native 2-pass runtime is absent
 EOF
 }
 
@@ -20,6 +21,7 @@ LIBDIR="lib"
 LIBEXECDIR=""
 BUILD_DIR=""
 SKIP_MODULE_BUILD=false
+REQUIRE_STREAMING_BUNDLE=${VOCOTYPE_REQUIRE_STREAMING_BUNDLE:-0}
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --destdir) DESTDIR="${2:?missing destination}"; shift 2 ;;
@@ -28,6 +30,7 @@ while [[ $# -gt 0 ]]; do
     --libexecdir) LIBEXECDIR="${2:?missing libexecdir}"; shift 2 ;;
     --build-dir) BUILD_DIR="${2:?missing build dir}"; shift 2 ;;
     --skip-module-build) SKIP_MODULE_BUILD=true; shift ;;
+    --require-streaming-bundle) REQUIRE_STREAMING_BUNDLE=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -66,6 +69,36 @@ install -Dm755 "$PROJECT_DIR/packaging/bin/vocotype-settings" "$DESTDIR$PREFIX/b
 install -Dm755 "$PROJECT_DIR/packaging/bin/vocotype-fcitx5-backend" "$DESTDIR$PREFIX/bin/vocotype-fcitx5-backend"
 install -Dm755 "$PROJECT_DIR/packaging/bin/vocotype-fcitx5-recorder" "$DESTDIR$PREFIX/bin/vocotype-fcitx5-recorder"
 install -Dm755 "$PROJECT_DIR/packaging/bin/vocotype-ibus-engine" "$DESTDIR$LIBEXECDIR/vocotype-ibus-engine"
+
+streaming_bundle=${VOCOTYPE_STREAMING_BUNDLE_DIR:-"$PROJECT_DIR/native/streaming_worker/build/bundle"}
+if [[ -x "$streaming_bundle/bin/vocotype-streaming-worker" && -d "$streaming_bundle/lib" ]]; then
+  if [[ "$LIBDIR" == /* ]]; then
+    runtime_streaming_libdir="$LIBDIR/vocotype"
+  else
+    runtime_streaming_libdir="$PREFIX/$LIBDIR/vocotype"
+  fi
+  streaming_libdir="$DESTDIR$runtime_streaming_libdir"
+  mkdir -p "$streaming_libdir" "$DESTDIR$LIBEXECDIR"
+  install -m755 "$streaming_bundle/bin/vocotype-streaming-worker" \
+    "$streaming_libdir/vocotype-streaming-worker"
+  cp -a "$streaming_bundle/lib/." "$streaming_libdir/"
+  if [[ -d "$streaming_bundle/share/licenses" ]]; then
+    mkdir -p "$DESTDIR$PREFIX/share/licenses/vocotype-linux/native-streaming"
+    cp -a "$streaming_bundle/share/licenses/." \
+      "$DESTDIR$PREFIX/share/licenses/vocotype-linux/native-streaming/"
+  fi
+  if [[ "$LIBEXECDIR/vocotype-streaming-worker" != "$runtime_streaming_libdir/vocotype-streaming-worker" ]]; then
+    streaming_link_target=$(realpath -m --relative-to="$LIBEXECDIR" \
+      "$runtime_streaming_libdir/vocotype-streaming-worker")
+    ln -sfn "$streaming_link_target" \
+      "$DESTDIR$LIBEXECDIR/vocotype-streaming-worker"
+  fi
+elif [[ "$REQUIRE_STREAMING_BUNDLE" == "1" ]]; then
+  echo "Required native streaming bundle is missing: $streaming_bundle" >&2
+  exit 1
+else
+  echo "Native streaming bundle not present; package will keep 2-pass preview unavailable" >&2
+fi
 install -Dm644 "$PROJECT_DIR/fcitx5/data/vocotype.conf" "$DESTDIR$PREFIX/share/fcitx5/addon/vocotype.conf"
 install -Dm644 "$PROJECT_DIR/packaging/systemd/vocotype-fcitx5-backend.service" "$DESTDIR$PREFIX/lib/systemd/user/vocotype-fcitx5-backend.service"
 install -Dm644 "$PROJECT_DIR/data/applications/io.github.LeonardNJU.VoCoType.Settings.desktop" "$DESTDIR$PREFIX/share/applications/io.github.LeonardNJU.VoCoType.Settings.desktop"

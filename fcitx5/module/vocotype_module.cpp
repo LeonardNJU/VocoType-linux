@@ -12,8 +12,12 @@
 #include <mutex>
 #include <sstream>
 #include <thread>
+#include <utility>
 
+#include <fcntl.h>
 #include <signal.h>
+#include <sys/file.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -36,6 +40,7 @@
 #include <fcitx/inputpanel.h>
 #include <fcitx/text.h>
 #include <fcitx/userinterface.h>
+#include <nlohmann/json.hpp>
 
 namespace {
 
@@ -112,28 +117,54 @@ std::string stripTrailingCommitPeriod(std::string text) {
     return text;
 }
 
-std::string stopRecorderProcess(pid_t pid, int stdin_fd, FILE *stdout_file) {
+int acquireRecorderLock() {
+    std::string lock_path;
+    if (const char *runtime_dir = std::getenv("XDG_RUNTIME_DIR");
+        runtime_dir && runtime_dir[0] == '/') {
+        lock_path = std::string(runtime_dir) + "/vocotype-fcitx5-recorder.lock";
+    } else {
+        lock_path = "/tmp/vocotype-fcitx5-recorder-" +
+                    std::to_string(static_cast<unsigned long>(getuid())) + ".lock";
+    }
+
+    int flags = O_RDWR | O_CREAT | O_CLOEXEC;
+#ifdef O_NOFOLLOW
+    flags |= O_NOFOLLOW;
+#endif
+    const int fd = open(lock_path.c_str(), flags, 0600);
+    if (fd < 0) {
+        return -1;
+    }
+    struct stat metadata {};
+    if (fstat(fd, &metadata) != 0 || !S_ISREG(metadata.st_mode) ||
+        metadata.st_uid != getuid() || flock(fd, LOCK_EX | LOCK_NB) != 0) {
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+std::string finishRecorderProcess(
+    pid_t pid, int stdin_fd, int lock_fd, std::thread output_thread,
+    const std::shared_ptr<vocotype::RecorderOutputState> &output_state) {
     if (stdin_fd >= 0) {
         close(stdin_fd);
     }
-
-    std::string audio_path;
-    if (stdout_file) {
-        char buffer[1024];
-        if (fgets(buffer, sizeof(buffer), stdout_file) != nullptr) {
-            audio_path = buffer;
-            while (!audio_path.empty() &&
-                   (audio_path.back() == '\n' || audio_path.back() == '\r')) {
-                audio_path.pop_back();
-            }
-        }
-        fclose(stdout_file);
+    if (output_thread.joinable()) {
+        output_thread.join();
     }
-
     if (pid > 0) {
         int status = 0;
         while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
         }
+    }
+    std::string audio_path;
+    if (output_state) {
+        std::lock_guard<std::mutex> lock(output_state->mutex);
+        audio_path = output_state->audio_path;
+    }
+    if (lock_fd >= 0) {
+        close(lock_fd);
     }
     return audio_path;
 }
@@ -230,9 +261,12 @@ VoCoTypeModule::~VoCoTypeModule() {
     clearPendingEditReplacement();
     edit_hint_timer_.reset();
     stopPanelAnimation();
-    if (recorder_pid_ > 0 || recorder_stdout_ || recorder_stdin_fd_ >= 0) {
-        std::string audio_path = stopRecorderProcess(
-            recorder_pid_, recorder_stdin_fd_, recorder_stdout_);
+    if (recorder_pid_ > 0 || recorder_stdin_fd_ >= 0 ||
+        recorder_output_thread_.joinable()) {
+        std::string audio_path = finishRecorderProcess(
+            recorder_pid_, recorder_stdin_fd_, recorder_lock_fd_,
+            std::move(recorder_output_thread_), recorder_output_state_);
+        recorder_lock_fd_ = -1;
         if (!audio_path.empty()) {
             std::remove(audio_path.c_str());
         }
@@ -764,6 +798,7 @@ void VoCoTypeModule::armPendingRecordingStart(
 
 void VoCoTypeModule::cancelPendingRecordingStart() {
     ptt_pressed_ = false;
+    ptt_suppressed_ = false;
     pending_long_mode_ = false;
     pending_edit_mode_ = false;
     pending_edit_snapshot_ = VoiceEditSnapshot();
@@ -783,6 +818,8 @@ void VoCoTypeModule::armPendingPttRelease(fcitx::InputContext *ic) {
             auto *ic_ptr = ic_ref.get();
             if (is_recording_) {
                 stopAndTranscribe();
+            } else if (ptt_suppressed_) {
+                cancelPendingRecordingStart();
             } else if (ptt_pressed_ && ic_ptr && ic_ptr->hasFocus()) {
                 replayShortTapAsRegularKey(ic_ptr);
             } else {
@@ -821,15 +858,28 @@ void VoCoTypeModule::startRecording(
         return;
     }
 
+    const int recorder_lock_fd = acquireRecorderLock();
+    if (recorder_lock_fd < 0) {
+        // A second module instance or a repeated key stream may observe the
+        // same physical F9 press. Consume it until release, but never spawn a
+        // second recorder or replay F9 into the client.
+        ptt_suppressed_ = true;
+        ptt_pressed_ = true;
+        FCITX_WARN() << "Suppressed duplicate VoCoType recording start";
+        return;
+    }
+
     int stdin_pipe[2];
     int stdout_pipe[2];
     if (pipe(stdin_pipe) != 0) {
+        close(recorder_lock_fd);
         showError(ic, "启动录音失败");
         return;
     }
     if (pipe(stdout_pipe) != 0) {
         close(stdin_pipe[0]);
         close(stdin_pipe[1]);
+        close(recorder_lock_fd);
         showError(ic, "启动录音失败");
         return;
     }
@@ -840,6 +890,7 @@ void VoCoTypeModule::startRecording(
         close(stdin_pipe[1]);
         close(stdout_pipe[0]);
         close(stdout_pipe[1]);
+        close(recorder_lock_fd);
         showError(ic, "启动录音失败");
         return;
     }
@@ -851,6 +902,7 @@ void VoCoTypeModule::startRecording(
         close(stdin_pipe[1]);
         close(stdout_pipe[0]);
         close(stdout_pipe[1]);
+        close(recorder_lock_fd);
         execl(recorder_launcher_path_.c_str(), recorder_launcher_path_.c_str(),
               static_cast<char *>(nullptr));
         _exit(127);
@@ -864,6 +916,7 @@ void VoCoTypeModule::startRecording(
         close(stdin_pipe[1]);
         kill(pid, SIGTERM);
         waitpid(pid, nullptr, 0);
+        close(recorder_lock_fd);
         showError(ic, "启动录音失败");
         return;
     }
@@ -876,9 +929,12 @@ void VoCoTypeModule::startRecording(
                  " context_bytes=" + std::to_string(edit_snapshot.text.size()));
     recorder_pid_ = pid;
     recorder_stdin_fd_ = stdin_pipe[1];
-    recorder_stdout_ = stdout_file;
+    recorder_lock_fd_ = recorder_lock_fd;
+    recorder_output_state_ = std::make_shared<RecorderOutputState>();
     is_recording_ = true;
     ptt_pressed_ = true;
+    ptt_suppressed_ = false;
+    streaming_preview_visible_ = false;
     pending_long_mode_ = false;
     pending_edit_mode_ = false;
     pending_edit_snapshot_ = VoiceEditSnapshot();
@@ -886,6 +942,53 @@ void VoCoTypeModule::startRecording(
     recording_edit_mode_ = edit_mode;
     recording_edit_snapshot_ = edit_snapshot;
     active_ic_ = ic->watch();
+    const uint64_t generation = ++recording_generation_;
+    auto output_state = recorder_output_state_;
+    auto ic_ref = active_ic_;
+    recorder_output_thread_ = std::thread(
+        [this, stdout_file, output_state, ic_ref, generation]() {
+            char buffer[65536];
+            while (fgets(buffer, sizeof(buffer), stdout_file) != nullptr) {
+                std::string line(buffer);
+                while (!line.empty() &&
+                       (line.back() == '\n' || line.back() == '\r')) {
+                    line.pop_back();
+                }
+                if (line.empty()) {
+                    continue;
+                }
+                try {
+                    const auto event = nlohmann::json::parse(line);
+                    const std::string type = event.value("type", "");
+                    if (type == "audio") {
+                        std::lock_guard<std::mutex> lock(output_state->mutex);
+                        output_state->audio_path = event.value("path", "");
+                    } else if (type == "partial") {
+                        const std::string text = event.value("text", "");
+                        if (!text.empty()) {
+                            scheduleWithContext(
+                                ic_ref, [this, ic_ref, generation, text]() {
+                                    auto *ic_ptr = ic_ref.get();
+                                    if (!ic_ptr || !ic_ptr->hasFocus() ||
+                                        !is_recording_ ||
+                                        generation != recording_generation_) {
+                                        return;
+                                    }
+                                    showStreamingPreview(ic_ptr, text);
+                                });
+                        }
+                    }
+                } catch (const std::exception &) {
+                    // Backward compatibility with an older recorder that emits
+                    // one plain path rather than JSON-lines.
+                    if (!line.empty() && line.front() == '/') {
+                        std::lock_guard<std::mutex> lock(output_state->mutex);
+                        output_state->audio_path = line;
+                    }
+                }
+            }
+            fclose(stdout_file);
+        });
 
     if (long_mode || edit_mode) {
         std::thread([this]() { (void)ipc_client_->prewarmSlm(); }).detach();
@@ -918,13 +1021,15 @@ void VoCoTypeModule::stopAndTranscribe() {
 }
 
 void VoCoTypeModule::stopRecording(bool transcribe) {
+    cancelPendingPttRelease();
     if (!is_recording_) {
         return;
     }
 
-    // A PTT release must synchronously end the listening UI. The recorder
+    // A settled physical PTT release ends the listening UI. The recorder
     // process and ASR continue off the Fcitx event thread after this point.
     stopPanelAnimation();
+    streaming_preview_visible_ = false;
     ptt_hold_timer_.reset();
     ptt_release_timer_.reset();
     ptt_pressed_ = false;
@@ -961,14 +1066,19 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
 
     pid_t pid = recorder_pid_;
     int stdin_fd = recorder_stdin_fd_;
-    FILE *stdout_file = recorder_stdout_;
+    int lock_fd = recorder_lock_fd_;
+    auto output_thread = std::move(recorder_output_thread_);
+    auto output_state = std::move(recorder_output_state_);
     recorder_pid_ = -1;
     recorder_stdin_fd_ = -1;
-    recorder_stdout_ = nullptr;
+    recorder_lock_fd_ = -1;
 
-    std::thread([this, pid, stdin_fd, stdout_file, transcribe, long_mode,
+    std::thread([this, pid, stdin_fd, lock_fd,
+                 output_thread = std::move(output_thread),
+                 output_state = std::move(output_state), transcribe, long_mode,
                  edit_mode, edit_snapshot, session_id, ic_ref]() mutable {
-        std::string audio_path = stopRecorderProcess(pid, stdin_fd, stdout_file);
+        std::string audio_path = finishRecorderProcess(
+            pid, stdin_fd, lock_fd, std::move(output_thread), output_state);
         if (!transcribe) {
             if (!audio_path.empty()) {
                 std::remove(audio_path.c_str());
@@ -1527,6 +1637,32 @@ void VoCoTypeModule::showPanelMessage(fcitx::InputContext *ic,
     ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
 }
 
+void VoCoTypeModule::showStreamingPreview(
+    fcitx::InputContext *ic, const std::string &text) {
+    if (!ic || text.empty()) {
+        return;
+    }
+    ui_owned_ = true;
+    auto &panel = ic->inputPanel();
+    if (!streaming_preview_visible_) {
+        // Transition once from the listening animation to a stable preview.
+        // Repeated reset/updatePreedit calls can race the global module's key
+        // and focus state, causing duplicate recorders and visible flicker.
+        stopPanelAnimation();
+        panel.reset();
+        fcitx::Text status;
+        status.append("🟢 正在听");
+        panel.setAuxUp(status);
+        streaming_preview_visible_ = true;
+    }
+    fcitx::Text preview;
+    preview.append(text);
+    panel.setPreedit(preview);
+    // This is panel-owned UI, not client composition. Updating the input panel
+    // is sufficient and avoids client preedit/focus side effects.
+    ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+}
+
 void VoCoTypeModule::showAnimationFrame(fcitx::InputContext *ic) {
     const auto *frames = &RECORDING_ANIMATION_FRAMES;
     if (panel_animation_kind_ == PanelAnimationKind::RecordingLong) {
@@ -1543,6 +1679,7 @@ void VoCoTypeModule::showAnimationFrame(fcitx::InputContext *ic) {
 void VoCoTypeModule::startPanelAnimation(fcitx::InputContext *ic,
                                          PanelAnimationKind kind) {
     stopPanelAnimation();
+    streaming_preview_visible_ = false;
     panel_animation_kind_ = kind;
     showAnimationFrame(ic);
 
@@ -1577,6 +1714,7 @@ void VoCoTypeModule::stopPanelAnimation() {
 
 void VoCoTypeModule::clearOwnedUI(fcitx::InputContext *ic) {
     stopPanelAnimation();
+    streaming_preview_visible_ = false;
     pending_fallback_text_.clear();
     if (!ic || !ui_owned_) {
         return;

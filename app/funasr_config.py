@@ -9,6 +9,9 @@ import os
 
 # 模型版本，可通过环境变量覆盖
 MODEL_REVISION = os.environ.get("FUNASR_MODEL_REVISION", "v2.0.5")
+STREAMING_MODEL_REVISION = os.environ.get(
+    "FUNASR_STREAMING_MODEL_REVISION", "v2.0.4"
+)
 
 # 模型配置（默认使用 ONNX 版本，仍可通过环境变量覆盖）
 MODELS = {
@@ -18,6 +21,13 @@ MODELS = {
             "iic/speech_paraformer-large-contextual_asr_nat-zh-cn-16k-common-vocab8404-onnx",
         ),
         "type": "asr",
+    },
+    "asr_streaming": {
+        "name": os.environ.get(
+            "FUNASR_STREAMING_ASR_MODEL",
+            "iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-online-onnx",
+        ),
+        "type": "asr_streaming",
     },
     "vad": {
         "name": os.environ.get(
@@ -34,6 +44,7 @@ MODELS = {
         "type": "punc",
     },
 }
+
 
 # 获取模型列表（用于下载脚本）
 def get_models_for_download():

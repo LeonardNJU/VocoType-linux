@@ -41,6 +41,32 @@ if [[ -z "$module" ]]; then
   exit 1
 fi
 echo "PACKAGE_MODULE_OK $module"
+streaming_worker=""
+for candidate in \
+  /usr/libexec/vocotype-streaming-worker \
+  /usr/lib/vocotype/vocotype-streaming-worker \
+  /usr/lib64/vocotype/vocotype-streaming-worker \
+  /usr/lib/*/vocotype/vocotype-streaming-worker; do
+  if [[ -x "$candidate" ]]; then
+    streaming_worker="$candidate"
+    break
+  fi
+done
+if [[ -z "$streaming_worker" ]]; then
+  echo 'native streaming worker not found' >&2
+  exit 1
+fi
+check_path "$streaming_worker"
+if ldd "$streaming_worker" | grep -q 'not found'; then
+  echo "unresolved library dependency in $streaming_worker" >&2
+  ldd "$streaming_worker" >&2
+  exit 1
+fi
+"$streaming_worker" --help >/dev/null
+check_path /usr/share/licenses/vocotype-linux/native-streaming/onnxruntime/LICENSE
+check_path /usr/share/licenses/vocotype-linux/native-streaming/funasr/LICENSE
+echo "PACKAGE_STREAMING_RUNTIME_OK $streaming_worker"
+
 if ldd "$module" | grep -q 'not found'; then
   echo "unresolved library dependency in $module" >&2
   ldd "$module" >&2

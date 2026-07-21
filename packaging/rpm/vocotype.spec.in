@@ -7,6 +7,10 @@ URL:            https://github.com/LeonardNJU/VocoType-linux
 Source0:        VocoType-linux-%{version}.tar.gz
 
 BuildRequires:  cmake
+BuildRequires:  clang
+BuildRequires:  curl
+BuildRequires:  git
+BuildRequires:  patch
 BuildRequires:  gcc-c++
 BuildRequires:  pkgconfig
 BuildRequires:  fcitx5-devel
@@ -33,7 +37,7 @@ configured from the graphical settings application.
 %autosetup -n VocoType-linux-%{version}
 
 %build
-:
+./native/streaming_worker/build.sh
 
 %install
 ./packaging/tools/stage-system-package.sh \
@@ -41,7 +45,8 @@ configured from the graphical settings application.
   --prefix /usr \
   --libdir "%{_lib}" \
   --libexecdir "%{_libexecdir}" \
-  --build-dir "%{_builddir}/vocotype-fcitx-build"
+  --build-dir "%{_builddir}/vocotype-fcitx-build" \
+  --require-streaming-bundle
 
 %files
 %license %{_datadir}/licenses/vocotype-linux/LICENSE
@@ -51,6 +56,8 @@ configured from the graphical settings application.
 %{_bindir}/vocotype-fcitx5-backend
 %{_bindir}/vocotype-fcitx5-recorder
 %{_libexecdir}/vocotype-ibus-engine
+%{_libexecdir}/vocotype-streaming-worker
+%{_libdir}/vocotype/
 %{_libdir}/fcitx5/vocotype.so
 %{_datadir}/fcitx5/addon/vocotype.conf
 %{_datadir}/ibus/component/vocotype.xml

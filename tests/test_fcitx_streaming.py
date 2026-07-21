@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import base64
 import json
 import socket
 import threading
@@ -230,3 +231,88 @@ def test_backend_ipc_start_and_poll_protocol(tmp_path):
     assert polled["final_text"] == "结果"
     assert polled["original_text"] == "原始文本"
     assert any(event["kind"] == "delta" for event in polled["events"])
+
+
+class _FakePreviewAsr:
+    enabled = True
+
+    def __init__(self):
+        self.calls = []
+
+    def start_session(self):
+        self.calls.append(("start",))
+        return {
+            "success": True,
+            "session_id": "preview",
+            "chunk_samples": 9600,
+            "sample_rate": 16000,
+        }
+
+    def feed(self, session_id, pcm, *, is_final=False):
+        self.calls.append(("feed", session_id, pcm, is_final))
+        return {"success": True, "text": "当前文本", "final": is_final}
+
+    def close_session(self, session_id, *, flush=False):
+        self.calls.append(("close", session_id, flush))
+        return {"success": True, "text": "当前文本", "final": True}
+
+
+def test_backend_ipc_online_preview_start_feed_close_protocol():
+    backend = Fcitx5Backend.__new__(Fcitx5Backend)
+    preview = _FakePreviewAsr()
+    backend._streaming_asr = preview
+
+    started = _ipc_request(backend, {"type": "asr_preview_start"})
+    assert started["session_id"] == "preview"
+    pcm = b"\x01\x00\x02\x00"
+    fed = _ipc_request(
+        backend,
+        {
+            "type": "asr_preview_feed",
+            "session_id": "preview",
+            "pcm16": base64.b64encode(pcm).decode("ascii"),
+            "is_final": False,
+        },
+    )
+    assert fed == {"success": True, "text": "当前文本", "final": False}
+    closed = _ipc_request(
+        backend,
+        {
+            "type": "asr_preview_close",
+            "session_id": "preview",
+            "flush": False,
+        },
+    )
+    assert closed["final"] is True
+    assert preview.calls == [
+        ("start",),
+        ("feed", "preview", pcm, False),
+        ("close", "preview", False),
+    ]
+
+
+def test_backend_rejects_malformed_preview_pcm_without_calling_model():
+    backend = Fcitx5Backend.__new__(Fcitx5Backend)
+    preview = _FakePreviewAsr()
+    backend._streaming_asr = preview
+
+    invalid_base64 = _ipc_request(
+        backend,
+        {
+            "type": "asr_preview_feed",
+            "session_id": "preview",
+            "pcm16": "%%%",
+        },
+    )
+    assert invalid_base64["success"] is False
+
+    odd_pcm = _ipc_request(
+        backend,
+        {
+            "type": "asr_preview_feed",
+            "session_id": "preview",
+            "pcm16": base64.b64encode(b"x").decode("ascii"),
+        },
+    )
+    assert odd_pcm["success"] is False
+    assert preview.calls == []

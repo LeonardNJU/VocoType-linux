@@ -38,6 +38,21 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "hotword": "",
         "batch_size_s": 60.0,
     },
+    "asr_streaming": {
+        # Official FunASR 2-pass preview. Disabled by default; when enabled,
+        # online output is UI-only and final commit still uses the offline ASR.
+        "enabled": False,
+        "model": "iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-online-onnx",
+        "chunk_size": [5, 10, 5],
+        "intra_op_num_threads": 1,
+        # The existing VoCoType host lazily spawns a native local worker. Its
+        # ONNX allocations are reclaimed by process exit without disturbing
+        # the final offline ASR backend.
+        "idle_timeout_s": 30,
+        "session_idle_timeout_s": 15,
+        "startup_timeout_s": 180,
+        "request_timeout_s": 2,
+    },
     "normalization": {
         # The settings center may disable all numeric/ITN rewriting while
         # terminology canonicalization remains active.

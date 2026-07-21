@@ -150,7 +150,10 @@ def test_fcitx_ai_edit_uses_30_second_timeout():
     assert "EDIT_TASK_TIMEOUT_S = 30.0" in (
         ROOT / "fcitx5" / "backend" / "fcitx5_server.py"
     ).read_text(encoding="utf-8")
-    assert "std::thread([this, pid, stdin_fd, stdout_file" in module_source
+    assert "std::thread([this, pid, stdin_fd, lock_fd" in module_source
+    assert "output_thread = std::move(output_thread)" in module_source
+    assert "edit_mode, edit_snapshot, session_id, ic_ref" in module_source
+    assert "finishRecorderProcess(" in module_source
 
 
 def test_async_edit_exposes_instruction_before_slm_finishes(tmp_path):

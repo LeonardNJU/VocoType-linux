@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import os
 import json
+import base64
 import socket
 import logging
 import signal
@@ -23,6 +24,7 @@ from app.config import DEFAULT_CONFIG, ensure_logging_dir, load_config
 from app.funasr_server import FunASRServer
 from app.logging_config import setup_logging
 from app.slm_polisher import SLMPolisher
+from app.streaming_asr import StreamingASRProcess
 from app.voice_edit import EditEnvironment, SurroundingSnapshot, VoiceEditCore
 
 logger = logging.getLogger(__name__)
@@ -30,6 +32,7 @@ logger = logging.getLogger(__name__)
 SOCKET_PATH = "/tmp/vocotype-fcitx5.sock"
 MAX_REQUEST_BYTES = 1024 * 1024
 REQUEST_TIMEOUT_S = 2.0
+MAX_PREVIEW_CHUNK_BYTES = 128 * 1024
 DEFAULT_CONFIG_PATH = "~/.config/vocotype/fcitx5-backend.json"
 TASK_TTL_S = 300.0
 EDIT_TASK_TIMEOUT_S = 30.0
@@ -305,6 +308,13 @@ class Fcitx5Backend:
         )
         self._slm_polisher = SLMPolisher(self.config.get("slm", {}))
         logger.info("SLM 长句润色: enabled=%s", self._slm_polisher.enabled)
+        self._streaming_asr = StreamingASRProcess(
+            self.config.get("asr_streaming", {})
+        )
+        logger.info(
+            "FunASR 2-pass 实时预览: enabled=%s",
+            self._streaming_asr.enabled,
+        )
         slm_cfg = dict(self.config.get("slm", {}))
         self._slm_stream_idle_timeout_s = max(
             0.1,
@@ -823,6 +833,43 @@ class Fcitx5Backend:
             elif req_type == 'edit_applied':
                 response = self._confirm_edit_applied(request)
 
+            elif req_type == 'asr_preview_start':
+                response = self._streaming_asr.start_session()
+
+            elif req_type == 'asr_preview_feed':
+                session_id = str(request.get('session_id', '')).strip()
+                encoded = request.get('pcm16', '')
+                if not session_id:
+                    response = {"success": False, "error": "缺少 session_id 参数"}
+                elif not isinstance(encoded, str):
+                    response = {"success": False, "error": "pcm16 必须是 base64 字符串"}
+                else:
+                    try:
+                        pcm = base64.b64decode(encoded, validate=True)
+                    except Exception:
+                        response = {"success": False, "error": "pcm16 base64 无效"}
+                    else:
+                        if len(pcm) > MAX_PREVIEW_CHUNK_BYTES:
+                            response = {"success": False, "error": "实时音频块过大"}
+                        elif len(pcm) % 2:
+                            response = {"success": False, "error": "PCM16 字节数必须为偶数"}
+                        else:
+                            response = self._streaming_asr.feed(
+                                session_id,
+                                pcm,
+                                is_final=bool(request.get('is_final', False)),
+                            )
+
+            elif req_type == 'asr_preview_close':
+                session_id = str(request.get('session_id', '')).strip()
+                if not session_id:
+                    response = {"success": False, "error": "缺少 session_id 参数"}
+                else:
+                    response = self._streaming_asr.close_session(
+                        session_id,
+                        flush=bool(request.get('flush', False)),
+                    )
+
             elif req_type == 'transcribe_start':
                 audio_path = request.get('audio_path')
                 long_mode = bool(request.get('long_mode', False))
@@ -976,6 +1023,10 @@ class Fcitx5Backend:
     def cleanup(self):
         """清理资源"""
         logger.info("正在清理资源...")
+        try:
+            self._streaming_asr.cleanup()
+        except Exception as exc:
+            logger.error("清理实时 ASR 资源失败: %s", exc)
         try:
             self.asr_server.cleanup()
         except Exception as exc:

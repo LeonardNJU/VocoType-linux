@@ -25,7 +25,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential debhelper cmake pkg-config libfcitx5core-dev nlohmann-json3-dev python3-gi gir1.2-gtk-3.0 ibus fcitx5 libportaudio2 policykit-1
+          sudo apt-get install -y build-essential debhelper cmake clang curl patch pkg-config libfcitx5core-dev nlohmann-json3-dev python3-gi gir1.2-gtk-3.0 ibus fcitx5 libportaudio2 policykit-1
           python -m pip install build twine
       - name: Build and validate release metadata
         env:
@@ -67,7 +67,7 @@ jobs:
     container: fedora:44
     steps:
       - name: Install tools
-        run: dnf install -y git python3.12 rpm-build cmake gcc-c++ pkgconf-pkg-config fcitx5-devel nlohmann-json-devel systemd-rpm-macros python3-gobject gtk3 ibus fcitx5 portaudio polkit dbus-daemon
+        run: dnf install -y git python3.12 rpm-build cmake clang curl patch gcc-c++ pkgconf-pkg-config fcitx5-devel nlohmann-json-devel systemd-rpm-macros python3-gobject gtk3 ibus fcitx5 portaudio polkit dbus-daemon
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -94,7 +94,7 @@ jobs:
     container: archlinux:base-devel
     steps:
       - name: Install tools
-        run: pacman -Syu --noconfirm git python cmake gcc pkgconf fcitx5 nlohmann-json python-gobject gtk3 ibus portaudio polkit
+        run: pacman -Syu --noconfirm git python cmake clang curl patch gcc pkgconf fcitx5 nlohmann-json python-gobject gtk3 ibus portaudio polkit
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0

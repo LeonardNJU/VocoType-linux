@@ -137,3 +137,27 @@ with open(target, "w", encoding="utf-8") as f:
     f.write("\n")
 PY
 }
+
+install_native_streaming_bundle() {
+    local project_dir="$1"
+    local source_dir="${VOCOTYPE_STREAMING_BUNDLE_DIR:-$project_dir/native/streaming_worker/build/bundle}"
+    local target_dir="${VOCOTYPE_STREAMING_INSTALL_DIR:-$HOME/.local/lib/vocotype-streaming}"
+
+    case "$target_dir" in
+        ""|/|"$HOME")
+            echo "错误: 不安全的 native streaming 安装目录: $target_dir" >&2
+            return 1
+            ;;
+    esac
+
+    if [ ! -x "$source_dir/bin/vocotype-streaming-worker" ] || [ ! -d "$source_dir/lib" ]; then
+        echo "提示: 未找到预编译 native streaming bundle；实时识别预览保持不可用，普通离线识别不受影响。"
+        return 0
+    fi
+
+    rm -rf "$target_dir"
+    mkdir -p "$target_dir"
+    cp -a "$source_dir/." "$target_dir/"
+    chmod +x "$target_dir/bin/vocotype-streaming-worker"
+    echo "✓ 已安装可按需加载的 native streaming runtime"
+}

@@ -1,6 +1,7 @@
 import importlib.util
 import io
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -131,3 +132,43 @@ def test_shared_runtime_helpers_are_sourced_once_and_keep_behavior(tmp_path: Pat
     assert payload["slm"]["provider"] == "remote"
     assert payload["slm"]["endpoint"] == "https://api.example/v1/chat/completions"
     assert payload["slm"]["api_key"] == "secret"
+
+
+def test_native_streaming_bundle_helper_is_shared_and_installs_private_runtime(tmp_path: Path):
+    library = ROOT / "installers/runtime-common.sh"
+    source = library.read_text(encoding="utf-8")
+    assert source.count("install_native_streaming_bundle()") == 1
+    for relative in ("ibus/scripts/install.sh", "fcitx5/scripts/install.sh"):
+        installer = (ROOT / relative).read_text(encoding="utf-8")
+        assert 'install_native_streaming_bundle "$PROJECT_DIR"' in installer
+
+    bundle = tmp_path / "bundle"
+    (bundle / "bin").mkdir(parents=True)
+    (bundle / "lib").mkdir()
+    worker = bundle / "bin/vocotype-streaming-worker"
+    worker.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    worker.chmod(0o755)
+    (bundle / "lib/libfunasr.so").write_bytes(b"local-runtime")
+    home = tmp_path / "home"
+    env = os.environ.copy()
+    env.update(
+        {
+            "HOME": str(home),
+            "VOCOTYPE_STREAMING_BUNDLE_DIR": str(bundle),
+        }
+    )
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f'source "{library}"; install_native_streaming_bundle "{ROOT}"',
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    installed = home / ".local/lib/vocotype-streaming"
+    assert (installed / "bin/vocotype-streaming-worker").stat().st_mode & 0o100
+    assert (installed / "lib/libfunasr.so").read_bytes() == b"local-runtime"

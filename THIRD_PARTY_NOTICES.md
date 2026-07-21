@@ -10,6 +10,7 @@ Runtime dependencies (from requirements.txt / pyproject.toml):
 - SciPy 1.16.3 - https://scipy.org/
 - soundfile 0.13.1 - https://github.com/bastibe/python-soundfile
 - funasr_onnx 0.4.2 - https://github.com/modelscope/FunASR
+- ONNX Runtime 1.23.2 (native streaming bundle) - https://github.com/microsoft/onnxruntime
 - jieba 0.42.1 - https://github.com/fxsjy/jieba
 - PyGObject >=3.46, <3.52 - https://pygobject.gnome.org/
 - modelscope 1.30.0 - https://github.com/modelscope/modelscope

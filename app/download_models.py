@@ -84,13 +84,23 @@ def model_requirements(model_config: dict[str, str]) -> tuple[tuple[str, ...], t
         required = ["config.yaml", "am.mvn", "tokens.json"]
         if "contextual" in model_name or "seaco" in model_name:
             required.append("model_eb.onnx")
+        required_any = (("model_quant.onnx", "model.onnx"),)
+    elif model_type == "asr_streaming":
+        required = ["config.yaml", "am.mvn", "tokens.json"]
+        required_any = (
+            ("model_quant.onnx", "model.onnx"),
+            ("decoder_quant.onnx", "decoder.onnx"),
+        )
     elif model_type == "vad":
         required = ["config.yaml", "am.mvn"]
     elif model_type == "punc":
         required = ["config.yaml", "tokens.json"]
+        required_any = (("model_quant.onnx", "model.onnx"),)
     else:
         raise ValueError(f"未知模型类型: {model_type}")
-    return tuple(required), (("model_quant.onnx", "model.onnx"),)
+    if model_type == "vad":
+        required_any = (("model_quant.onnx", "model.onnx"),)
+    return tuple(required), required_any
 
 
 def _is_complete(

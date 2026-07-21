@@ -24,3 +24,6 @@ CLAUDE.md
 .pytest_cache/
 *.py[cod]
 site/docs/
+
+.cache/
+.tmp/

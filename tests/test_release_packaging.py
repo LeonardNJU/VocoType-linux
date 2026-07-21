@@ -96,6 +96,7 @@ def test_release_manifest_is_safe_complete_and_unique():
         "fcitx5/module",
         "fcitx5/scripts",
         "installers",
+        "native/streaming_worker",
         "data",
         "docs",
         "tools/diagnostics/validate-ibus-install.py",
@@ -176,6 +177,36 @@ def test_staging_script_builds_complete_noninteractive_tree(tmp_path: Path):
     ):
         assert not (source_root / excluded).exists(), excluded
 
+
+
+def test_staging_script_places_prebuilt_native_streaming_bundle(tmp_path: Path):
+    bundle = tmp_path / "bundle"
+    (bundle / "bin").mkdir(parents=True)
+    (bundle / "lib").mkdir()
+    worker = bundle / "bin/vocotype-streaming-worker"
+    worker.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    worker.chmod(0o755)
+    (bundle / "lib/libfunasr.so").write_bytes(b"native")
+    dest = tmp_path / "root"
+    env = os.environ.copy()
+    env.update(
+        {
+            "VOCOTYPE_STREAMING_BUNDLE_DIR": str(bundle),
+            "VOCOTYPE_REQUIRE_STREAMING_BUNDLE": "1",
+        }
+    )
+    result = _run(
+        "bash",
+        "packaging/tools/stage-system-package.sh",
+        "--destdir",
+        str(dest),
+        "--skip-module-build",
+        env=env,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    installed_worker = dest / "usr/libexec/vocotype-streaming-worker"
+    assert installed_worker.stat().st_mode & stat.S_IXUSR
+    assert (dest / "usr/lib/vocotype/libfunasr.so").read_bytes() == b"native"
 
 def test_staging_script_honors_custom_libexec_directory(tmp_path: Path):
     dest = tmp_path / "root"
@@ -712,3 +743,25 @@ def test_systemd_backend_disables_python_bytecode_writes():
         ROOT / "packaging/systemd/vocotype-fcitx5-backend.service"
     ).read_text(encoding="utf-8")
     assert "Environment=PYTHONDONTWRITEBYTECODE=1" in source
+
+
+def test_native_streaming_runtime_is_required_by_all_native_package_recipes():
+    debian = (ROOT / "packaging/debian/rules").read_text(encoding="utf-8")
+    rpm = (ROOT / "packaging/rpm/vocotype.spec.in").read_text(encoding="utf-8")
+    arch = (ROOT / "packaging/arch/PKGBUILD.in").read_text(encoding="utf-8")
+    for source in (debian, rpm, arch):
+        assert "native/streaming_worker/build.sh" in source
+        assert "--require-streaming-bundle" in source
+    smoke = (ROOT / "packaging/tests/smoke-installed-package.sh").read_text(encoding="utf-8")
+    assert "PACKAGE_STREAMING_RUNTIME_OK" in smoke
+    assert '"$streaming_worker" --help' in smoke
+
+
+def test_native_build_pins_and_audits_official_onnxruntime():
+    build = (ROOT / "native/streaming_worker/build.sh").read_text(encoding="utf-8")
+    audit = (ROOT / "native/streaming_worker/audit_bundle.py").read_text(encoding="utf-8")
+    assert "ONNXRUNTIME_VERSION=${VOCOTYPE_ONNXRUNTIME_VERSION:-1.23.2}" in build
+    assert "1fa4dcaef22f6f7d5cd81b28c2800414350c10116f5fdd46a2160082551c5f9b" in build
+    assert 'python "$SCRIPT_DIR/audit_bundle.py" "$BUNDLE_DIR"' in build
+    assert "absolute RUNPATH" in audit
+    assert "unbundled dependency" in audit
