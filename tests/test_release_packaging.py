@@ -364,11 +364,11 @@ def test_backend_launcher_fails_cleanly_before_gui_setup(tmp_path: Path):
 def test_version_is_consistent_across_package_metadata():
     version = _version()
     assert version.startswith("3.0.0")
-    assert _version_field("tag") == "v3.0.0-rc.4"
-    assert _version_field("debian") == "3.0.0~rc4"
+    assert _version_field("tag") == "v3.0.0-rc.5"
+    assert _version_field("debian") == "3.0.0~rc5"
     assert _version_field("rpm_version") == "3.0.0"
-    assert _version_field("rpm_release") == "0.rc4"
-    assert _version_field("arch") == "3.0.0rc4"
+    assert _version_field("rpm_release") == "0.rc5"
+    assert _version_field("arch") == "3.0.0rc5"
     changelog = (ROOT / "packaging/debian/changelog").read_text(encoding="utf-8")
     assert changelog.startswith(
         f"vocotype-linux ({_version_field('debian')}-1)"
@@ -677,11 +677,17 @@ def test_native_packages_include_minimal_settings_runtime_dependencies(tmp_path:
         control = _render_package_metadata("debian", flavor, tmp_path)
         spec = _render_package_metadata("rpm", flavor, tmp_path)
         pkgbuild = _render_package_metadata("arch", flavor, tmp_path)
-        assert "python3 (>= 3.11)" in control
-        assert "python3 (>= 3.10)" not in control
+        assert "python3 (>= 3.10)" in control
+        assert "python3 (>= 3.11)" not in control
         assert "python3-gi" in control and "python3-yaml" in control
         assert "pkexec | policykit-1" in control
         assert "python3-gobject" in spec and "python3-pyyaml" in spec
+        assert 'requires-python = ">=3.11,<3.13"' in (
+            ROOT / "pyproject.toml"
+        ).read_text(encoding="utf-8")
+        assert "uv venv --python 3.12" in (
+            ROOT / "packaging/tests/smoke-binary-runtime.sh"
+        ).read_text(encoding="utf-8")
         assert "python-gobject" in pkgbuild and "python-yaml" in pkgbuild
         for source in (control, spec, pkgbuild):
             assert "funasr" not in source.casefold()

@@ -5,6 +5,13 @@ All notable changes to VoCoType Linux will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0-rc.5] - 2026-07-22
+
+### Fixed
+
+- Debian/Ubuntu packages now distinguish the distro Python used only to launch the GTK setup application from the isolated Python 3.12 ASR runtime created from package-local wheels. This restores installation on Ubuntu 22.04 with its system Python 3.10 while keeping inference on the audited Python 3.12 environment.
+
+
 ## [3.0.0-rc.4] - 2026-07-22
 
 ### Fixed

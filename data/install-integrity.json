@@ -23,8 +23,8 @@
     "settings_center/setup_manager.py": "ae4b3c47a93ac1a6e89d87d569f61f30c39802490407dcdfbeb47922daea0e64",
     "settings_center/version_check.py": "13eb8aadfed10eb8a1b307cd51c6b1292906c11cd1fd83ceb8d274bf122c3b1a",
     "vocotype_package.py": "fa6419ec51f9c6b74a3a31d372a1c15a20517f4e2ad7536f451212ce70c15c77",
-    "vocotype_version.py": "fdd9976303001ac0ce2bb307701347b80899c1b97384ba6574eef7b585951225"
+    "vocotype_version.py": "7406419cd09840a2894b7db1c64d2b167bc456384df45ea0c5a408c5adec383e"
   },
   "schema_version": 1,
-  "version": "3.0.0rc4"
+  "version": "3.0.0rc5"
 }

@@ -21,5 +21,5 @@ for candidate in "${candidates[@]}"; do
   exec "$candidate" -m settings_center.application "$@"
 done
 
-echo "VoCoType requires Python 3.11 or 3.12. Open the package manager and install Python, then retry." >&2
+echo "VoCoType Settings requires a distro Python 3 installation; setup will create the separate Python 3.12 ASR runtime." >&2
 exit 127

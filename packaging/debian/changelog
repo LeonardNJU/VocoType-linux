@@ -1,4 +1,4 @@
-vocotype-linux (3.0.0~rc4-1) unstable; urgency=medium
+vocotype-linux (3.0.0~rc5-1) unstable; urgency=medium
 
   * Ship the complete native 2-pass streaming runtime in every distro package.
   * Ship a CI-built Python wheelhouse so user setup never compiles dependencies.
