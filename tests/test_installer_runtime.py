@@ -2,6 +2,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -95,6 +96,33 @@ def test_installer_does_not_offer_obsolete_funasr_onnx_torch_workaround():
 
     assert "funasr_onnx 0.4.1" not in source
     assert "download.pytorch.org/whl/cpu" not in source
+
+
+
+def test_source_installers_escape_sed_replacement_metacharacters():
+    expected = r"a\\b\&c\|d"
+    for relative in ("ibus/scripts/install.sh", "fcitx5/scripts/install.sh"):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        match = re.search(
+            r"^escape_sed_replacement\(\) \{\n(?:    .*\n)+?\}",
+            source,
+            re.MULTILINE,
+        )
+        assert match is not None
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                match.group(0) + '\nescape_sed_replacement "$1"',
+                "bash",
+                r"a\b&c|d",
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == expected
 
 
 def test_shared_runtime_helpers_are_sourced_once_and_keep_behavior(tmp_path: Path):

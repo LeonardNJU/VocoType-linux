@@ -39,9 +39,9 @@ DEFAULT_UV_PYTHON="3.12"
 
 escape_sed_replacement() {
     local value="$1"
-    value=${value//\/\\}
-    value=${value//&/\&}
-    value=${value//|/\|}
+    value=${value//\\/\\\\}
+    value=${value//&/\\&}
+    value=${value//|/\\|}
     printf '%s' "$value"
 }
 
