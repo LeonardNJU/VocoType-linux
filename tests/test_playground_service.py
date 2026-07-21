@@ -359,3 +359,61 @@ def test_list_output_devices_marks_pipewire_default(monkeypatch: pytest.MonkeyPa
     assert outputs[0].is_default is True
     assert outputs[0].device_id == "sink.hdmi"
     assert all(item.backend == "pipewire" for item in outputs)
+
+
+def test_voice_edit_recording_uses_real_backend_edit_audio_protocol(tmp_path: Path):
+    recording = tmp_path / "edit-command.wav"
+    recording.write_bytes(b"wav")
+    socket_path = tmp_path / "backend.sock"
+    captured: dict[str, object] = {}
+    ready = threading.Event()
+
+    def server() -> None:
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        listener.bind(str(socket_path))
+        listener.listen(1)
+        ready.set()
+        connection, _ = listener.accept()
+        chunks = []
+        while True:
+            chunk = connection.recv(4096)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        captured.update(json.loads(b"".join(chunks).decode("utf-8")))
+        connection.sendall(
+            json.dumps(
+                {
+                    "success": True,
+                    "handled": True,
+                    "mode": "replace",
+                    "instruction": "把 A 替换成 B",
+                    "expected_text": "B 是旧版本标记。",
+                },
+                ensure_ascii=False,
+            ).encode("utf-8")
+        )
+        connection.close()
+        listener.close()
+
+    thread = threading.Thread(target=server)
+    thread.start()
+    assert ready.wait(2)
+    result = playground_service.edit_recording(
+        recording,
+        context_text="A 是旧版本标记。",
+        socket_path=socket_path,
+        timeout_seconds=2,
+    )
+    thread.join(timeout=2)
+
+    assert result["instruction"] == "把 A 替换成 B"
+    assert result["expected_text"] == "B 是旧版本标记。"
+    assert captured["type"] == "edit_audio"
+    assert captured["audio_path"] == str(recording)
+    assert captured["snapshot"] == {
+        "text": "A 是旧版本标记。",
+        "cursor_pos": len("A 是旧版本标记。"),
+        "anchor_pos": len("A 是旧版本标记。"),
+        "selected_text": "",
+    }

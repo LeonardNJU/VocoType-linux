@@ -22,7 +22,9 @@ from .config_service import (
     terms_path,
 )
 from app.download_models import inspect_required_models
-from .setup_manager import installation_paths
+from .install_integrity import local_reference_manifest, probe_installation_integrity
+from .setup_manager import find_project_root, installation_paths
+from vocotype_version import __version__
 
 
 @dataclass(frozen=True)
@@ -130,6 +132,44 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
         )
 
     checks.append(_check("python", "Python 运行时", python_check))
+
+    def version_check() -> DoctorCheck:
+        roots = []
+        project_root = find_project_root()
+        if project_root is not None:
+            roots.append(f"参考源码：{project_root}")
+        roots.append(f"设置中心版本：{__version__}")
+        return _pass(
+            "version",
+            "VoCoType 版本",
+            f"当前运行版本 {__version__}",
+            "\n".join(roots),
+        )
+
+    checks.append(_check("version", "VoCoType 版本", version_check))
+
+    def integrity_check() -> DoctorCheck:
+        root = find_project_root()
+        manifest = local_reference_manifest(root)
+        report = probe_installation_integrity(manifest)
+        hint = (
+            "在“概览与安装”对正在使用的框架执行安装 / 修复；"
+            "完成后重启后台和输入法框架。"
+            if report.status in {"warn", "fail"}
+            else ""
+        )
+        return DoctorCheck(
+            "install_integrity",
+            "安装内容一致性",
+            report.status,
+            report.summary,
+            report.details,
+            hint,
+        )
+
+    checks.append(
+        _check("install_integrity", "安装内容一致性", integrity_check)
+    )
 
     def deps_check() -> DoctorCheck:
         required = {

@@ -865,7 +865,7 @@ def test_settings_application_exposes_both_install_paths():
     assert "回放上次录音" in source
     assert "转录上次录音" in source
     assert "测试 AI 润色" in source
-    assert "测试 AI 编辑" in source
+    assert "测试语音编辑" in source
     assert "self.playground_ai_controls.set_sensitive(False)" in source
     assert "请先在“AI 润色”页面" in (
         Path("settings_center/playground_service.py")
@@ -887,9 +887,9 @@ def test_settings_application_exposes_both_install_paths():
     assert "API Key 环境变量名（高级）" in source
     assert "直接 API Key" in source
     assert "remove_system_integration" in source
-    assert 'self.stack.add_titled(recognition_page, "recognition", "逆文本标准化")' in source
+    assert 'self.stack.add_titled(general_page, "general", "通用设置")' in source
     assert 'self.panel_style.append("minimal", "极简：🎤 录音中 / ⏳ 识别中")' in source
-    assert 'self.panel_style.append("animated", "动画：绿黑状态动画")' in source
+    assert 'self.panel_style.append("animated", "动画：正在听状态动画")' in source
     assert '"PanelStyle": self.panel_style.get_active_id() or "minimal"' in source
     assert "Gtk.DrawingArea()" in source
     assert "self.playground_waveform.set_hexpand(True)" in source

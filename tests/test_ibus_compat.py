@@ -45,7 +45,13 @@ def test_ibus_online_preview_is_preedit_only_and_offline_asr_remains_final():
     final_body = source.split("    def _stop_and_transcribe", 1)[1].split(
         "    def _update_preedit", 1
     )[0]
-    assert "self._update_preedit(text)" in preview_body
+    assert "self._streaming_preview_text = text" in preview_body
+    assert "self._render_recording_status()" in preview_body
+    status_body = source.split("    def _render_recording_status", 1)[1].split(
+        "    def _advance_recording_animation", 1
+    )[0]
+    assert "self._update_preedit(self._recording_status_text())" in status_body
+    assert "self._update_auxiliary_status(self._streaming_preview_text)" in status_body
     assert "commit_text" not in preview_body
     assert "asr_server.transcribe_audio(" in final_body
     assert "audio_data = np.concatenate(self._audio_frames)" in final_body
