@@ -429,6 +429,38 @@ def test_release_builder_cleans_checkout_metadata(tmp_path: Path):
     assert not cache.exists()
 
 
+
+def test_package_metadata_renderer_rejects_placeholders_next_to_punctuation(
+    tmp_path: Path,
+):
+    template = tmp_path / "control.in"
+    output = tmp_path / "control"
+    template.write_text(
+        "Package: @PACKAGE_NAME@\nDescription: unresolved (@UNKNOWN_TOKEN@),\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "packaging/tools/render-package-metadata.py"),
+            "--format",
+            "debian",
+            "--flavor",
+            "ibus",
+            "--template",
+            str(template),
+            "--output",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "@UNKNOWN_TOKEN@" in result.stderr
+    assert not output.exists()
+
+
 def test_native_package_recipes_share_one_staging_contract(tmp_path: Path):
     recipes = [
         ROOT / "packaging/debian/rules",

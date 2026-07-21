@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 import sys
 
@@ -11,6 +12,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from vocotype_package import package_flavor_metadata
+
+_PLACEHOLDER = re.compile(r"@[A-Z][A-Z0-9_]*@")
 
 
 def debian_values(meta: dict[str, object]) -> dict[str, str]:
@@ -125,13 +128,7 @@ def main() -> int:
         "@SOURCE_VERSION@",
         "@SOURCE_SHA256@",
     }
-    unresolved = sorted(
-        set(
-            part
-            for part in text.replace("-", " ").split()
-            if part.startswith("@") and part.endswith("@") and part not in allowed_later
-        )
-    )
+    unresolved = sorted(set(_PLACEHOLDER.findall(text)) - allowed_later)
     if unresolved:
         raise SystemExit("unresolved flavor placeholders: " + ", ".join(unresolved))
     args.output.parent.mkdir(parents=True, exist_ok=True)
