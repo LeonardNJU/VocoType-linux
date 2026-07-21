@@ -23,3 +23,4 @@ CLAUDE.md
 *.buildinfo
 .pytest_cache/
 *.py[cod]
+site/docs/

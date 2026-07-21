@@ -4,14 +4,14 @@
 
 ## 目录
 
-- [安装问题](#安装问题)
-- [Rime拼音输入问题](#rime拼音输入问题)
-- [音频和识别问题](#音频和识别问题)
-- [如何查看日志](#如何查看日志)
+- [安装问题](#installation)
+- [Rime 拼音输入问题](#rime)
+- [音频和识别问题](#audio)
+- [如何查看日志](#logs)
 
 ---
 
-## 安装问题
+## 安装问题 { #installation }
 
 ### Python版本必须是3.11-3.12
 ### Python版本必须是3.11-3.12
@@ -138,7 +138,7 @@ ibus restart
 
 ---
 
-## Rime拼音输入问题
+## Rime 拼音输入问题 { #rime }
 
 ### 输入后直接出字母，无法使用拼音
 
@@ -203,7 +203,7 @@ ibus-daemon -drx
 
 ---
 
-## 音频和识别问题
+## 音频和识别问题 { #audio }
 
 ### 麦克风无法使用
 
@@ -260,7 +260,7 @@ ibus-daemon -drx
 
 ---
 
-## 如何查看日志
+## 如何查看日志 { #logs }
 
 ### 日志位置
 
@@ -809,7 +809,7 @@ sample_rate = 48000
 
 ---
 
-## 图形 Doctor、支持包与反馈
+## 图形 Doctor、支持包与反馈 { #doctor }
 
 打开 `vocotype-settings` → **诊断**，先运行 Doctor。它会检查 Python、依赖、Fcitx module、旧版输入法条目、后台服务、IPC socket、配置、术语 YAML、麦克风和 ITN。
 

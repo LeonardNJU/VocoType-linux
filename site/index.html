@@ -43,8 +43,8 @@
     <div class="nav-inner">
       <a class="brand" href="#top"><span class="brand-mark">VT</span>VocoType Linux</a>
       <div class="nav-links">
-        <a href="#how">How it works</a><a href="#modes">Modes</a><a href="#demo">Demo</a><a href="#install">Install</a>
-        <a href="https://github.com/LeonardNJU/VocoType-linux">GitHub</a>
+        <a href="#modes">Features</a><a href="#demo">Demo</a><a href="#news">News</a><a href="#install">Install</a>
+        <a href="docs/">Docs</a><a href="https://github.com/LeonardNJU/VocoType-linux">GitHub</a>
         <a class="lang-switch" href="zh.html">中文</a>
       </div>
     </div>
@@ -93,6 +93,37 @@
           <article class="value-card"><span class="num">01 / PRIVACY</span><h3>No uploads</h3><p>Recognition runs locally with FunASR Paraformer. Your voice, drafts, and surrounding text never need to leave the device.</p></article>
           <article class="value-card"><span class="num">02 / NATIVE</span><h3>Works everywhere</h3><p>Chat windows, editors, browsers, terminals, and AI tools all receive text through the Linux input-method stack.</p></article>
           <article class="value-card"><span class="num">03 / PRACTICAL</span><h3>CPU-first</h3><p>Designed for everyday desktops and laptops, with CPU inference, modest memory use, and no dedicated GPU requirement.</p></article>
+        </div>
+      </div>
+    </section>
+
+
+    <section class="news-section" id="news">
+      <div class="section-inner">
+        <div class="section-head">
+          <div><p class="kicker">What’s new</p><h2>VocoType is becoming a desktop product.</h2></div>
+          <p>The latest work removes setup friction today while preparing the next interaction model: editing and live recognition directly inside the active input field.</p>
+        </div>
+        <div class="news-layout">
+          <div class="news-grid">
+            <a class="news-card" href="news.html#settings-center">
+              <div class="news-meta"><span class="status shipped">SHIPPED</span><time datetime="2026-07">JUL 2026</time></div>
+              <h3>One graphical settings center</h3>
+              <p>Install or repair IBus and Fcitx 5, download models, configure terminology and AI, then test the complete pipeline without editing JSON.</p>
+              <span class="card-link">Read the update →</span>
+            </a>
+            <a class="news-card" href="news.html#doctor-feedback">
+              <div class="news-meta"><span class="status shipped">SHIPPED</span><time datetime="2026-07">JUL 2026</time></div>
+              <h3>Doctor, support bundles, and feedback</h3>
+              <p>Diagnose runtime, model, input-method, service, IPC, microphone, and configuration problems, then generate a privacy-safe support bundle.</p>
+              <span class="card-link">Read the update →</span>
+            </a>
+          </div>
+          <aside class="roadmap-panel">
+            <div class="roadmap-head"><span>COMING NEXT</span><a href="news.html#roadmap">Full roadmap →</a></div>
+            <div class="roadmap-item"><span class="roadmap-dot active"></span><div><strong>Fcitx 5 voice editing</strong><p>Bring surrounding-text replace, insert, delete, navigation, undo, and redo to Fcitx 5.</p></div></div>
+            <div class="roadmap-item"><span class="roadmap-dot research"></span><div><strong>True streaming recognition</strong><p>Continuously update preedit while speaking, including revisions to earlier partial hypotheses.</p></div></div>
+          </aside>
         </div>
       </div>
     </section>
@@ -181,25 +212,28 @@
     <section class="install-section" id="install">
       <div class="section-inner">
         <div class="section-head">
-          <div><p class="kicker">Install from source</p><h2>Pick a framework and start speaking.</h2></div>
-          <p>The installers set up the backend, input-method integration, and model configuration. IBus and Fcitx 5 builds can coexist.</p>
+          <div><p class="kicker">Package first, GUI after</p><h2>Install once. Configure visually.</h2></div>
+          <p>Native packages add the application and system integration. The settings center then prepares your user runtime, downloads the model, and installs or repairs IBus and Fcitx 5.</p>
         </div>
         <div class="install-grid">
-          <article class="install-card"><div class="install-title"><strong>IBus</strong><span>GNOME / default stacks</span></div><pre><span class="prompt">$</span> git clone https://github.com/LeonardNJU/VocoType-linux.git
+          <article class="install-card"><div class="install-title"><strong>Native package</strong><span>recommended</span></div><pre><span class="prompt">#</span> Debian / Ubuntu
+sudo apt install ./vocotype-linux_*.deb
+
+<span class="prompt">#</span> Fedora / RHEL
+sudo dnf install ./vocotype-linux-*.rpm
+
+<span class="prompt">#</span> Arch Linux
+sudo pacman -U ./vocotype-linux-*.pkg.tar.zst</pre><a class="install-link" href="https://github.com/LeonardNJU/VocoType-linux/releases">Download from GitHub Releases →</a></article>
+          <article class="install-card"><div class="install-title"><strong>Latest source</strong><span>same graphical flow</span></div><pre><span class="prompt">$</span> git clone https://github.com/LeonardNJU/VocoType-linux.git
 <span class="prompt">$</span> cd VocoType-linux
-<span class="prompt">$</span> ./ibus/scripts/install.sh
-<span class="prompt">$</span> ibus restart</pre></article>
-          <article class="install-card"><div class="install-title"><strong>Fcitx 5</strong><span>KDE / modular stacks</span></div><pre><span class="prompt">$</span> git clone https://github.com/LeonardNJU/VocoType-linux.git
-<span class="prompt">$</span> cd VocoType-linux
-<span class="prompt">$</span> bash fcitx5/scripts/install.sh
-<span class="prompt">$</span> fcitx5 -r</pre></article>
+<span class="prompt">$</span> bash installers/launch-settings.sh</pre><a class="install-link" href="docs/getting-started/installation/">Open the installation guide →</a></article>
         </div>
-        <p class="requirements">Linux · Python 3.11–3.12 · 4 GB RAM minimum · CPU-only inference · Fedora, Ubuntu, Debian, Arch, and related distributions</p>
+        <p class="requirements">Linux · Python 3.11–3.12 for source installs · 4 GB RAM minimum · CPU-only inference · CLI installers remain available for headless and legacy setups</p>
       </div>
     </section>
   </main>
 
-  <section class="final-cta"><div class="final-inner"><h2>Make private voice input a first-class Linux feature.</h2><a class="button" href="https://github.com/LeonardNJU/VocoType-linux">Open the repository ↗</a></div></section>
+  <section class="final-cta"><div class="final-inner"><h2>Make private voice input a first-class Linux feature.</h2><div class="final-actions"><a class="button" href="docs/">Read the docs</a><a class="button outline" href="https://github.com/LeonardNJU/VocoType-linux">Open GitHub ↗</a></div></div></section>
   <footer><div class="footer-inner"><span>© 2025–2026 <a href="https://lsamc.website">Leonard Li</a></span><span>VocoType Linux · open-source offline speech input · <a href="https://github.com/LeonardNJU/VocoType-linux/blob/master/LICENSE">GNU GPL v3.0</a></span></div></footer>
 </body>
 </html>

@@ -1,0 +1,49 @@
+:root {
+  --md-primary-fg-color: #0d151c;
+  --md-primary-fg-color--light: #1d2a33;
+  --md-primary-fg-color--dark: #091016;
+  --md-accent-fg-color: #238b4a;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #0d151c;
+  --md-accent-fg-color: #8bf19c;
+}
+
+.md-header {
+  background: linear-gradient(90deg, #0d151c, #14242e);
+}
+
+.md-tabs {
+  background: #101d25;
+}
+
+.md-typeset h1,
+.md-typeset h2 {
+  letter-spacing: -0.035em;
+  font-weight: 750;
+}
+
+.md-typeset .md-button--primary {
+  background: #8bf19c;
+  border-color: #8bf19c;
+  color: #0d151c;
+}
+
+.md-typeset .md-button--primary:hover {
+  background: #70dc84;
+  border-color: #70dc84;
+}
+
+.md-typeset .grid.cards > ul > li {
+  border-radius: 0.8rem;
+  box-shadow: 0 0.5rem 1.8rem rgba(13, 21, 28, 0.06);
+}
+
+.md-typeset code {
+  border-radius: 0.3rem;
+}
+
+.md-footer-meta {
+  background: #0d151c;
+}

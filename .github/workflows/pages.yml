@@ -5,6 +5,9 @@ on:
     branches: [master]
     paths:
       - "site/**"
+      - "docs/**"
+      - "mkdocs.yml"
+      - "requirements-docs.txt"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -26,6 +29,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-docs.txt
+      - name: Build documentation
+        run: |
+          python -m pip install -r requirements-docs.txt
+          mkdocs build --clean
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload static site
