@@ -794,6 +794,9 @@ cp -r "$PROJECT_DIR/app" "$INSTALL_DIR/"
 cp -r "$PROJECT_DIR/settings_center" "$INSTALL_DIR/"
 cp -r "$PROJECT_DIR/ibus" "$INSTALL_DIR/"
 cp "$PROJECT_DIR/vocotype_version.py" "$INSTALL_DIR/"
+if [ -f "$PROJECT_DIR/data/install-integrity.json" ]; then
+    cp "$PROJECT_DIR/data/install-integrity.json" "$INSTALL_DIR/install-integrity.json"
+fi
 install_native_streaming_bundle "$PROJECT_DIR"
 
 TERMS_DIR="$HOME/.config/vocotype"

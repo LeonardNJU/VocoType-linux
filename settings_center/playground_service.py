@@ -403,6 +403,72 @@ def transcribe_recording(
     return response
 
 
+
+def edit_recording(
+    path: Path,
+    *,
+    context_text: str,
+    cursor_pos: int | None = None,
+    anchor_pos: int | None = None,
+    selected_text: str = "",
+    context_id: str = "playground",
+    socket_path: Path = DEFAULT_BACKEND_SOCKET,
+    timeout_seconds: float = 120.0,
+) -> dict[str, Any]:
+    """Run a recorded voice-edit instruction through the installed backend."""
+
+    source = Path(path).expanduser()
+    if not source.is_file():
+        raise FileNotFoundError(f"语音编辑录音不存在：{source}")
+    endpoint = Path(socket_path)
+    if not endpoint.is_socket():
+        raise RuntimeError(
+            "VoCoType ASR 后台未就绪；请先安装并启动 Fcitx 后台服务"
+        )
+    text = str(context_text)
+    cursor = len(text) if cursor_pos is None else max(0, min(int(cursor_pos), len(text)))
+    anchor = cursor if anchor_pos is None else max(0, min(int(anchor_pos), len(text)))
+    request = json.dumps(
+        {
+            "type": "edit_audio",
+            "audio_path": str(source),
+            "context_id": str(context_id).strip() or "playground",
+            "replace_state": "unknown",
+            "supports_surrounding": True,
+            "snapshot": {
+                "text": text,
+                "cursor_pos": cursor,
+                "anchor_pos": anchor,
+                "selected_text": str(selected_text),
+            },
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    client.settimeout(max(1.0, float(timeout_seconds)))
+    chunks: list[bytes] = []
+    try:
+        client.connect(str(endpoint))
+        client.sendall(request)
+        getattr(client, "shut" + "down")(socket.SHUT_WR)
+        while True:
+            chunk = client.recv(8192)
+            if not chunk:
+                break
+            chunks.append(chunk)
+    finally:
+        client.close()
+    if not chunks:
+        raise RuntimeError("语音编辑后台未返回结果")
+    response = json.loads(b"".join(chunks).decode("utf-8"))
+    if not isinstance(response, dict):
+        raise RuntimeError("语音编辑后台返回格式无效")
+    if not response.get("success"):
+        instruction = str(response.get("instruction", "")).strip()
+        suffix = f"（识别指令：{instruction}）" if instruction else ""
+        raise RuntimeError(str(response.get("error") or "语音编辑失败") + suffix)
+    return response
+
 def slm_config_fingerprint(config: Mapping[str, Any]) -> str:
     """Fingerprint endpoint/model choices without persisting credentials."""
 
@@ -458,4 +524,4 @@ def slm_playground_gate(
     current = slm_config_fingerprint(config)
     if verified_fingerprint != current:
         return False, f"请先在“AI 润色”页面通过{probe_name}。"
-    return True, "当前 AI 配置已在本次设置中心会话中测活，可以试用润色与编辑。"
+    return True, "当前 AI 配置已测活并持久保存，可以试用润色与编辑。"

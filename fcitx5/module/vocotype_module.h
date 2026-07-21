@@ -196,6 +196,8 @@ private:
     void stopAndTranscribe();
 
     void showPanelMessage(fcitx::InputContext *ic, const std::string &message);
+    void renderRecordingPanel(fcitx::InputContext *ic,
+                              const std::string &status);
     void showStreamingPreview(fcitx::InputContext *ic, const std::string &text);
     void showAnimationFrame(fcitx::InputContext *ic);
     void startPanelAnimation(fcitx::InputContext *ic, PanelAnimationKind kind);
@@ -257,6 +259,8 @@ private:
     VoiceEditSnapshot pending_edit_snapshot_;
     VoiceEditSnapshot recording_edit_snapshot_;
     bool streaming_preview_visible_ = false;
+    std::string streaming_preview_text_;
+    std::string recording_status_text_;
     fcitx::KeyStates pending_ptt_states_ = fcitx::KeyState::NoState;
     fcitx::TrackableObjectReference<fcitx::InputContext> active_ic_;
 

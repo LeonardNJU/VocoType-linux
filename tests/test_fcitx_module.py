@@ -84,7 +84,8 @@ def test_panel_style_defaults_to_minimal_and_release_switches_immediately():
     assert '"minimal"' in header
     assert 'animate_panel_ = false' in header
     assert 'animate_panel_ = toLower(config_.panelStyle.value()) == "animated"' in source
-    assert 'showPanelMessage(ic, "🎤 录音中...")' in source
+    assert 'long_mode ? "🎤 录音中(长句)..." : "🎤 录音中..."' in source
+    assert "renderRecordingPanel(ic, recording_status_text_)" in source
     stop_body = source.split("void VoCoTypeModule::stopRecording(bool transcribe)", 1)[1]
     assert 'showPanelMessage(ic, "⏳ 识别中")' in stop_body
     assert stop_body.index("stopPanelAnimation();") < stop_body.index('showPanelMessage(ic, "⏳ 识别中")')
@@ -101,6 +102,16 @@ def test_f9_and_shift_f9_contract_matches_ibus():
     assert "polish_by_default_" not in source
     assert "return static_cast<bool>(states & long_mode_modifier_);" in source
     assert "long_mode = bool(state & IBus.ModifierType.SHIFT_MASK)" in ibus
+    for status in (
+        "🎤 录音中...",
+        "🟢 正在听 ●     ",
+        "⚫ 正在听     ● ",
+        "⏳ 识别中",
+    ):
+        assert status in source
+        assert status in ibus
+    assert "panel.setAuxDown(preview);" in source
+    assert "self._update_auxiliary_status(self._streaming_preview_text)" in ibus
 
 
 def test_voice_edit_module_contains_no_clipboard_context_capture():
@@ -126,14 +137,18 @@ def test_live_asr_partials_replace_panel_preedit_but_never_commit():
     source = (ROOT / "fcitx5" / "module" / "vocotype_module.cpp").read_text(
         encoding="utf-8"
     )
+    render_body = source.split(
+        "void VoCoTypeModule::renderRecordingPanel", 1
+    )[1].split("void VoCoTypeModule::showStreamingPreview", 1)[0]
     preview_body = source.split(
         "void VoCoTypeModule::showStreamingPreview", 1
     )[1].split("void VoCoTypeModule::showAnimationFrame", 1)[0]
     assert 'type == "partial"' in source
-    assert "panel.setPreedit(preview);" in preview_body
-    assert "streaming_preview_visible_" in preview_body
-    assert preview_body.count("panel.reset();") == 1
-    assert "ic->updatePreedit();" not in preview_body
+    assert "panel.setPreedit(status_text);" in render_body
+    assert "panel.setAuxDown(preview);" in render_body
+    assert "streaming_preview_text_ = text;" in preview_body
+    assert "stopPanelAnimation();" not in preview_body
+    assert "ic->updatePreedit();" not in render_body
     assert "commitString" not in preview_body
     assert 'type == "audio"' in source
     assert "transcribeAudio(audio_path, false)" in source

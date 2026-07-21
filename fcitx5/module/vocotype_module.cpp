@@ -935,6 +935,8 @@ void VoCoTypeModule::startRecording(
     ptt_pressed_ = true;
     ptt_suppressed_ = false;
     streaming_preview_visible_ = false;
+    streaming_preview_text_.clear();
+    recording_status_text_.clear();
     pending_long_mode_ = false;
     pending_edit_mode_ = false;
     pending_edit_snapshot_ = VoiceEditSnapshot();
@@ -1012,7 +1014,9 @@ void VoCoTypeModule::startRecording(
                       : PanelAnimationKind::Recording);
 
     } else {
-        showPanelMessage(ic, "🎤 录音中...");
+        recording_status_text_ =
+            long_mode ? "🎤 录音中(长句)..." : "🎤 录音中...";
+        renderRecordingPanel(ic, recording_status_text_);
     }
 }
 
@@ -1030,6 +1034,8 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
     // process and ASR continue off the Fcitx event thread after this point.
     stopPanelAnimation();
     streaming_preview_visible_ = false;
+    streaming_preview_text_.clear();
+    recording_status_text_.clear();
     ptt_hold_timer_.reset();
     ptt_release_timer_.reset();
     ptt_pressed_ = false;
@@ -1637,30 +1643,42 @@ void VoCoTypeModule::showPanelMessage(fcitx::InputContext *ic,
     ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
 }
 
+void VoCoTypeModule::renderRecordingPanel(
+    fcitx::InputContext *ic, const std::string &status) {
+    if (!ic || status.empty()) {
+        return;
+    }
+    ui_owned_ = true;
+    auto &panel = ic->inputPanel();
+    panel.reset();
+
+    // Use the same two-row contract as voice editing: recording state on the
+    // first row, online partial on the second row. Keeping the preview out of
+    // client preedit avoids composition/focus side effects.
+    fcitx::Text status_text;
+    status_text.append(status);
+    panel.setPreedit(status_text);
+    if (!streaming_preview_text_.empty()) {
+        fcitx::Text preview;
+        preview.append(streaming_preview_text_);
+        panel.setAuxDown(preview);
+    }
+    ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+}
+
 void VoCoTypeModule::showStreamingPreview(
     fcitx::InputContext *ic, const std::string &text) {
     if (!ic || text.empty()) {
         return;
     }
-    ui_owned_ = true;
-    auto &panel = ic->inputPanel();
-    if (!streaming_preview_visible_) {
-        // Transition once from the listening animation to a stable preview.
-        // Repeated reset/updatePreedit calls can race the global module's key
-        // and focus state, causing duplicate recorders and visible flicker.
-        stopPanelAnimation();
-        panel.reset();
-        fcitx::Text status;
-        status.append("🟢 正在听");
-        panel.setAuxUp(status);
-        streaming_preview_visible_ = true;
+    streaming_preview_visible_ = true;
+    streaming_preview_text_ = text;
+    if (recording_status_text_.empty()) {
+        recording_status_text_ = recording_long_mode_
+                                     ? "🎤 录音中(长句)..."
+                                     : "🎤 录音中...";
     }
-    fcitx::Text preview;
-    preview.append(text);
-    panel.setPreedit(preview);
-    // This is panel-owned UI, not client composition. Updating the input panel
-    // is sufficient and avoids client preedit/focus side effects.
-    ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+    renderRecordingPanel(ic, recording_status_text_);
 }
 
 void VoCoTypeModule::showAnimationFrame(fcitx::InputContext *ic) {
@@ -1670,8 +1688,9 @@ void VoCoTypeModule::showAnimationFrame(fcitx::InputContext *ic) {
     } else if (panel_animation_kind_ == PanelAnimationKind::Polishing) {
         frames = &POLISHING_ANIMATION_FRAMES;
     }
-    showPanelMessage(
-        ic, (*frames)[recording_animation_frame_index_ % frames->size()]);
+    recording_status_text_ =
+        (*frames)[recording_animation_frame_index_ % frames->size()];
+    renderRecordingPanel(ic, recording_status_text_);
     recording_animation_frame_index_ =
         (recording_animation_frame_index_ + 1) % frames->size();
 }
@@ -1683,6 +1702,8 @@ void VoCoTypeModule::startPanelAnimation(fcitx::InputContext *ic,
         return;
     }
     streaming_preview_visible_ = false;
+    streaming_preview_text_.clear();
+    recording_status_text_.clear();
     panel_animation_kind_ = kind;
     showAnimationFrame(ic);
     schedulePanelAnimationFrame(ic->watch(), panel_animation_generation_);
@@ -1728,6 +1749,8 @@ void VoCoTypeModule::stopPanelAnimation() {
 void VoCoTypeModule::clearOwnedUI(fcitx::InputContext *ic) {
     stopPanelAnimation();
     streaming_preview_visible_ = false;
+    streaming_preview_text_.clear();
+    recording_status_text_.clear();
     pending_fallback_text_.clear();
     if (!ic || !ui_owned_) {
         return;

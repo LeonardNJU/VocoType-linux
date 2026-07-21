@@ -34,6 +34,7 @@ from .config_service import (
     update_runtime_sections,
 )
 from .doctor import DoctorCheck, doctor_summary, run_doctor
+from .install_integrity import probe_installation_integrity
 from .feedback import (
     OFFICIAL_FEEDBACK_ENDPOINT,
     build_feedback_payload,
@@ -43,6 +44,7 @@ from .feedback import (
 from .playground_service import (
     RECORDING_DURATION_SECONDS,
     OutputDevice,
+    edit_recording,
     last_recording_path,
     list_input_devices,
     list_output_devices,
@@ -70,6 +72,10 @@ from .setup_manager import (
     uninstall_framework,
 )
 from .support_bundle import create_support_bundle
+from .version_check import (
+    fetch_release_integrity_manifest,
+    query_latest_release,
+)
 
 APP_ID = "io.github.LeonardNJU.VoCoType.Settings"
 DEFAULT_TERMS_TEMPLATE = """# VoCoType 统一术语库
@@ -103,6 +109,7 @@ headerbar {
 .page { padding: 28px 34px; }
 .page-title { font-size: 24px; font-weight: 700; color: @theme_fg_color; }
 .page-subtitle { font-size: 14px; color: alpha(@theme_fg_color, 0.68); margin-bottom: 14px; }
+.section-title { font-size: 17px; font-weight: 700; color: @theme_fg_color; margin-top: 8px; }
 .card {
   background-color: @theme_base_color;
   color: @theme_text_color;
@@ -167,6 +174,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
         )
         self._playground_audio_busy = False
         self._playground_ai_busy = False
+        self._syncing_audio_controls = False
+        self._slm_toggle_guard = False
+        self._slm_probe_in_flight = False
         self._loading_values = True
         self._restoring_lifecycle_framework = True
         self._playground_waveform: deque[tuple[float, float]] = deque(maxlen=240)
@@ -200,14 +210,14 @@ class SettingsWindow(Gtk.ApplicationWindow):
         root.pack_start(self.stack, True, True, 0)
 
         overview_page = self._overview_page()
-        recognition_page = self._recognition_page()
+        general_page = self._recognition_page()
         terms_page = self._terms_page()
         # Build the SLM settings before Playground so the Playground gate can
         # observe the live, unsaved controls as well as saved configuration.
         slm_page = self._slm_page()
         playground_page = self._playground_page()
         self.stack.add_titled(overview_page, "overview", "概览与安装")
-        self.stack.add_titled(recognition_page, "recognition", "逆文本标准化")
+        self.stack.add_titled(general_page, "general", "通用设置")
         self.stack.add_titled(playground_page, "playground", "Playground")
         self.stack.add_titled(terms_page, "terms", "用户词典")
         self.stack.add_titled(slm_page, "slm", "AI 润色")
@@ -233,6 +243,18 @@ class SettingsWindow(Gtk.ApplicationWindow):
     def _card(self) -> Gtk.Box:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         box.get_style_context().add_class("card")
+        return box
+
+    def _section_heading(self, title: str, subtitle: str = "") -> Gtk.Box:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        title_label = Gtk.Label(label=title, xalign=0)
+        title_label.get_style_context().add_class("section-title")
+        box.pack_start(title_label, False, False, 0)
+        if subtitle:
+            subtitle_label = Gtk.Label(label=subtitle, xalign=0)
+            subtitle_label.set_line_wrap(True)
+            subtitle_label.get_style_context().add_class("row-subtitle")
+            box.pack_start(subtitle_label, False, False, 0)
         return box
 
     def _row(
@@ -443,43 +465,147 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
     def _recognition_page(self) -> Gtk.Widget:
         page, content = self._page(
-            "逆文本标准化（ITN）",
-            "配置识别后的数字、日期、时间、路程和金额格式；麦克风、回放与真实模型试用已集中到 Playground。",
+            "通用设置",
+            "集中配置麦克风、F9 状态样式、实时识别预览与 ITN。Playground 中的麦克风控件与这里双向同步。",
         )
-        card = self._card()
-        self.asr_streaming_enabled = self._switch()
-        self.itn_enabled = self._switch()
-        self.compact_dates = self._switch()
-        self.compact_times = self._switch()
-        self.compact_distances = self._switch()
-        self.currency_symbols = self._switch()
-        card.pack_start(
+
+        content.pack_start(
+            self._section_heading(
+                "麦克风与采样率",
+                "这组设置同时供 F9、IBus、Fcitx 5 与 Playground 使用。",
+            ),
+            False,
+            False,
+            0,
+        )
+        audio_card = self._card()
+        self.audio_device = Gtk.ComboBoxText()
+        self.audio_device.set_hexpand(True)
+        self.audio_device.connect("changed", self._on_audio_device_changed)
+        self.audio_sample_rate = Gtk.SpinButton.new_with_range(8000, 192000, 1000)
+        self.audio_sample_rate.set_value(44100)
+        self.audio_sample_rate.connect(
+            "value-changed", self._on_audio_sample_rate_changed
+        )
+        refresh_audio = Gtk.Button(label="刷新音频设备")
+        refresh_audio.connect("clicked", self._on_refresh_audio)
+        self.audio_status = Gtk.Label(label="尚未枚举音频设备", xalign=0)
+        self.audio_status.set_line_wrap(True)
+        audio_card.pack_start(
             self._row(
+                "输入设备",
+                "选择后会同步到 Playground；成功录音时保存为 F9 使用设备。",
+                self.audio_device,
+            ),
+            False,
+            False,
+            0,
+        )
+        audio_card.pack_start(
+            self._row(
+                "原生采样率",
+                "按设备原生采样率采集；ASR 会在内部重采样到模型需要的采样率。",
+                self.audio_sample_rate,
+            ),
+            False,
+            False,
+            0,
+        )
+        audio_actions = Gtk.Box(spacing=8)
+        audio_actions.pack_start(refresh_audio, False, False, 0)
+        audio_actions.pack_start(self.audio_status, True, True, 0)
+        audio_card.pack_start(
+            self._row("设备状态", control=audio_actions), False, False, 0
+        )
+        content.pack_start(audio_card, False, False, 0)
+
+        content.pack_start(
+            self._section_heading(
+                "F9 交互样式",
+                "Fcitx 5 与 IBus 使用完全一致的第一行状态与第二行实时预览。",
+            ),
+            False,
+            False,
+            0,
+        )
+        panel_card = self._card()
+        self.panel_style = Gtk.ComboBoxText()
+        self.panel_style.append("minimal", "极简：🎤 录音中 / ⏳ 识别中")
+        self.panel_style.append("animated", "动画：正在听状态动画")
+        self.panel_style.set_active_id("minimal")
+        self.panel_style.connect("changed", self._on_panel_style_changed)
+        self.panel_style_status = Gtk.Label(xalign=0)
+        self.panel_style_status.set_line_wrap(True)
+        panel_control = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        panel_control.pack_start(self.panel_style, False, False, 0)
+        panel_control.pack_start(self.panel_style_status, False, False, 0)
+        panel_card.pack_start(
+            self._row(
+                "状态样式",
+                "极简模式保持“录音中”；动画模式保持“正在听”动画。流式 partial 始终显示在第二行。",
+                panel_control,
+            ),
+            False,
+            False,
+            0,
+        )
+        content.pack_start(panel_card, False, False, 0)
+
+        content.pack_start(
+            self._section_heading(
                 "实时识别预览（2-pass）",
-                "按住说话时实时更新 preedit；松键后仍由原高精度离线模型给出最终结果。首次录音会按需加载约 238 MB 官方在线模型；本地 native worker 空闲后自动退出并释放内存。",
+                "在线模型只负责录音期间的第二行预览；松键后仍由原高精度离线模型给出最终结果。",
+            ),
+            False,
+            False,
+            0,
+        )
+        streaming_card = self._card()
+        self.asr_streaming_enabled = self._switch()
+        streaming_card.pack_start(
+            self._row(
+                "启用实时识别预览",
+                "首次使用会按需加载官方在线模型；本地 native worker 空闲后自动退出并释放内存。",
                 self.asr_streaming_enabled,
             ),
             False,
             False,
             0,
         )
-        card.pack_start(self._row("启用数字与 ITN", "关闭后保留用户词典替换，但不改写中文数字。", self.itn_enabled), False, False, 0)
-        card.pack_start(self._row("紧凑日期", "例如：二零二六年五月十一号 → 2026/05/11", self.compact_dates), False, False, 0)
-        card.pack_start(self._row("24 小时时间", "例如：下午三点二十分 → 15:20", self.compact_times), False, False, 0)
-        card.pack_start(self._row("路程单位缩写", "例如：三百二十米 → 320m", self.compact_distances), False, False, 0)
-        card.pack_start(self._row("金额符号", "例如：一百二十八元 → ¥128", self.currency_symbols), False, False, 0)
-        content.pack_start(card, False, False, 0)
+        content.pack_start(streaming_card, False, False, 0)
+
+        content.pack_start(
+            self._section_heading(
+                "数字与格式（ITN）",
+                "控制识别后的数字、日期、时间、距离和金额格式。",
+            ),
+            False,
+            False,
+            0,
+        )
+        itn_card = self._card()
+        self.itn_enabled = self._switch()
+        self.compact_dates = self._switch()
+        self.compact_times = self._switch()
+        self.compact_distances = self._switch()
+        self.currency_symbols = self._switch()
+        itn_card.pack_start(self._row("启用数字与 ITN", "关闭后保留用户词典替换，但不改写中文数字。", self.itn_enabled), False, False, 0)
+        itn_card.pack_start(self._row("紧凑日期", "例如：二零二六年五月十一号 → 2026/05/11", self.compact_dates), False, False, 0)
+        itn_card.pack_start(self._row("24 小时时间", "例如：下午三点二十分 → 15:20", self.compact_times), False, False, 0)
+        itn_card.pack_start(self._row("路程单位缩写", "例如：三百二十米 → 320m", self.compact_distances), False, False, 0)
+        itn_card.pack_start(self._row("金额符号", "例如：一百二十八元 → ¥128", self.currency_symbols), False, False, 0)
+        content.pack_start(itn_card, False, False, 0)
 
         preview_card = self._card()
         self.preview_input = Gtk.Entry()
         self.preview_input.set_text("二零二六年五月十一号下午三点二十分跑了三百二十米，花了一百二十八元")
         self.preview_input.connect("activate", self._on_preview)
-        preview_button = Gtk.Button(label="生成预览")
+        preview_button = Gtk.Button(label="生成 ITN 预览")
         preview_button.connect("clicked", self._on_preview)
         input_box = Gtk.Box(spacing=8)
         input_box.pack_start(self.preview_input, True, True, 0)
         input_box.pack_start(preview_button, False, False, 0)
-        self.preview_output = Gtk.Label(label="点击“生成预览”查看结果", xalign=0)
+        self.preview_output = Gtk.Label(label="点击“生成 ITN 预览”查看结果", xalign=0)
         self.preview_output.set_line_wrap(True)
         self.preview_output.set_selectable(True)
         self.preview_output.get_style_context().add_class("preview")
@@ -542,7 +668,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         card.pack_start(
             self._row(
                 "启用 AI 润色",
-                "F9 始终直接输出；Shift+F9 在 IBus 与 Fcitx 5 中统一调用 AI 润色。",
+                "F9 始终直接输出；Shift+F9 调用 AI 润色。填好模型、端点与凭据后再打开；切换到 ON 时会自动真实测活，失败则保持关闭。",
                 self.slm_enabled,
             ),
             False,
@@ -569,8 +695,10 @@ class SettingsWindow(Gtk.ApplicationWindow):
         actions.pack_start(self.slm_test_status, True, True, 0)
         content.pack_start(actions, False, False, 0)
 
+        self.slm_enabled.connect(
+            "notify::active", self._on_slm_enabled_changed
+        )
         for widget, signal in (
-            (self.slm_enabled, "notify::active"),
             (self.slm_provider, "changed"),
             (self.slm_endpoint, "changed"),
             (self.slm_model, "changed"),
@@ -584,31 +712,42 @@ class SettingsWindow(Gtk.ApplicationWindow):
     def _playground_page(self) -> Gtk.Widget:
         page, content = self._page(
             "Playground",
-            "在不影响安装状态的前提下，实际验证麦克风回放、语音转录，以及已测活的 AI 润色与编辑。",
+            "依次测试麦克风、真实转录、AI 润色与语音编辑。输入设备和采样率与“通用设置”双向同步。",
         )
 
+        content.pack_start(
+            self._section_heading("1. 测试麦克风", "录音、查看波形，并从指定输出设备回放。"),
+            False,
+            False,
+            0,
+        )
         audio_card = self._card()
-        self.audio_device = Gtk.ComboBoxText()
-        self.audio_device.set_hexpand(True)
-        self.audio_device.connect("changed", self._on_audio_device_changed)
+        self.playground_audio_device = Gtk.ComboBoxText()
+        self.playground_audio_device.set_hexpand(True)
+        self.playground_audio_device.connect(
+            "changed", self._on_playground_audio_device_changed
+        )
+        self.playground_audio_sample_rate = Gtk.SpinButton.new_with_range(
+            8000, 192000, 1000
+        )
+        self.playground_audio_sample_rate.set_value(44100)
+        self.playground_audio_sample_rate.connect(
+            "value-changed", self._on_playground_audio_sample_rate_changed
+        )
         self.audio_output = Gtk.ComboBoxText()
         self.audio_output.set_hexpand(True)
         self.audio_output.connect("changed", self._on_audio_output_changed)
-        self.audio_sample_rate = Gtk.SpinButton.new_with_range(8000, 192000, 1000)
-        self.audio_sample_rate.set_value(44100)
-        self.panel_style = Gtk.ComboBoxText()
-        self.panel_style.append("minimal", "极简：🎤 录音中 / ⏳ 识别中")
-        self.panel_style.append("animated", "动画：绿黑状态动画")
-        self.panel_style.set_active_id("minimal")
-        self.panel_style.connect("changed", self._on_panel_style_changed)
-        self.panel_style_status = Gtk.Label(xalign=0)
-        self.panel_style_status.set_line_wrap(True)
-        self.audio_status = Gtk.Label(label="尚未枚举音频设备", xalign=0)
-        self.audio_status.set_line_wrap(True)
+        self.playground_audio_status = Gtk.Label(
+            label="尚未枚举音频设备", xalign=0
+        )
+        self.playground_audio_status.set_line_wrap(True)
         self.playground_waveform = Gtk.DrawingArea()
         self.playground_waveform.set_size_request(-1, 110)
         self.playground_waveform.get_style_context().add_class("waveform")
         self.playground_waveform.connect("draw", self._draw_playground_waveform)
+        self.playground_waveform.set_hexpand(True)
+        self.playground_waveform.set_vexpand(False)
+        self.playground_waveform.set_valign(Gtk.Align.FILL)
 
         self.playground_refresh_audio_button = Gtk.Button(label="刷新设备")
         self.playground_refresh_audio_button.connect("clicked", self._on_refresh_audio)
@@ -627,8 +766,18 @@ class SettingsWindow(Gtk.ApplicationWindow):
         audio_card.pack_start(
             self._row(
                 "输入设备",
-                "此处选择的设备同时用于 Playground 与 F9 语音输入；成功录音后会保存。",
-                self.audio_device,
+                "与通用设置同步；成功录音后保存为 F9 使用设备。",
+                self.playground_audio_device,
+            ),
+            False,
+            False,
+            0,
+        )
+        audio_card.pack_start(
+            self._row(
+                "采样率",
+                "与通用设置同步。",
+                self.playground_audio_sample_rate,
             ),
             False,
             False,
@@ -637,7 +786,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         audio_card.pack_start(
             self._row(
                 "输出设备",
-                "回放会明确发送到所选的 PipeWire/PulseAudio sink，避免误落到无声 HDMI。",
+                "回放会明确发送到所选 PipeWire/PulseAudio sink。",
                 self.audio_output,
             ),
             False,
@@ -645,67 +794,36 @@ class SettingsWindow(Gtk.ApplicationWindow):
             0,
         )
         audio_card.pack_start(
-            self._row(
-                "原生采样率",
-                "按设备原生采样率采集，保存为 WAV；ASR 会按模型需要处理采样率。",
-                self.audio_sample_rate,
-            ),
-            False,
-            False,
-            0,
-        )
-        panel_style_control = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL, spacing=4
-        )
-        panel_style_control.pack_start(self.panel_style, False, False, 0)
-        panel_style_control.pack_start(
-            self.panel_style_status, False, False, 0
-        )
-        audio_card.pack_start(
-            self._row(
-                "F9 状态样式",
-                "极简模式默认启用；改变后会立即写入配置并重载 Fcitx 5。",
-                panel_style_control,
-            ),
-            False,
-            False,
-            0,
-        )
-        audio_card.pack_start(
-            self._row(
-                "录音与回放",
-                f"先完整录音 {int(RECORDING_DURATION_SECONDS)} 秒，再用独立回放按钮从所选输出设备试听。",
-                audio_actions,
-            ),
-            False,
-            False,
-            0,
+            self._row("录音与回放", control=audio_actions), False, False, 0
         )
         waveform_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         waveform_section.get_style_context().add_class("card-row")
         waveform_title = Gtk.Label(label="实时波形", xalign=0)
         waveform_title.get_style_context().add_class("row-title")
         waveform_subtitle = Gtk.Label(
-            label="录音期间滚动显示，并按当前信号自动放大；原始 WAV 不会被修改。",
+            label="录音期间滚动显示并自动放大；原始 WAV 不会被修改。",
             xalign=0,
         )
         waveform_subtitle.set_line_wrap(True)
         waveform_subtitle.get_style_context().add_class("row-subtitle")
-        self.playground_waveform.set_hexpand(True)
-        self.playground_waveform.set_vexpand(False)
-        self.playground_waveform.set_valign(Gtk.Align.FILL)
         waveform_section.pack_start(waveform_title, False, False, 0)
         waveform_section.pack_start(waveform_subtitle, False, False, 0)
         waveform_section.pack_start(self.playground_waveform, False, True, 0)
         audio_card.pack_start(waveform_section, False, False, 0)
         audio_card.pack_start(
-            self._row("状态", control=self.audio_status),
+            self._row("状态", control=self.playground_audio_status),
             False,
             False,
             0,
         )
         content.pack_start(audio_card, False, False, 0)
 
+        content.pack_start(
+            self._section_heading("2. 测试转录", "调用当前已安装的真实 ASR 后台。"),
+            False,
+            False,
+            0,
+        )
         asr_card = self._card()
         self.playground_transcribe_button = Gtk.Button(label="转录上次录音")
         self.playground_transcribe_button.connect(
@@ -717,12 +835,8 @@ class SettingsWindow(Gtk.ApplicationWindow):
         )
         self.playground_transcribe_status.set_line_wrap(True)
         asr_actions = Gtk.Box(spacing=8)
-        asr_actions.pack_start(
-            self.playground_transcribe_button, False, False, 0
-        )
-        asr_actions.pack_start(
-            self.playground_transcribe_status, True, True, 0
-        )
+        asr_actions.pack_start(self.playground_transcribe_button, False, False, 0)
+        asr_actions.pack_start(self.playground_transcribe_status, True, True, 0)
         self.playground_transcript_view = Gtk.TextView()
         self.playground_transcript_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         self.playground_transcript_view.set_editable(True)
@@ -733,14 +847,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         transcript_scroll.set_min_content_height(110)
         transcript_scroll.add(self.playground_transcript_view)
         asr_card.pack_start(
-            self._row(
-                "真实 ASR 转录",
-                "使用已安装后台和当前模型，不用峰值替代识别正确性。",
-                asr_actions,
-            ),
-            False,
-            False,
-            0,
+            self._row("真实 ASR 转录", control=asr_actions), False, False, 0
         )
         asr_card.pack_start(transcript_scroll, False, False, 12)
         content.pack_start(asr_card, False, False, 0)
@@ -748,68 +855,124 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.playground_ai_gate_status = Gtk.Label(xalign=0)
         self.playground_ai_gate_status.set_line_wrap(True)
         content.pack_start(self.playground_ai_gate_status, False, False, 0)
-
-        ai_card = self._card()
         self.playground_ai_controls = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL,
-            spacing=10,
+            orientation=Gtk.Orientation.VERTICAL, spacing=16
         )
         self.playground_ai_controls.set_sensitive(False)
-        self.playground_ai_source = Gtk.TextView()
-        self.playground_ai_source.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        self.playground_ai_source.get_buffer().set_text(
+
+        self.playground_ai_controls.pack_start(
+            self._section_heading(
+                "3. 测试 AI 润色",
+                "使用已启用且已测活的当前模型整理文本，不带编辑指令。",
+            ),
+            False,
+            False,
+            0,
+        )
+        polish_card = self._card()
+        self.playground_polish_source = Gtk.TextView()
+        self.playground_polish_source.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self.playground_polish_source.get_buffer().set_text(
             "这是一段有一点啰嗦而且表达不够自然的测试文本，希望 AI 帮我整理得更清楚。"
         )
-        source_scroll = Gtk.ScrolledWindow()
-        source_scroll.set_min_content_height(100)
-        source_scroll.add(self.playground_ai_source)
-        self.playground_ai_controls.pack_start(
-            Gtk.Label(label="待处理文本", xalign=0), False, False, 0
+        polish_source_scroll = Gtk.ScrolledWindow()
+        polish_source_scroll.set_min_content_height(100)
+        polish_source_scroll.add(self.playground_polish_source)
+        self.playground_polish_button = Gtk.Button(label="测试 AI 润色")
+        self.playground_polish_button.connect("clicked", self._on_playground_polish)
+        self.playground_polish_status = Gtk.Label(xalign=0)
+        self.playground_polish_status.set_line_wrap(True)
+        polish_actions = Gtk.Box(spacing=8)
+        polish_actions.pack_start(self.playground_polish_button, False, False, 0)
+        polish_actions.pack_start(self.playground_polish_status, True, True, 0)
+        self.playground_polish_result = Gtk.TextView()
+        self.playground_polish_result.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self.playground_polish_result.set_editable(True)
+        self.playground_polish_result.get_buffer().set_text(
+            "AI 润色结果会显示在这里。"
         )
-        self.playground_ai_controls.pack_start(source_scroll, False, False, 0)
+        polish_result_scroll = Gtk.ScrolledWindow()
+        polish_result_scroll.set_min_content_height(110)
+        polish_result_scroll.add(self.playground_polish_result)
+        polish_card.pack_start(Gtk.Label(label="待润色文本", xalign=0), False, False, 12)
+        polish_card.pack_start(polish_source_scroll, False, False, 12)
+        polish_card.pack_start(polish_actions, False, False, 12)
+        polish_card.pack_start(Gtk.Label(label="润色结果", xalign=0), False, False, 12)
+        polish_card.pack_start(polish_result_scroll, False, False, 12)
+        self.playground_ai_controls.pack_start(polish_card, False, False, 0)
 
-        self.playground_ai_instruction = Gtk.Entry()
-        self.playground_ai_instruction.set_text("改得更简洁、自然，并保留原意")
         self.playground_ai_controls.pack_start(
+            self._section_heading(
+                "4. 测试语音编辑",
+                "用范例快速验证替换、翻译、LaTeX 公式与好评生成四类编辑指令。",
+            ),
+            False,
+            False,
+            0,
+        )
+        edit_card = self._card()
+        self.playground_edit_source = Gtk.TextView()
+        self.playground_edit_source.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self.playground_edit_source.get_buffer().set_text(
+            "A 是旧版本标记，后文仍然引用 A。"
+        )
+        edit_source_scroll = Gtk.ScrolledWindow()
+        edit_source_scroll.set_min_content_height(110)
+        edit_source_scroll.add(self.playground_edit_source)
+        self.playground_ai_instruction = Gtk.Entry()
+        self.playground_ai_instruction.set_text("把 A 替换成 B")
+        examples = Gtk.Box(spacing=6)
+        for label, key in (
+            ("把 A 替换成 B", "replace"),
+            ("翻译成英语", "translate"),
+            ("转成 LaTeX", "latex"),
+            ("写一条好评", "review"),
+        ):
+            button = Gtk.Button(label=label)
+            button.connect("clicked", self._on_playground_edit_example, key)
+            examples.pack_start(button, False, False, 0)
+        self.playground_edit_button = Gtk.Button(
+            label=f"录制语音指令 {int(RECORDING_DURATION_SECONDS)} 秒并测试"
+        )
+        self.playground_edit_button.connect("clicked", self._on_playground_edit)
+        self.playground_edit_status = Gtk.Label(xalign=0)
+        self.playground_edit_status.set_line_wrap(True)
+        edit_actions = Gtk.Box(spacing=8)
+        edit_actions.pack_start(self.playground_edit_button, False, False, 0)
+        edit_actions.pack_start(self.playground_edit_status, True, True, 0)
+        self.playground_edit_result = Gtk.TextView()
+        self.playground_edit_result.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self.playground_edit_result.set_editable(True)
+        self.playground_edit_result.get_buffer().set_text(
+            "语音编辑结果会显示在这里。"
+        )
+        edit_result_scroll = Gtk.ScrolledWindow()
+        edit_result_scroll.set_min_content_height(120)
+        edit_result_scroll.add(self.playground_edit_result)
+        edit_card.pack_start(Gtk.Label(label="上下文文本", xalign=0), False, False, 12)
+        edit_card.pack_start(edit_source_scroll, False, False, 12)
+        edit_card.pack_start(
             self._row(
-                "编辑指令",
-                "“AI 编辑”会按这条指令改写完整文本。",
+                "请对麦克风说",
+                "此文本仅作为口述提示；真正的指令来自麦克风录音与 ASR。",
                 self.playground_ai_instruction,
             ),
             False,
             False,
             0,
         )
+        edit_card.pack_start(self._row("范例", control=examples), False, False, 0)
+        edit_card.pack_start(edit_actions, False, False, 12)
+        edit_card.pack_start(Gtk.Label(label="编辑结果", xalign=0), False, False, 12)
+        edit_card.pack_start(edit_result_scroll, False, False, 12)
+        self.playground_ai_controls.pack_start(edit_card, False, False, 0)
+        content.pack_start(self.playground_ai_controls, False, False, 0)
 
-        self.playground_polish_button = Gtk.Button(label="测试 AI 润色")
-        self.playground_polish_button.connect(
-            "clicked", self._on_playground_polish
-        )
-        self.playground_edit_button = Gtk.Button(label="测试 AI 编辑")
-        self.playground_edit_button.connect("clicked", self._on_playground_edit)
-        ai_actions = Gtk.Box(spacing=8)
-        ai_actions.pack_start(self.playground_polish_button, False, False, 0)
-        ai_actions.pack_start(self.playground_edit_button, False, False, 0)
-        self.playground_ai_status = Gtk.Label(xalign=0)
-        self.playground_ai_status.set_line_wrap(True)
-        ai_actions.pack_start(self.playground_ai_status, True, True, 0)
-        self.playground_ai_controls.pack_start(ai_actions, False, False, 0)
-
-        self.playground_ai_result = Gtk.TextView()
-        self.playground_ai_result.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        self.playground_ai_result.set_editable(True)
-        self.playground_ai_result.get_buffer().set_text(
-            "AI 输出会显示在这里，并保持可编辑。"
-        )
-        result_scroll = Gtk.ScrolledWindow()
-        result_scroll.set_min_content_height(120)
-        result_scroll.add(self.playground_ai_result)
-        self.playground_ai_controls.pack_start(
-            Gtk.Label(label="AI 输出（可编辑）", xalign=0), False, False, 0
-        )
-        self.playground_ai_controls.pack_start(result_scroll, False, False, 0)
-        ai_card.pack_start(self.playground_ai_controls, False, False, 12)
-        content.pack_start(ai_card, False, False, 0)
+        # Backward-compatible aliases for helper code that treats AI controls
+        # as one unit; the visible UI now keeps polish and edit independent.
+        self.playground_ai_source = self.playground_polish_source
+        self.playground_ai_result = self.playground_polish_result
+        self.playground_ai_status = self.playground_polish_status
 
         self._update_playground_recording_actions()
         GLib.idle_add(self._update_playground_slm_gate)
@@ -820,6 +983,32 @@ class SettingsWindow(Gtk.ApplicationWindow):
             "诊断",
             "自动检查常见安装与运行问题。仍无法解决时，可生成不含录音和凭据的支持包。",
         )
+        version_card = self._card()
+        self.doctor_version_status = Gtk.Label(
+            label=f"当前版本：{__version__}；尚未查询 GitHub 最新 release。",
+            xalign=0,
+        )
+        self.doctor_version_status.set_line_wrap(True)
+        latest_button = Gtk.Button(label="查询 GitHub 最新版本")
+        latest_button.connect("clicked", self._on_check_latest_version)
+        version_card.pack_start(
+            self._row(
+                "版本与远程完整性",
+                "查询 release 版本；若该版本提供完整性清单，同时对关键安装文件执行 SHA-256 对照。",
+                latest_button,
+            ),
+            False,
+            False,
+            0,
+        )
+        version_card.pack_start(
+            self._row("查询结果", control=self.doctor_version_status),
+            False,
+            False,
+            0,
+        )
+        content.pack_start(version_card, False, False, 0)
+
         actions = Gtk.Box(spacing=8)
         run_button = Gtk.Button(label="运行 Doctor")
         run_button.get_style_context().add_class("suggested-action")
@@ -979,6 +1168,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
         normalization = self.runtime_config.get("normalization", {})
         asr_streaming = self.runtime_config.get("asr_streaming", {})
         slm = self.runtime_config.get("slm", {})
+        ui = self.runtime_config.get("ui", {})
+        if not isinstance(ui, dict):
+            ui = {}
         feedback = self.runtime_config.get("feedback", {})
         self.asr_streaming_enabled.set_active(
             _as_bool(asr_streaming.get("enabled"), False)
@@ -988,6 +1180,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.compact_times.set_active(_as_bool(normalization.get("compact_times"), True))
         self.compact_distances.set_active(_as_bool(normalization.get("compact_distances"), True))
         self.currency_symbols.set_active(_as_bool(normalization.get("currency_symbols"), True))
+        self._slm_health_fingerprint = (
+            str(slm.get("verified_fingerprint", "")).strip() or None
+        )
         self.slm_enabled.set_active(_as_bool(slm.get("enabled"), False))
         provider = str(slm.get("provider", "remote"))
         self.slm_provider.set_active_id(provider if provider in {"remote", "local_ephemeral"} else "remote")
@@ -1007,7 +1202,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.slm_timeout.set_value(float(slm.get("stream_idle_timeout_ms", slm.get("timeout_ms", 20000))))
         self.slm_remote_stream.set_active(_as_bool(slm.get("remote_stream"), True))
         self.slm_thinking.set_active(_as_bool(slm.get("enable_thinking"), False))
-        panel_style = str(self.module_config.get("panelstyle", "minimal")).strip().lower()
+        panel_style = str(
+            ui.get("panel_style", self.module_config.get("panelstyle", "minimal"))
+        ).strip().lower()
         self.panel_style.set_active_id(
             panel_style if panel_style in {"minimal", "animated"} else "minimal"
         )
@@ -1022,11 +1219,11 @@ class SettingsWindow(Gtk.ApplicationWindow):
             self._saved_audio_config = load_audio_config()
         except Exception as exc:  # noqa: BLE001
             self._saved_audio_config = {"device_name": "", "device_id": None, "sample_rate": 0}
-            self.audio_status.set_text(f"音频配置读取失败：{exc}")
+            self._set_audio_status(f"音频配置读取失败：{exc}")
         if int(self._saved_audio_config.get("sample_rate") or 0) > 0:
-            self.audio_sample_rate.set_value(
-                int(self._saved_audio_config["sample_rate"])
-            )
+            sample_rate = int(self._saved_audio_config["sample_rate"])
+            self.audio_sample_rate.set_value(sample_rate)
+            self.playground_audio_sample_rate.set_value(sample_rate)
         GLib.idle_add(self._start_audio_refresh)
         GLib.idle_add(self._update_playground_slm_gate)
 
@@ -1095,7 +1292,22 @@ class SettingsWindow(Gtk.ApplicationWindow):
             streaming["enabled"] = self.asr_streaming_enabled.get_active()
             config["asr_streaming"] = streaming
             config["normalization"] = self._current_normalization()
-            config["slm"] = self._current_slm()
+            ui = config.get("ui")
+            if not isinstance(ui, dict):
+                ui = {}
+            ui["panel_style"] = self.panel_style.get_active_id() or "minimal"
+            config["ui"] = ui
+            slm_config = self._current_slm()
+            if slm_config.get("enabled"):
+                validation_error = self._slm_validation_error(slm_config)
+                if validation_error:
+                    raise ValueError(validation_error)
+                if slm_config_fingerprint(slm_config) != self._slm_health_fingerprint:
+                    raise ValueError(
+                        "当前 AI 配置尚未通过测活；请关闭后重新打开 AI 润色开关。"
+                    )
+                slm_config["verified_fingerprint"] = self._slm_health_fingerprint
+            config["slm"] = slm_config
             feedback = config.get("feedback")
             if not isinstance(feedback, dict):
                 feedback = {}
@@ -1141,12 +1353,18 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
         threading.Thread(target=reload_services, daemon=True).start()
 
+    def _set_audio_status(self, message: str) -> None:
+        if hasattr(self, "audio_status"):
+            self.audio_status.set_text(message)
+        if hasattr(self, "playground_audio_status"):
+            self.playground_audio_status.set_text(message)
+
     def _start_audio_refresh(self) -> bool:
         self._on_refresh_audio(None)
         return False
 
     def _on_refresh_audio(self, _button: Gtk.Button | None) -> None:
-        self.audio_status.set_text("正在枚举输入与输出设备…")
+        self._set_audio_status("正在枚举输入与输出设备…")
         self._playground_audio_busy = True
         self._update_playground_recording_actions()
         saved = getattr(self, "_saved_audio_config", {})
@@ -1190,6 +1408,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
     ) -> bool:
         self._rendering_audio_devices = True
         self.audio_device.remove_all()
+        self.playground_audio_device.remove_all()
         self.audio_output.remove_all()
         self._audio_devices = {int(item["id"]): item for item in devices}
         self._audio_outputs = {str(index): item for index, item in enumerate(outputs)}
@@ -1201,6 +1420,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             device_id = int(item["id"])
             label = f"[{device_id}] {item['name']}"
             self.audio_device.append(str(device_id), label)
+            self.playground_audio_device.append(str(device_id), label)
             if saved_name and item["name"] == saved_name:
                 selected_id = device_id
             elif selected_id is None and saved_id == device_id:
@@ -1209,9 +1429,11 @@ class SettingsWindow(Gtk.ApplicationWindow):
             selected_id = int(devices[0]["id"])
         if selected_id is not None:
             self.audio_device.set_active_id(str(selected_id))
+            self.playground_audio_device.set_active_id(str(selected_id))
             selected = self._audio_devices[selected_id]
-            if not int(saved.get("sample_rate") or 0):
-                self.audio_sample_rate.set_value(selected["sample_rate"])
+            selected_rate = int(saved.get("sample_rate") or selected["sample_rate"])
+            self.audio_sample_rate.set_value(selected_rate)
+            self.playground_audio_sample_rate.set_value(selected_rate)
 
         selected_output_id: str | None = None
         for key, item in self._audio_outputs.items():
@@ -1242,24 +1464,87 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 parts.append(
                     "⚠️ 当前系统默认输出是 HDMI；无声时请改选 Speakers 或 Headphones"
                 )
-        self.audio_status.set_text("；".join(parts) + "。")
+        self._set_audio_status("；".join(parts) + "。")
         self._update_playground_recording_actions()
         return False
 
-    def _on_audio_device_changed(self, _widget: Gtk.ComboBoxText) -> None:
+    def _sync_audio_device(self, source: Gtk.ComboBoxText, target: Gtk.ComboBoxText) -> None:
+        if self._syncing_audio_controls:
+            return
+        active_id = source.get_active_id()
+        if active_id is None or target.get_active_id() == active_id:
+            return
+        self._syncing_audio_controls = True
+        try:
+            target.set_active_id(active_id)
+        finally:
+            self._syncing_audio_controls = False
+
+    def _sync_audio_sample_rate(
+        self, source: Gtk.SpinButton, target: Gtk.SpinButton
+    ) -> None:
+        if self._syncing_audio_controls:
+            return
+        value = int(source.get_value())
+        if int(target.get_value()) == value:
+            return
+        self._syncing_audio_controls = True
+        try:
+            target.set_value(value)
+        finally:
+            self._syncing_audio_controls = False
+
+    def _apply_selected_audio_device(
+        self, source: Gtk.ComboBoxText, target: Gtk.ComboBoxText
+    ) -> None:
         if getattr(self, "_rendering_audio_devices", False):
             return
-        active_id = self.audio_device.get_active_id()
+        self._sync_audio_device(source, target)
+        active_id = source.get_active_id()
         if active_id is None:
             self._update_playground_recording_actions()
             return
         selected = getattr(self, "_audio_devices", {}).get(int(active_id), {})
         if selected.get("sample_rate"):
-            self.audio_sample_rate.set_value(int(selected["sample_rate"]))
-        self.audio_status.set_text(
+            rate = int(selected["sample_rate"])
+            self._syncing_audio_controls = True
+            try:
+                self.audio_sample_rate.set_value(rate)
+                self.playground_audio_sample_rate.set_value(rate)
+            finally:
+                self._syncing_audio_controls = False
+        self._set_audio_status(
             f"已切换输入设备；录制新的 {int(RECORDING_DURATION_SECONDS)} 秒样本后会保存为 F9 使用设备。"
         )
         self._update_playground_recording_actions()
+
+    def _on_audio_device_changed(self, _widget: Gtk.ComboBoxText) -> None:
+        if self._syncing_audio_controls:
+            return
+        self._apply_selected_audio_device(
+            self.audio_device, self.playground_audio_device
+        )
+
+    def _on_playground_audio_device_changed(
+        self, _widget: Gtk.ComboBoxText
+    ) -> None:
+        if self._syncing_audio_controls:
+            return
+        self._apply_selected_audio_device(
+            self.playground_audio_device, self.audio_device
+        )
+
+    def _on_audio_sample_rate_changed(self, _widget: Gtk.SpinButton) -> None:
+        self._sync_audio_sample_rate(
+            self.audio_sample_rate, self.playground_audio_sample_rate
+        )
+
+    def _on_playground_audio_sample_rate_changed(
+        self, _widget: Gtk.SpinButton
+    ) -> None:
+        self._sync_audio_sample_rate(
+            self.playground_audio_sample_rate, self.audio_sample_rate
+        )
 
     def _set_panel_style_status(self, message: str) -> bool:
         self.panel_style_status.set_text(message)
@@ -1288,11 +1573,19 @@ class SettingsWindow(Gtk.ApplicationWindow):
         style = self.panel_style.get_active_id() or "minimal"
         try:
             save_fcitx_module_config({"PanelStyle": style})
+            runtime = load_runtime_config()
+            ui = runtime.get("ui")
+            if not isinstance(ui, dict):
+                ui = {}
+            ui["panel_style"] = style
+            runtime["ui"] = ui
+            save_runtime_config(runtime)
+            self.runtime_config = runtime
             self.module_config = load_fcitx_module_config()
         except Exception as exc:  # noqa: BLE001
             self.panel_style_status.set_text(f"❌ 保存状态样式失败：{exc}")
             return
-        self.panel_style_status.set_text("⏳ 配置已保存，正在应用到 Fcitx 5…")
+        self.panel_style_status.set_text("⏳ 配置已保存；正在重载 Fcitx 5，IBus 将在下次录音读取新样式…")
 
         def work() -> None:
             supported, module = fcitx_panel_style_support()
@@ -1310,7 +1603,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             ok, detail = restart_fcitx()
             if ok:
                 label = "极简" if style == "minimal" else "动画"
-                message = f"✅ 已切换为{label}模式，并重载 Fcitx 5。"
+                message = f"✅ Fcitx 5 与 IBus 已统一切换为{label}模式。"
             else:
                 message = f"❌ 配置已保存，但 Fcitx 5 重载失败：{detail}"
             GLib.idle_add(self._set_panel_style_status, message)
@@ -1323,7 +1616,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             return
         output = self._selected_audio_output()
         if output is not None:
-            self.audio_status.set_text(f"回放输出已切换到：{output.name}")
+            self._set_audio_status(f"回放输出已切换到：{output.name}")
         self._update_playground_recording_actions()
 
     def _selected_audio_output(self) -> OutputDevice | None:
@@ -1373,7 +1666,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
     def _update_playground_recording_actions(self) -> bool:
         if not hasattr(self, "playground_record_button"):
             return False
-        has_device = self.audio_device.get_active_id() is not None
+        has_device = self.playground_audio_device.get_active_id() is not None
         has_output = self._selected_audio_output() is not None
         has_recording = bool(
             self._playground_recording_path
@@ -1387,22 +1680,22 @@ class SettingsWindow(Gtk.ApplicationWindow):
         return False
 
     def _on_playground_record(self, _button: Gtk.Button) -> None:
-        active_id = self.audio_device.get_active_id()
+        active_id = self.playground_audio_device.get_active_id()
         if active_id is None:
-            self.audio_status.set_text("请先选择麦克风")
+            self._set_audio_status("请先选择麦克风")
             return
         device_id = int(active_id)
-        sample_rate = int(self.audio_sample_rate.get_value())
+        sample_rate = int(self.playground_audio_sample_rate.get_value())
         device_name = str(
             getattr(self, "_audio_devices", {}).get(device_id, {}).get(
-                "name", self.audio_device.get_active_text() or ""
+                "name", self.playground_audio_device.get_active_text() or ""
             )
         )
         self._playground_audio_busy = True
         self._playground_waveform.clear()
         self.playground_waveform.queue_draw()
         self._update_playground_recording_actions()
-        self.audio_status.set_text(
+        self._set_audio_status(
             f"🎙️ 正在录音 {int(RECORDING_DURATION_SECONDS)} 秒，请持续正常说话…"
         )
 
@@ -1432,7 +1725,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             def finish() -> bool:
                 self._playground_audio_busy = False
                 if recording is None:
-                    self.audio_status.set_text(f"❌ 录音失败：{error}")
+                    self._set_audio_status(f"❌ 录音失败：{error}")
                 else:
                     self._playground_recording_path = recording.path
                     self._saved_audio_config = load_audio_config()
@@ -1444,7 +1737,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
                         prefix = "⚠️ 录音可能削波"
                     else:
                         prefix = "✅ 录音完成"
-                    self.audio_status.set_text(
+                    self._set_audio_status(
                         f"{prefix}：{recording.duration_seconds:.2f} 秒，"
                         f"peak={recording.peak:.3f}，RMS={recording.rms:.3f}。"
                         "请选择正确的输出设备并点击“回放上次录音”。"
@@ -1459,19 +1752,19 @@ class SettingsWindow(Gtk.ApplicationWindow):
     def _on_playground_play(self, _button: Gtk.Button) -> None:
         path = self._playground_recording_path
         if path is None or not path.is_file():
-            self.audio_status.set_text(
+            self._set_audio_status(
                 f"请先录制 {int(RECORDING_DURATION_SECONDS)} 秒样本"
             )
             self._update_playground_recording_actions()
             return
         output = self._selected_audio_output()
         if output is None:
-            self.audio_status.set_text("请先选择输出设备")
+            self._set_audio_status("请先选择输出设备")
             self._update_playground_recording_actions()
             return
         self._playground_audio_busy = True
         self._update_playground_recording_actions()
-        self.audio_status.set_text(f"🔊 正在回放到：{output.name}…")
+        self._set_audio_status(f"🔊 正在回放到：{output.name}…")
 
         def work() -> None:
             try:
@@ -1491,7 +1784,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
             def finish() -> bool:
                 self._playground_audio_busy = False
-                self.audio_status.set_text(message)
+                self._set_audio_status(message)
                 self._update_playground_recording_actions()
                 return False
 
@@ -1588,7 +1881,177 @@ class SettingsWindow(Gtk.ApplicationWindow):
             else:
                 self._message("无法打开文件管理器", str(path.parent), Gtk.MessageType.WARNING)
 
+    def _set_slm_enabled_silently(self, active: bool) -> None:
+        self._slm_toggle_guard = True
+        try:
+            self.slm_enabled.set_active(active)
+        finally:
+            self._slm_toggle_guard = False
+
+    @staticmethod
+    def _slm_validation_error(config: dict[str, Any]) -> str:
+        provider = str(config.get("provider", "remote")).strip().lower()
+        model = str(config.get("model", "")).strip()
+        if provider in {"local", "ephemeral", "local_once", "local_ephemeral"}:
+            local_model = str(config.get("local_model", "")).strip()
+            if not model and not local_model:
+                return "请先填写本地模型。"
+            return ""
+        endpoint = str(config.get("endpoint", "")).strip()
+        if not endpoint:
+            return "请先填写 OpenAI-compatible API 端点。"
+        if not model:
+            return "请先填写模型名称。"
+        direct_key = str(config.get("api_key", "")).strip()
+        env_name = str(config.get("api_key_env", "")).strip()
+        env_key = str(os.environ.get(env_name, "")).strip() if env_name else ""
+        if not direct_key and not env_key:
+            return "请先填写直接 API Key，或提供已设置的 API Key 环境变量。"
+        return ""
+
+    def _persist_slm_config(self, config: dict[str, Any]) -> None:
+        runtime = load_runtime_config()
+        runtime["slm"] = dict(config)
+        save_runtime_config(runtime)
+        self.runtime_config = runtime
+
+    def _reload_backend_after_slm_change(self) -> None:
+        def work() -> None:
+            paths = installation_paths()
+            if not any(path.is_file() for path in paths.fcitx_services):
+                return
+            ok, detail = restart_backend()
+            if not ok:
+                GLib.idle_add(
+                    self.slm_test_status.set_text,
+                    f"⚠️ AI 配置已保存，但 Fcitx 后台重启失败：{detail}",
+                )
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_slm_enabled_changed(self, *_args: object) -> None:
+        if self._loading_values or self._slm_toggle_guard:
+            return
+        if not self.slm_enabled.get_active():
+            try:
+                config = self._current_slm()
+                config["enabled"] = False
+                self._persist_slm_config(config)
+                self._reload_backend_after_slm_change()
+            except Exception as exc:  # noqa: BLE001
+                self.slm_test_status.set_text(f"❌ 无法保存关闭状态：{exc}")
+            self._update_playground_slm_gate()
+            return
+
+        try:
+            config = self._current_slm()
+        except Exception as exc:  # noqa: BLE001
+            self._set_slm_enabled_silently(False)
+            self.slm_test_status.set_text(f"❌ AI 配置无效：{exc}")
+            self._update_playground_slm_gate()
+            return
+        config["enabled"] = True
+        error = self._slm_validation_error(config)
+        if error:
+            self._set_slm_enabled_silently(False)
+            self.slm_test_status.set_text(f"❌ {error}")
+            self._update_playground_slm_gate()
+            return
+
+        self._set_slm_enabled_silently(False)
+        self.slm_enabled.set_sensitive(False)
+        self._slm_probe_in_flight = True
+        self._slm_health_fingerprint = None
+        tested_fingerprint = slm_config_fingerprint(config)
+        self.slm_test_status.set_text("⏳ 正在测活；成功后才会启用 AI 润色…")
+        self._update_playground_slm_gate()
+
+        def work() -> None:
+            try:
+                from app.slm_polisher import SLMPolisher
+
+                probe_config = {**config, "enabled": True, "min_chars": 1}
+                polisher = SLMPolisher(probe_config)
+                output, metrics = polisher.polish(
+                    "这是一次 VoCoType AI 润色连接测试。",
+                    long_mode=True,
+                )
+                if metrics.reason == "ok":
+                    prefix = (
+                        f"{polisher.credential_warning} "
+                        if polisher.credential_warning
+                        else ""
+                    )
+                    message = f"✅ {prefix}测活成功，AI 润色已启用：{output}"
+                    success = True
+                else:
+                    message = f"❌ {polisher.format_failure_message(metrics.reason)}"
+                    success = False
+            except Exception as exc:  # noqa: BLE001
+                message = f"❌ 测活失败，AI 润色保持关闭：{exc}"
+                success = False
+
+            def finish() -> bool:
+                self._slm_probe_in_flight = False
+                self.slm_enabled.set_sensitive(True)
+                saved = dict(config)
+                if success:
+                    saved["enabled"] = True
+                    saved["verified_fingerprint"] = tested_fingerprint
+                    saved["verified_at"] = int(__import__("time").time())
+                    self._slm_health_fingerprint = tested_fingerprint
+                else:
+                    saved["enabled"] = False
+                    saved.pop("verified_fingerprint", None)
+                    saved.pop("verified_at", None)
+                    self._slm_health_fingerprint = None
+                try:
+                    self._persist_slm_config(saved)
+                except Exception as exc:  # noqa: BLE001
+                    self._slm_health_fingerprint = None
+                    self._set_slm_enabled_silently(False)
+                    self.slm_test_status.set_text(f"❌ 测活结果无法保存：{exc}")
+                    self._update_playground_slm_gate()
+                    return False
+                self._set_slm_enabled_silently(success)
+                self._reload_backend_after_slm_change()
+                if success:
+                    self._slm_toggle_guard = True
+                    try:
+                        self.slm_api_key.set_text("")
+                        self.slm_clear_api_key.set_active(False)
+                    finally:
+                        self._slm_toggle_guard = False
+                self.slm_test_status.set_text(message)
+                self._update_playground_slm_gate()
+                return False
+
+            GLib.idle_add(finish)
+
+        threading.Thread(target=work, daemon=True).start()
+
     def _on_slm_config_changed(self, *_args: object) -> None:
+        if self._loading_values or self._slm_toggle_guard:
+            return
+        if self.slm_enabled.get_active() and not self._slm_probe_in_flight:
+            try:
+                current = slm_config_fingerprint(self._current_slm())
+            except Exception:
+                current = ""
+            if current != self._slm_health_fingerprint:
+                self._set_slm_enabled_silently(False)
+                self._slm_health_fingerprint = None
+                try:
+                    config = self._current_slm()
+                    config["enabled"] = False
+                    config.pop("verified_fingerprint", None)
+                    config.pop("verified_at", None)
+                    self._persist_slm_config(config)
+                except Exception:
+                    pass
+                self.slm_test_status.set_text(
+                    "⚠️ AI 配置已更改，功能已自动关闭；重新打开开关即可测活。"
+                )
         if hasattr(self, "playground_ai_controls"):
             self._update_playground_slm_gate()
 
@@ -1621,6 +2084,12 @@ class SettingsWindow(Gtk.ApplicationWindow):
             True,
         )
 
+    def _set_playground_ai_status(self, message: str) -> None:
+        if hasattr(self, "playground_polish_status"):
+            self.playground_polish_status.set_text(message)
+        if hasattr(self, "playground_edit_status"):
+            self.playground_edit_status.set_text(message)
+
     def _set_playground_ai_busy(self, busy: bool) -> None:
         self._playground_ai_busy = busy
         self._update_playground_slm_gate()
@@ -1629,7 +2098,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         try:
             config = self._current_slm()
         except Exception as exc:  # noqa: BLE001
-            self.playground_ai_status.set_text(f"❌ AI 配置无效：{exc}")
+            self._set_playground_ai_status(f"❌ AI 配置无效：{exc}")
             self._update_playground_slm_gate()
             return None
         ready, reason = slm_playground_gate(
@@ -1637,7 +2106,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             verified_fingerprint=self._slm_health_fingerprint,
         )
         if not ready:
-            self.playground_ai_status.set_text(f"🔒 {reason}")
+            self._set_playground_ai_status(f"🔒 {reason}")
             self._update_playground_slm_gate()
             return None
         config["enabled"] = True
@@ -1648,12 +2117,12 @@ class SettingsWindow(Gtk.ApplicationWindow):
         config = self._playground_ai_config()
         if config is None:
             return
-        source = self._text_view_text(self.playground_ai_source).strip()
+        source = self._text_view_text(self.playground_polish_source).strip()
         if not source:
-            self.playground_ai_status.set_text("请输入需要润色的文本")
+            self.playground_polish_status.set_text("请输入需要润色的文本")
             return
         self._set_playground_ai_busy(True)
-        self.playground_ai_status.set_text("⏳ 正在调用 AI 润色…")
+        self.playground_polish_status.set_text("⏳ 正在调用 AI 润色…")
 
         def work() -> None:
             try:
@@ -1675,30 +2144,55 @@ class SettingsWindow(Gtk.ApplicationWindow):
             def finish() -> bool:
                 self._set_playground_ai_busy(False)
                 if success:
-                    self.playground_ai_result.get_buffer().set_text(output)
-                self.playground_ai_status.set_text(message)
+                    self.playground_polish_result.get_buffer().set_text(output)
+                self.playground_polish_status.set_text(message)
                 return False
 
             GLib.idle_add(finish)
 
         threading.Thread(target=work, daemon=True).start()
 
+    def _on_playground_edit_example(
+        self, _button: Gtk.Button, key: str
+    ) -> None:
+        examples = {
+            "replace": (
+                "A 是旧版本标记，后文仍然引用 A。",
+                "把 A 替换成 B",
+            ),
+            "translate": (
+                "VoCoType 是一个离线优先的 Linux 语音输入工具。",
+                "把这段文字翻译成英语",
+            ),
+            "latex": (
+                "勾股定理是 a 的平方加 b 的平方等于 c 的平方。",
+                "把数学表达式转换成 LaTeX 公式",
+            ),
+            "review": (
+                "这个语音输入工具识别快、隐私好、安装方便。",
+                "把这段体验写成一条自然、可信的好评",
+            ),
+        }
+        source, instruction = examples.get(key, examples["replace"])
+        self.playground_edit_source.get_buffer().set_text(source)
+        self.playground_ai_instruction.set_text(instruction)
+        self.playground_edit_status.set_text("已载入范例，可直接测试。")
+
     def _on_playground_edit(self, _button: Gtk.Button) -> None:
-        config = self._playground_ai_config()
-        if config is None:
+        if self._playground_ai_config() is None:
             return
-        source_buffer = self.playground_ai_source.get_buffer()
+        active_id = self.playground_audio_device.get_active_id()
+        if active_id is None:
+            self.playground_edit_status.set_text("请先在第 1 区选择麦克风。")
+            return
+        source_buffer = self.playground_edit_source.get_buffer()
         source = source_buffer.get_text(
             source_buffer.get_start_iter(),
             source_buffer.get_end_iter(),
             True,
         )
-        instruction = self.playground_ai_instruction.get_text().strip()
         if not source.strip():
-            self.playground_ai_status.set_text("请输入需要编辑的文本")
-            return
-        if not instruction:
-            self.playground_ai_status.set_text("请输入编辑指令")
+            self.playground_edit_status.set_text("请输入用于测试的上下文文本。")
             return
         cursor_pos = source_buffer.get_iter_at_mark(
             source_buffer.get_insert()
@@ -1713,37 +2207,73 @@ class SettingsWindow(Gtk.ApplicationWindow):
         else:
             anchor_pos = cursor_pos
             selected_text = ""
+
+        device_id = int(active_id)
+        sample_rate = int(self.playground_audio_sample_rate.get_value())
+        device_name = str(
+            getattr(self, "_audio_devices", {}).get(device_id, {}).get(
+                "name", self.playground_audio_device.get_active_text() or ""
+            )
+        )
+        spoken_hint = self.playground_ai_instruction.get_text().strip()
+        audio_path = last_recording_path().with_name("voice-edit-command.wav")
+        self._playground_audio_busy = True
         self._set_playground_ai_busy(True)
-        self.playground_ai_status.set_text("⏳ 正在按指令调用 AI 编辑…")
+        self._playground_waveform.clear()
+        self.playground_waveform.queue_draw()
+        self._update_playground_recording_actions()
+        self.playground_edit_status.set_text(
+            f"🎙️ 正在录制语音编辑指令，请说：{spoken_hint or '你的编辑指令'}"
+        )
 
         def work() -> None:
             try:
-                from app.slm_polisher import SLMPolisher
-
-                polisher = SLMPolisher(config)
-                output, metrics = polisher.edit_with_instruction(
+                record_audio(
+                    device_id=device_id,
+                    device_name=device_name,
+                    sample_rate=sample_rate,
+                    duration_seconds=RECORDING_DURATION_SECONDS,
+                    output_path=audio_path,
+                    waveform_callback=lambda envelope: GLib.idle_add(
+                        self._append_playground_waveform, envelope
+                    ),
+                )
+                response = edit_recording(
+                    audio_path,
                     context_text=source,
-                    instruction=instruction,
                     cursor_pos=cursor_pos,
                     anchor_pos=anchor_pos,
                     selected_text=selected_text,
                 )
-                if metrics.reason == "ok":
-                    message = f"✅ 编辑完成，耗时 {metrics.latency_ms:.0f} ms"
-                    success = True
-                else:
-                    message = f"❌ {polisher.format_failure_message(metrics.reason)}"
-                    success = False
+                instruction = str(response.get("instruction", "")).strip()
+                output = str(
+                    response.get("expected_text")
+                    or response.get("new_text")
+                    or source
+                )
+                mode = str(response.get("mode", "")).strip()
+                message = (
+                    f"✅ 语音编辑完成；识别指令：{instruction or '（未返回）'}"
+                    + (f"；模式：{mode}" if mode else "")
+                )
+                success = True
             except Exception as exc:  # noqa: BLE001
                 output = ""
-                message = f"❌ AI 编辑失败：{exc}"
+                message = f"❌ 语音编辑失败：{exc}"
                 success = False
+            finally:
+                try:
+                    audio_path.unlink()
+                except OSError:
+                    pass
 
             def finish() -> bool:
+                self._playground_audio_busy = False
                 self._set_playground_ai_busy(False)
                 if success:
-                    self.playground_ai_result.get_buffer().set_text(output)
-                self.playground_ai_status.set_text(message)
+                    self.playground_edit_result.get_buffer().set_text(output)
+                self.playground_edit_status.set_text(message)
+                self._update_playground_recording_actions()
                 return False
 
             GLib.idle_add(finish)
@@ -1758,11 +2288,18 @@ class SettingsWindow(Gtk.ApplicationWindow):
             self.slm_test_status.set_text(f"❌ AI 配置无效：{exc}")
             self._update_playground_slm_gate()
             return
+        original_enabled = self.slm_enabled.get_active()
         config["enabled"] = True
+        error = self._slm_validation_error(config)
+        if error:
+            self._slm_health_fingerprint = None
+            self.slm_test_status.set_text(f"❌ {error}")
+            self._update_playground_slm_gate()
+            return
         config["min_chars"] = 1
         tested_fingerprint = slm_config_fingerprint(config)
         self._slm_health_fingerprint = None
-        self.slm_test_status.set_text("正在执行 AI 端点/模型测活…")
+        self.slm_test_status.set_text("⏳ 正在执行 AI 端点/模型测活…")
         self._update_playground_slm_gate()
 
         def work() -> None:
@@ -1790,9 +2327,23 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 success = False
 
             def finish() -> bool:
-                self._slm_health_fingerprint = (
-                    tested_fingerprint if success else None
-                )
+                if success:
+                    saved = dict(config)
+                    saved["enabled"] = original_enabled
+                    saved["verified_fingerprint"] = tested_fingerprint
+                    saved["verified_at"] = int(__import__("time").time())
+                    try:
+                        self._persist_slm_config(saved)
+                    except Exception as exc:  # noqa: BLE001
+                        self._slm_health_fingerprint = None
+                        self.slm_test_status.set_text(
+                            f"❌ 测活成功但无法保存验证状态：{exc}"
+                        )
+                        self._update_playground_slm_gate()
+                        return False
+                    self._slm_health_fingerprint = tested_fingerprint
+                else:
+                    self._slm_health_fingerprint = None
                 self.slm_test_status.set_text(message)
                 self._update_playground_slm_gate()
                 return False
@@ -2253,6 +2804,49 @@ class SettingsWindow(Gtk.ApplicationWindow):
             except Exception as exc:  # noqa: BLE001
                 ok, message = False, str(exc)
             GLib.idle_add(self._message, "操作完成" if ok else "操作失败", message, Gtk.MessageType.INFO if ok else Gtk.MessageType.ERROR)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_check_latest_version(self, _button: Gtk.Button) -> None:
+        self.doctor_version_status.set_text(
+            "⏳ 正在查询 GitHub release 与完整性清单…"
+        )
+
+        def work() -> None:
+            try:
+                release = query_latest_release(current_version=__version__)
+                if release.comparison == "older":
+                    headline = (
+                        f"⚠️ 当前 {release.current}，最新 {release.latest}；建议升级。"
+                    )
+                elif release.comparison == "newer":
+                    headline = (
+                        f"ℹ️ 当前 {release.current} 高于最新 release {release.latest}，"
+                        "可能正在使用开发版。"
+                    )
+                else:
+                    headline = f"✅ 当前版本 {release.current} 已是最新 release。"
+
+                manifest = fetch_release_integrity_manifest(release.tag)
+                if manifest is None:
+                    message = (
+                        headline
+                        + "\n该 release 未提供安装完整性清单；仅完成版本号比较。"
+                    )
+                else:
+                    report = probe_installation_integrity(manifest)
+                    icon = {"pass": "✅", "warn": "⚠️", "fail": "❌"}.get(
+                        report.status, "ℹ️"
+                    )
+                    message = (
+                        f"{headline}\n{icon} 相对最新 release 的安装审计："
+                        f"{report.summary}"
+                    )
+                    if report.status in {"warn", "fail"} and report.details:
+                        message += "\n" + report.details
+            except Exception as exc:  # noqa: BLE001
+                message = f"❌ GitHub 版本查询失败：{exc}"
+            GLib.idle_add(self.doctor_version_status.set_text, message)
+
         threading.Thread(target=work, daemon=True).start()
 
     def _on_run_doctor(self, _button: Gtk.Button | None = None) -> None:

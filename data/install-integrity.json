@@ -1,0 +1,24 @@
+{
+  "fcitx_binary_markers": [
+    "PanelStyle",
+    "🎤 录音中...",
+    "🟢 正在听",
+    "Suppressed duplicate VoCoType recording start"
+  ],
+  "files": {
+    "app/config.py": "855ff56a47379daf573f236adcc36d0a5bab88eba778b96ac7f206f3e0e566cd",
+    "app/slm_polisher.py": "b0069604045266fbd3110773c058a43cbbaf46933c8dd98b9636d4b8323e2112",
+    "app/streaming_asr.py": "a0fde40d1d2b1de4b77682f6947353b1d27d3d3bd8486ddb6fc8f5fbfa98c7e9",
+    "fcitx5/backend/audio_recorder.py": "ebbad692b0261944543ac08cfb3e97ec48468c12c919dfbaea7c8d16fd88bcae",
+    "fcitx5/backend/fcitx5_server.py": "8a914cf17220cd988f89a1b2e7fd69921874fae963e38a4037ed060194c53730",
+    "ibus/engine.py": "b0d9e94c63a3fe209ec56d429c9f8e253fe0c4b68e8b82b8f6de6cfa56ea13bf",
+    "settings_center/application.py": "fd42b1477c28ea48d429fec9962c36a707cb7d57cd63ef9006bd7b1cca2aec19",
+    "settings_center/doctor.py": "dd583e8ee1628cb2a6587baea3bd1910177bec55b47decda6f4a8dd1409a4d66",
+    "settings_center/install_integrity.py": "0b7b82eb48729360d43747c505c8af6ad072255eaa1887087ab53ba16ed45c7f",
+    "settings_center/playground_service.py": "e760160abfad6588442daa1a9371140bd7f05188358924b9de171c0574dbcc99",
+    "settings_center/version_check.py": "13eb8aadfed10eb8a1b307cd51c6b1292906c11cd1fd83ceb8d274bf122c3b1a",
+    "vocotype_version.py": "de9bc6d5d549b8711c76edfc71cf261b0a5be7b6548ec9db01efcb5544674cf4"
+  },
+  "schema_version": 1,
+  "version": "2.2.3"
+}

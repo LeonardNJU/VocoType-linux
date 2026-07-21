@@ -53,6 +53,18 @@ logger = logging.getLogger(__name__)
 # 音频参数
 BLOCK_MS = 20
 DEFAULT_IBUS_CONFIG_PATH = "~/.config/vocotype/ibus.json"
+RECORDING_ANIMATION_INTERVAL_MS = 200
+RECORDING_ANIMATION_FRAMES = (
+    "🟢 正在听 ●     ", "🟢 正在听  ●    ", "🟢 正在听   ●   ",
+    "🟢 正在听    ●  ", "⚫ 正在听     ● ", "⚫ 正在听    ●  ",
+    "⚫ 正在听   ●   ", "⚫ 正在听  ●    ",
+)
+LONG_RECORDING_ANIMATION_FRAMES = (
+    "✨ 正在听·将润色 ●     ", "✨ 正在听·将润色  ●    ",
+    "✨ 正在听·将润色   ●   ", "✨ 正在听·将润色    ●  ",
+    "✨ 正在听·将润色     ● ", "✨ 正在听·将润色    ●  ",
+    "✨ 正在听·将润色   ●   ", "✨ 正在听·将润色  ●    ",
+)
 
 AUDIO_DEVICE, CONFIGURED_SAMPLE_RATE = load_audio_config()
 
@@ -143,6 +155,10 @@ class VoCoTypeEngine(IBus.Engine):
         self._streaming_thread: Optional[threading.Thread] = None
         self._streaming_session_id = ""
         self._streaming_enabled = False
+        self._panel_style = "minimal"
+        self._recording_animation_source: Optional[int] = None
+        self._recording_animation_index = 0
+        self._streaming_preview_text = ""
         self._recording_generation = 0
         self._edit_snapshot: Optional[SurroundingSnapshot] = None
         self._voice_edit_core = VoiceEditCore(history_limit=self.EDIT_HISTORY_LIMIT)
@@ -159,6 +175,7 @@ class VoCoTypeEngine(IBus.Engine):
         self._slm_polisher = SLMPolisher(self._runtime_config.get("slm", {}))
         logger.info("IBus SLM 长句润色: enabled=%s", self._slm_polisher.enabled)
         self._configure_streaming_asr(self._runtime_config)
+        self._configure_panel_style(self._runtime_config)
 
         # ASR服务使用类级共享实例
         self._native_sample_rate = CONFIGURED_SAMPLE_RATE
@@ -899,6 +916,76 @@ class VoCoTypeEngine(IBus.Engine):
             "",
         )
 
+    def _configure_panel_style(self, config: dict) -> None:
+        ui = config.get("ui", {})
+        if not isinstance(ui, dict):
+            ui = {}
+        style = str(ui.get("panel_style", "minimal")).strip().lower()
+        self._panel_style = style if style in {"minimal", "animated"} else "minimal"
+
+    def _stop_recording_status_animation(self) -> None:
+        source_id = self._recording_animation_source
+        self._recording_animation_source = None
+        if source_id is not None:
+            try:
+                GLib.source_remove(source_id)
+            except Exception:
+                pass
+        self._recording_animation_index = 0
+
+    def _recording_status_text(self) -> str:
+        if self._panel_style != "animated":
+            return (
+                "🎤 录音中(长句)..."
+                if self._recording_long_mode
+                else "🎤 录音中..."
+            )
+        frames = (
+            LONG_RECORDING_ANIMATION_FRAMES
+            if self._recording_long_mode
+            else RECORDING_ANIMATION_FRAMES
+        )
+        return frames[self._recording_animation_index % len(frames)]
+
+    def _render_recording_status(self) -> bool:
+        if not self._is_recording or self._recording_edit_mode:
+            return False
+        self._update_preedit(self._recording_status_text())
+        if self._streaming_preview_text:
+            self._update_auxiliary_status(self._streaming_preview_text)
+        else:
+            self._clear_auxiliary_text()
+        return False
+
+    def _advance_recording_animation(self) -> bool:
+        if (
+            not self._is_recording
+            or self._recording_edit_mode
+            or self._panel_style != "animated"
+        ):
+            self._recording_animation_source = None
+            return False
+        self._recording_animation_index = (
+            self._recording_animation_index + 1
+        ) % len(RECORDING_ANIMATION_FRAMES)
+        self._render_recording_status()
+        return True
+
+    def _start_recording_status(self) -> None:
+        self._stop_recording_status_animation()
+        self._streaming_preview_text = ""
+        self._render_recording_status()
+        if self._panel_style == "animated":
+            self._recording_animation_source = GLib.timeout_add(
+                RECORDING_ANIMATION_INTERVAL_MS,
+                self._advance_recording_animation,
+            )
+
+    def _clear_recording_status(self) -> None:
+        self._stop_recording_status_animation()
+        self._streaming_preview_text = ""
+        self._clear_auxiliary_text()
+
     def _configure_streaming_asr(self, config: dict) -> None:
         cfg = dict(config.get("asr_streaming", {}) or {})
         enabled = bool(cfg.get("enabled", False))
@@ -1006,7 +1093,8 @@ class VoCoTypeEngine(IBus.Engine):
             and generation == self._recording_generation
             and not self._recording_edit_mode
         ):
-            self._update_preedit(text)
+            self._streaming_preview_text = text
+            self._render_recording_status()
         return False
 
     def _reload_runtime_config(self) -> None:
@@ -1024,6 +1112,7 @@ class VoCoTypeEngine(IBus.Engine):
         self._slm_polisher = SLMPolisher(latest.get("slm", {}))
         previous_polisher.release()
         self._configure_streaming_asr(latest)
+        self._configure_panel_style(latest)
         logger.info(
             "VoCoType 运行配置已重新加载: slm_enabled=%s streaming_enabled=%s normalization_enabled=%s",
             self._slm_polisher.enabled,
@@ -1424,11 +1513,11 @@ class VoCoTypeEngine(IBus.Engine):
                 # 编辑模式也可能调用本地 SLM，录音期间预热减少松键后等待。
                 self._slm_polisher.prewarm(long_mode=True)
             elif long_mode:
-                self._update_preedit("🎤 录音中(长句)...")
+                self._start_recording_status()
                 # 录音期间并行预加载本地一次性 SLM，减少松键后的等待时间
                 self._slm_polisher.prewarm(long_mode=True)
             else:
-                self._update_preedit("🎤 录音中...")
+                self._start_recording_status()
             if edit_mode:
                 mode_name = "edit"
             elif long_mode:
@@ -1445,6 +1534,7 @@ class VoCoTypeEngine(IBus.Engine):
             self._is_recording = False
             self._recording_long_mode = False
             self._recording_edit_mode = False
+            self._clear_recording_status()
             self._update_preedit(f"❌ 录音失败: {e}")
             GLib.timeout_add(2000, self._clear_preedit)
 
@@ -1473,6 +1563,7 @@ class VoCoTypeEngine(IBus.Engine):
         self._recording_long_mode = False
         self._recording_edit_mode = False
         self._stop_streaming_preview()
+        self._clear_recording_status()
         self._clear_preedit()
         if long_mode or edit_mode:
             self._slm_polisher.release()
@@ -1508,6 +1599,7 @@ class VoCoTypeEngine(IBus.Engine):
         self._recording_long_mode = False
         self._recording_edit_mode = False
         self._stop_streaming_preview()
+        self._clear_recording_status()
         self._edit_snapshot = None
 
         if edit_mode and not self._is_engine_active():
@@ -1547,10 +1639,8 @@ class VoCoTypeEngine(IBus.Engine):
         # 显示识别中状态
         if edit_mode:
             self._update_auxiliary_status("⏳ 识别编辑指令中...")
-        elif long_mode:
-            self._update_preedit("⏳ 识别+润色中...")
         else:
-            self._update_preedit("⏳ 识别中...")
+            self._update_preedit("⏳ 识别中")
 
         # 在后台线程中转录
         def do_transcribe():
