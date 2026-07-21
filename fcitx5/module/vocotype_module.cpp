@@ -1679,37 +1679,50 @@ void VoCoTypeModule::showAnimationFrame(fcitx::InputContext *ic) {
 void VoCoTypeModule::startPanelAnimation(fcitx::InputContext *ic,
                                          PanelAnimationKind kind) {
     stopPanelAnimation();
+    if (!ic || !ic->hasFocus()) {
+        return;
+    }
     streaming_preview_visible_ = false;
     panel_animation_kind_ = kind;
     showAnimationFrame(ic);
+    schedulePanelAnimationFrame(ic->watch(), panel_animation_generation_);
+}
 
-    auto ic_ref = ic->watch();
-    auto schedule_next = std::make_shared<std::function<void()>>();
-    *schedule_next = [this, ic_ref, schedule_next]() {
-        recording_animation_timer_ = instance_->eventLoop().addTimeEvent(
-            CLOCK_MONOTONIC,
-            fcitx::now(CLOCK_MONOTONIC) + RECORDING_ANIMATION_INTERVAL_US, 0,
-            [this, ic_ref, schedule_next](fcitx::EventSourceTime *, uint64_t) {
-                recording_animation_timer_.reset();
-                auto *ic_ptr = ic_ref.get();
-                if (panel_animation_kind_ == PanelAnimationKind::None ||
-                    !ic_ptr || !ic_ptr->hasFocus()) {
-                    stopPanelAnimation();
-                    return false;
-                }
-                showAnimationFrame(ic_ptr);
-                (*schedule_next)();
+void VoCoTypeModule::schedulePanelAnimationFrame(
+    fcitx::TrackableObjectReference<fcitx::InputContext> ic_ref,
+    uint64_t generation) {
+    if (generation != panel_animation_generation_ ||
+        panel_animation_kind_ == PanelAnimationKind::None ||
+        recording_animation_timer_) {
+        return;
+    }
+
+    recording_animation_timer_ = instance_->eventLoop().addTimeEvent(
+        CLOCK_MONOTONIC,
+        fcitx::now(CLOCK_MONOTONIC) + RECORDING_ANIMATION_INTERVAL_US, 0,
+        [this, ic_ref, generation](fcitx::EventSourceTime *, uint64_t) {
+            recording_animation_timer_.reset();
+            if (generation != panel_animation_generation_) {
                 return false;
-            });
-        recording_animation_timer_->setOneShot();
-    };
-    (*schedule_next)();
+            }
+            auto *ic_ptr = ic_ref.get();
+            if (panel_animation_kind_ == PanelAnimationKind::None ||
+                !ic_ptr || !ic_ptr->hasFocus()) {
+                stopPanelAnimation();
+                return false;
+            }
+            showAnimationFrame(ic_ptr);
+            schedulePanelAnimationFrame(ic_ref, generation);
+            return false;
+        });
+    recording_animation_timer_->setOneShot();
 }
 
 void VoCoTypeModule::stopPanelAnimation() {
     recording_animation_timer_.reset();
     recording_animation_frame_index_ = 0;
     panel_animation_kind_ = PanelAnimationKind::None;
+    ++panel_animation_generation_;
 }
 
 void VoCoTypeModule::clearOwnedUI(fcitx::InputContext *ic) {

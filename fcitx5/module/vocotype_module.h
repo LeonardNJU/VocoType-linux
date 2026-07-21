@@ -199,6 +199,9 @@ private:
     void showStreamingPreview(fcitx::InputContext *ic, const std::string &text);
     void showAnimationFrame(fcitx::InputContext *ic);
     void startPanelAnimation(fcitx::InputContext *ic, PanelAnimationKind kind);
+    void schedulePanelAnimationFrame(
+        fcitx::TrackableObjectReference<fcitx::InputContext> ic_ref,
+        uint64_t generation);
     void stopPanelAnimation();
     void clearOwnedUI(fcitx::InputContext *ic);
     void showError(fcitx::InputContext *ic, const std::string &error,
@@ -273,6 +276,7 @@ private:
     std::unique_ptr<fcitx::EventSourceTime> voice_edit_poll_timer_;
     size_t recording_animation_frame_index_ = 0;
     PanelAnimationKind panel_animation_kind_ = PanelAnimationKind::None;
+    uint64_t panel_animation_generation_ = 0;
 
     uint64_t voice_session_counter_ = 0;
     uint64_t active_voice_session_id_ = 0;

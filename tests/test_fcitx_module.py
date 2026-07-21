@@ -64,6 +64,19 @@ def test_ptt_release_filters_x11_autorepeat_without_cutting_recording():
     assert stop_body.index("stopPanelAnimation();") < stop_body.index("is_recording_ = false;")
 
 
+def test_panel_animation_scheduler_has_single_owner_and_generation_guard():
+    source = (ROOT / "fcitx5/module/vocotype_module.cpp").read_text(encoding="utf-8")
+    header = (ROOT / "fcitx5/module/vocotype_module.h").read_text(encoding="utf-8")
+
+    assert "schedulePanelAnimationFrame" in source
+    assert "panel_animation_generation_" in source
+    assert "panel_animation_generation_" in header
+    assert "std::make_shared<std::function<void()>>" not in source
+    assert "schedule_next" not in source
+    assert "generation != panel_animation_generation_" in source
+    assert "++panel_animation_generation_;" in source
+
+
 def test_panel_style_defaults_to_minimal_and_release_switches_immediately():
     header = (ROOT / "fcitx5/module/vocotype_module.h").read_text(encoding="utf-8")
     source = (ROOT / "fcitx5/module/vocotype_module.cpp").read_text(encoding="utf-8")
