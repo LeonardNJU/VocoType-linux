@@ -152,6 +152,12 @@ def test_cpp_module_uses_async_start_poll_cancel_and_live_preview():
     ipc_header = (ROOT / "fcitx5" / "common" / "ipc_client.h").read_text(
         encoding="utf-8"
     )
+    ipc_source = (ROOT / "fcitx5" / "common" / "ipc_client.cpp").read_text(
+        encoding="utf-8"
+    )
+    cmake = (ROOT / "fcitx5" / "module" / "CMakeLists.txt").read_text(
+        encoding="utf-8"
+    )
 
     for option in (
         "PolishMinChars",
@@ -165,6 +171,9 @@ def test_cpp_module_uses_async_start_poll_cancel_and_live_preview():
     assert "showPolishProgress" in source
     assert "TranscribeStartResult" in ipc_header
     assert "PolishPollResult" in ipc_header
+    assert "TranscribeStartResult IPCClient::startTranscription" in ipc_source
+    assert "PolishPollResult IPCClient::pollPolishTask" in ipc_source
+    assert "-Wl,--no-undefined" in cmake
 
 
 

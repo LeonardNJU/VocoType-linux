@@ -364,11 +364,11 @@ def test_backend_launcher_fails_cleanly_before_gui_setup(tmp_path: Path):
 def test_version_is_consistent_across_package_metadata():
     version = _version()
     assert version.startswith("3.0.0")
-    assert _version_field("tag") == "v3.0.0-rc.1"
-    assert _version_field("debian") == "3.0.0~rc1"
+    assert _version_field("tag") == "v3.0.0-rc.2"
+    assert _version_field("debian") == "3.0.0~rc2"
     assert _version_field("rpm_version") == "3.0.0"
-    assert _version_field("rpm_release") == "0.rc1"
-    assert _version_field("arch") == "3.0.0rc1"
+    assert _version_field("rpm_release") == "0.rc2"
+    assert _version_field("arch") == "3.0.0rc2"
     changelog = (ROOT / "packaging/debian/changelog").read_text(encoding="utf-8")
     assert changelog.startswith(
         f"vocotype-linux ({_version_field('debian')}-1)"

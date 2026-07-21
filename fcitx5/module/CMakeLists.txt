@@ -27,6 +27,10 @@ add_library(vocotype MODULE
 )
 target_include_directories(vocotype PRIVATE ../common)
 target_link_libraries(vocotype Fcitx5::Core)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    set_property(TARGET vocotype APPEND_STRING PROPERTY
+                 LINK_FLAGS " -Wl,--no-undefined")
+endif()
 if(nlohmann_json_FOUND)
     target_link_libraries(vocotype nlohmann_json::nlohmann_json)
 else()

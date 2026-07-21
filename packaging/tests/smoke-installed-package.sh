@@ -72,6 +72,20 @@ if [[ "$includes_fcitx" == true ]]; then
     ldd "$module" >&2
     exit 1
   fi
+  relocation_log=$(mktemp)
+  if ! ldd -r "$module" >"$relocation_log" 2>&1; then
+    cat "$relocation_log" >&2
+    rm -f "$relocation_log"
+    echo 'Fcitx module has unresolved runtime relocations' >&2
+    exit 1
+  fi
+  if grep -qi 'undefined symbol' "$relocation_log"; then
+    cat "$relocation_log" >&2
+    rm -f "$relocation_log"
+    echo 'Fcitx module has undefined symbols' >&2
+    exit 1
+  fi
+  rm -f "$relocation_log"
 else
   reject_path /usr/share/vocotype/fcitx5
   reject_path /usr/bin/vocotype-fcitx5-backend

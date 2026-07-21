@@ -356,6 +356,82 @@ bool IPCClient::confirmEditApplied(const std::string& context_id,
     }
 }
 
+TranscribeStartResult IPCClient::startTranscription(
+    const std::string& audio_path,
+    bool polish_enabled,
+    int polish_min_chars,
+    int polish_timeout_ms,
+    bool enable_thinking) {
+    TranscribeStartResult result;
+    try {
+        const json request = {
+            {"type", "transcribe_start"},
+            {"audio_path", audio_path},
+            {"long_mode", polish_enabled},
+            {"polish_min_chars", polish_min_chars},
+            {"polish_timeout_ms", polish_timeout_ms},
+            {"enable_thinking", enable_thinking}
+        };
+        const json response = json::parse(sendRequest(request.dump()));
+        result.success = jsonBoolOr(response, "success", false);
+        result.task_id = jsonStringOr(response, "task_id");
+        result.status = jsonStringOr(response, "status");
+        result.error = jsonStringOr(response, "error");
+        if (!result.success && result.error.empty()) {
+            result.error = "Unknown transcription start error";
+        }
+    } catch (const std::exception& e) {
+        result.success = false;
+        result.error = e.what();
+    }
+    return result;
+}
+
+PolishPollResult IPCClient::pollPolishTask(
+    const std::string& task_id,
+    int after_seq) {
+    PolishPollResult result;
+    try {
+        const json request = {
+            {"type", "polish_poll"},
+            {"task_id", task_id},
+            {"after_seq", after_seq}
+        };
+        const json response = json::parse(sendRequest(request.dump()));
+        result.success = jsonBoolOr(response, "success", false);
+        result.task_id = jsonStringOr(response, "task_id", task_id);
+        result.status = jsonStringOr(response, "status");
+        result.phase = jsonStringOr(response, "phase");
+        result.error = jsonStringOr(response, "error");
+        result.reason = jsonStringOr(response, "reason");
+        result.preview = jsonStringOr(response, "preview");
+        result.final_text = jsonStringOr(response, "final_text");
+        result.original_text = jsonStringOr(response, "original_text");
+        result.last_seq = jsonIntOr(response, "last_seq", after_seq);
+        if (response.contains("events") && response["events"].is_array()) {
+            for (const auto& event : response["events"]) {
+                if (!event.is_object()) {
+                    continue;
+                }
+                PolishEvent parsed;
+                parsed.seq = jsonIntOr(event, "seq", 0);
+                parsed.kind = jsonStringOr(event, "kind");
+                parsed.text = jsonStringOr(event, "text");
+                parsed.preview = jsonStringOr(event, "preview");
+                parsed.reason = jsonStringOr(event, "reason");
+                result.events.push_back(std::move(parsed));
+            }
+        }
+        if (!result.success && result.error.empty()) {
+            result.error = "Unknown polish poll error";
+        }
+    } catch (const std::exception& e) {
+        result.success = false;
+        result.error = e.what();
+    }
+    return result;
+}
+
 bool IPCClient::cancelPolishTask(const std::string& task_id) {
     try {
         json request = {
