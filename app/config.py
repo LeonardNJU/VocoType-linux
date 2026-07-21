@@ -86,8 +86,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "api_key_env": "",
     },
     "feedback": {
-        # Optional project-operated POST endpoint. When unset, the settings
-        # center opens a prefilled GitHub issue instead of transmitting data.
+        # The official project endpoint is compiled into the settings center.
+        # These fields only enable an explicit self-hosted override.
+        "use_custom_endpoint": False,
         "endpoint": "",
     },
     "output": {

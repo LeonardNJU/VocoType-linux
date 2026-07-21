@@ -1,0 +1,26 @@
+[Unit]
+Description=VoCoType Feedback retention and backup
+After=vocotype-feedback.service
+
+[Service]
+Type=oneshot
+User=vocotype-feedback
+Group=vocotype-feedback
+WorkingDirectory=/opt/vocotype-feedback
+EnvironmentFile=/etc/vocotype-feedback.env
+ExecStart=/opt/vocotype-feedback/.venv/bin/python -m feedback_service.cli maintenance --attachment-days 30 --backup-dir /var/backups/vocotype-feedback --backup-days 14
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX
+ReadWritePaths=/var/lib/vocotype-feedback /var/backups/vocotype-feedback
+UMask=0077

@@ -18,7 +18,8 @@ from app.slm_polisher import SLMPolisher
 from app.text_normalizer import normalize_text
 from settings_center import config_service
 from settings_center.doctor import run_doctor
-from settings_center.feedback import build_issue_url, submit_feedback
+from settings_center.feedback import build_issue_url, get_installation_id, submit_feedback
+from feedback_service.multipart import parse_multipart
 from settings_center.setup_manager import (
     InstallOptions,
     UninstallOptions,
@@ -257,15 +258,21 @@ def test_issue_url_is_prefilled_without_transmitting():
     assert "VoCoType Doctor" in query["body"][0]
 
 
-def test_feedback_endpoint_receives_json(tmp_path: Path):
+def test_feedback_endpoint_receives_multipart(isolated_home: Path):
     captured: dict = {}
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
             length = int(self.headers.get("Content-Length", "0"))
-            captured.update(json.loads(self.rfile.read(length).decode("utf-8")))
-            body = b'{"ok":true,"ticket":"T-1"}'
-            self.send_response(200)
+            payload, bundle_name, bundle_data = parse_multipart(
+                self.headers.get("Content-Type", ""),
+                self.rfile.read(length),
+            )
+            captured.update(payload)
+            captured["bundle_name"] = bundle_name
+            captured["bundle_data"] = bundle_data
+            body = b'{"ok":true,"feedback_id":"fb_test"}'
+            self.send_response(202)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -281,14 +288,27 @@ def test_feedback_endpoint_receives_json(tmp_path: Path):
         result = submit_feedback(
             f"http://127.0.0.1:{server.server_port}/feedback",
             "测试反馈",
+            category="bug",
             doctor_payload=[{"status": "pass"}],
         )
     finally:
         thread.join(timeout=2)
         server.server_close()
     assert result["ok"] is True
+    assert captured["schema_version"] == 1
     assert captured["message"] == "测试反馈"
+    assert captured["category"] == "bug"
     assert captured["doctor"] == [{"status": "pass"}]
+    assert captured["bundle_data"] is None
+
+
+def test_feedback_installation_id_is_random_stable_and_private(tmp_path: Path):
+    path = tmp_path / "installation-id"
+    first = get_installation_id(path)
+    second = get_installation_id(path)
+    assert first == second
+    assert len(first) == 36
+    assert path.stat().st_mode & 0o777 == 0o600
 
 
 def test_feedback_endpoint_rejects_insecure_nonlocal_http():

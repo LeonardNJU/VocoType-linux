@@ -34,7 +34,12 @@ from .config_service import (
     update_runtime_sections,
 )
 from .doctor import DoctorCheck, doctor_summary, run_doctor
-from .feedback import open_github_issue, submit_feedback
+from .feedback import (
+    OFFICIAL_FEEDBACK_ENDPOINT,
+    build_feedback_payload,
+    open_github_issue,
+    submit_feedback_payload,
+)
 from .playground_service import (
     RECORDING_DURATION_SECONDS,
     OutputDevice,
@@ -838,28 +843,121 @@ class SettingsWindow(Gtk.ApplicationWindow):
     def _feedback_page(self) -> Gtk.Widget:
         page, content = self._page(
             "反馈",
-            "反馈端点留空时会打开预填好的 GitHub issue；配置项目反馈端点后可直接发送。",
+            "可直接发送给 VoCoType 维护者，也可以创建公开 GitHub Issue。发送前会展示完整上传内容。",
         )
-        self.feedback_endpoint = Gtk.Entry()
-        self.feedback_endpoint.set_placeholder_text("可选：https://.../feedback")
-        content.pack_start(self._row("反馈端点", "仅在你信任该端点时发送诊断信息。", self.feedback_endpoint), False, False, 0)
+
+        form_card = self._card()
+        self.feedback_category = Gtk.ComboBoxText()
+        for category_id, label in (
+            ("bug", "问题 / Bug"),
+            ("installation", "安装与升级"),
+            ("compatibility", "兼容性"),
+            ("usability", "易用性"),
+            ("feature", "功能建议"),
+            ("other", "其他"),
+        ):
+            self.feedback_category.append(category_id, label)
+        self.feedback_category.set_active_id("bug")
+        form_card.pack_start(
+            self._row("反馈类型", "用于维护者分类和合并重复报告。", self.feedback_category),
+            False,
+            False,
+            0,
+        )
+
+        self.feedback_contact = Gtk.Entry()
+        self.feedback_contact.set_placeholder_text("可选：邮箱或 GitHub 用户名")
+        form_card.pack_start(
+            self._row(
+                "联系方式",
+                "不填写也可匿名提交；不填写时维护者无法追问复现细节。",
+                self.feedback_contact,
+            ),
+            False,
+            False,
+            0,
+        )
+
         self.feedback_view = Gtk.TextView()
         self.feedback_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         feedback_scroll = Gtk.ScrolledWindow()
         feedback_scroll.set_min_content_height(200)
         feedback_scroll.add(self.feedback_view)
-        content.pack_start(feedback_scroll, False, False, 0)
+        message_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        message_box.set_border_width(14)
+        message_title = Gtk.Label(label="反馈内容", xalign=0)
+        message_title.get_style_context().add_class("row-title")
+        message_hint = Gtk.Label(
+            label="请写明发生了什么、如何复现，以及你期望的结果。最多 10,000 字。",
+            xalign=0,
+        )
+        message_hint.set_line_wrap(True)
+        message_hint.get_style_context().add_class("row-subtitle")
+        message_box.pack_start(message_title, False, False, 0)
+        message_box.pack_start(message_hint, False, False, 0)
+        message_box.pack_start(feedback_scroll, False, False, 0)
+        form_card.pack_start(message_box, False, False, 0)
+        content.pack_start(form_card, False, False, 0)
+
+        privacy_card = self._card()
         self.feedback_include_doctor = Gtk.CheckButton(label="附带 Doctor 结果")
         self.feedback_include_bundle = Gtk.CheckButton(
-            label="附带支持包（最大 5 MiB；口述文本字段会脱敏，发送前仍建议检查）"
+            label="附带脱敏支持包（最大 5 MiB，默认关闭）"
         )
-        content.pack_start(self.feedback_include_doctor, False, False, 0)
-        content.pack_start(self.feedback_include_bundle, False, False, 0)
+        privacy_card.pack_start(
+            self._row(
+                "诊断信息",
+                "Doctor 和支持包都不会自动附带。支持包不含原始录音、API Key 或词典正文，但仍应在预览中检查。",
+                self.feedback_include_doctor,
+            ),
+            False,
+            False,
+            0,
+        )
+        privacy_card.pack_start(
+            self._row(
+                "支持包",
+                "包含脱敏配置、Doctor、服务日志与 Fcitx 诊断；服务器附件默认私有保存。",
+                self.feedback_include_bundle,
+            ),
+            False,
+            False,
+            0,
+        )
+        content.pack_start(privacy_card, False, False, 0)
+
+        advanced = Gtk.Expander(label="高级：使用自托管反馈服务器")
+        advanced_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        advanced_box.set_border_width(12)
+        self.feedback_use_custom_endpoint = Gtk.CheckButton(label="启用自定义端点")
+        self.feedback_endpoint = Gtk.Entry()
+        self.feedback_endpoint.set_placeholder_text("https://example.org/v1/feedback")
+        self.feedback_use_custom_endpoint.connect(
+            "toggled",
+            lambda button: self.feedback_endpoint.set_sensitive(button.get_active()),
+        )
+        advanced_box.pack_start(self.feedback_use_custom_endpoint, False, False, 0)
+        advanced_box.pack_start(
+            self._row(
+                "自定义端点",
+                "仅供企业、发行版或 fork 使用；普通用户应使用官方端点。",
+                self.feedback_endpoint,
+            ),
+            False,
+            False,
+            0,
+        )
+        advanced.add(advanced_box)
+        content.pack_start(advanced, False, False, 0)
+
         actions = Gtk.Box(spacing=8)
-        submit = Gtk.Button(label="发送反馈 / 创建 Issue")
+        submit = Gtk.Button(label="发送给 VoCoType 维护者")
         submit.get_style_context().add_class("suggested-action")
         submit.connect("clicked", self._on_feedback)
+        github = Gtk.Button(label="在 GitHub 创建公开 Issue")
+        github.connect("clicked", self._on_feedback_github)
         actions.pack_start(submit, False, False, 0)
+        actions.pack_start(github, False, False, 0)
         self.feedback_status = Gtk.Label(xalign=0)
         self.feedback_status.set_line_wrap(True)
         actions.pack_start(self.feedback_status, True, True, 0)
@@ -899,6 +997,12 @@ class SettingsWindow(Gtk.ApplicationWindow):
             panel_style if panel_style in {"minimal", "animated"} else "minimal"
         )
         self.feedback_endpoint.set_text(str(feedback.get("endpoint", "")))
+        self.feedback_use_custom_endpoint.set_active(
+            _as_bool(feedback.get("use_custom_endpoint"), False)
+        )
+        self.feedback_endpoint.set_sensitive(
+            self.feedback_use_custom_endpoint.get_active()
+        )
         try:
             self._saved_audio_config = load_audio_config()
         except Exception as exc:  # noqa: BLE001
@@ -976,6 +1080,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
             if not isinstance(feedback, dict):
                 feedback = {}
             feedback["endpoint"] = self.feedback_endpoint.get_text().strip()
+            feedback["use_custom_endpoint"] = self.feedback_use_custom_endpoint.get_active()
             config["feedback"] = feedback
             save_runtime_config(config)
             save_fcitx_module_config(
@@ -2224,34 +2329,167 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
         threading.Thread(target=work, daemon=True).start()
 
-    def _on_feedback(self, _button: Gtk.Button) -> None:
+    def _feedback_text(self) -> str:
         buffer = self.feedback_view.get_buffer()
-        message = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True).strip()
+        return buffer.get_text(
+            buffer.get_start_iter(), buffer.get_end_iter(), True
+        ).strip()
+
+    def _on_feedback(self, _button: Gtk.Button) -> None:
+        message = self._feedback_text()
         if not message:
             self.feedback_status.set_text("请先填写反馈内容。")
             return
-        endpoint = self.feedback_endpoint.get_text().strip()
+        category = self.feedback_category.get_active_id() or "other"
+        contact = self.feedback_contact.get_text().strip()
         include_doctor = self.feedback_include_doctor.get_active()
         include_bundle = self.feedback_include_bundle.get_active()
-        self.feedback_status.set_text("正在准备反馈…")
+        use_custom = self.feedback_use_custom_endpoint.get_active()
+        endpoint = (
+            self.feedback_endpoint.get_text().strip()
+            if use_custom
+            else OFFICIAL_FEEDBACK_ENDPOINT
+        )
+        if use_custom and not endpoint:
+            self.feedback_status.set_text("已启用自定义端点，但地址为空。")
+            return
+        self.feedback_status.set_text("正在准备发送预览…")
 
-        def work() -> None:
+        def prepare() -> None:
             try:
-                checks = self.last_doctor_checks or (run_doctor() if include_doctor else [])
-                doctor_payload = [asdict(item) for item in checks] if include_doctor else None
-                doctor_text = "\n".join(f"[{item.status}] {item.title}: {item.summary}" for item in checks)
+                checks = self.last_doctor_checks or (
+                    run_doctor() if include_doctor else []
+                )
+                doctor_payload = (
+                    [asdict(item) for item in checks] if include_doctor else None
+                )
+                payload = build_feedback_payload(
+                    message,
+                    category=category,
+                    contact=contact,
+                    doctor_payload=doctor_payload,
+                )
                 bundle = None
                 if include_bundle:
                     bundle = create_support_bundle()
                     self.last_bundle_path = bundle
-                if endpoint:
-                    response = submit_feedback(endpoint, message, doctor_payload=doctor_payload, bundle_path=bundle)
-                    status = f"反馈已发送：{json.dumps(response, ensure_ascii=False)[:500]}"
-                else:
-                    opened = open_github_issue(message, doctor_text=doctor_text)
-                    status = "已打开 GitHub issue 页面，请确认后提交。" if opened else "无法打开浏览器。"
+                GLib.idle_add(
+                    self._confirm_feedback_send,
+                    endpoint,
+                    payload,
+                    bundle,
+                )
+            except Exception as exc:  # noqa: BLE001
+                GLib.idle_add(
+                    self.feedback_status.set_text,
+                    f"准备反馈失败：{exc}",
+                )
+
+        threading.Thread(target=prepare, daemon=True).start()
+
+    def _confirm_feedback_send(
+        self,
+        endpoint: str,
+        payload: dict[str, Any],
+        bundle: Path | None,
+    ) -> bool:
+        preview = dict(payload)
+        preview["destination"] = endpoint
+        if bundle is not None:
+            preview["support_bundle"] = {
+                "path": str(bundle),
+                "size_bytes": bundle.stat().st_size,
+            }
+        else:
+            preview["support_bundle"] = None
+        dialog = Gtk.Dialog(title="确认发送反馈", transient_for=self, modal=True)
+        dialog.add_button("取消", Gtk.ResponseType.CANCEL)
+        send_button = dialog.add_button("确认发送", Gtk.ResponseType.APPLY)
+        send_button.get_style_context().add_class("suggested-action")
+        dialog.set_default_size(760, 560)
+        content = dialog.get_content_area()
+        content.set_border_width(12)
+        content.set_spacing(10)
+        notice = Gtk.Label(
+            label="以下内容将通过 HTTPS 发送。请检查路径、主机名或其他可能识别你的信息。",
+            xalign=0,
+        )
+        notice.set_line_wrap(True)
+        content.pack_start(notice, False, False, 0)
+        output = Gtk.TextView()
+        output.set_editable(False)
+        output.set_cursor_visible(False)
+        output.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        output.get_buffer().set_text(
+            json.dumps(preview, ensure_ascii=False, indent=2)
+        )
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scroller.add(output)
+        content.pack_start(scroller, True, True, 0)
+        dialog.show_all()
+        response = dialog.run()
+        dialog.destroy()
+        if response != Gtk.ResponseType.APPLY:
+            self.feedback_status.set_text("已取消发送。")
+            return False
+
+        self.feedback_status.set_text("正在发送反馈…")
+
+        def send() -> None:
+            try:
+                result = submit_feedback_payload(
+                    endpoint,
+                    payload,
+                    bundle_path=bundle,
+                )
+                feedback_id = str(result.get("feedback_id", "")).strip()
+                duplicate = bool(result.get("duplicate"))
+                status = (
+                    f"反馈已收到：{feedback_id}"
+                    if feedback_id
+                    else "反馈已收到。"
+                )
+                if duplicate:
+                    status += "（已合并到相同报告）"
             except Exception as exc:  # noqa: BLE001
                 status = f"反馈失败：{exc}"
+            GLib.idle_add(self.feedback_status.set_text, status)
+
+        threading.Thread(target=send, daemon=True).start()
+        return False
+
+    def _on_feedback_github(self, _button: Gtk.Button) -> None:
+        message = self._feedback_text()
+        if not message:
+            self.feedback_status.set_text("请先填写反馈内容。")
+            return
+        include_doctor = self.feedback_include_doctor.get_active()
+        include_bundle = self.feedback_include_bundle.get_active()
+        self.feedback_status.set_text("正在准备 GitHub Issue…")
+
+        def work() -> None:
+            try:
+                checks = self.last_doctor_checks or (
+                    run_doctor() if include_doctor else []
+                )
+                doctor_text = "\n".join(
+                    f"[{item.status}] {item.title}: {item.summary}"
+                    for item in checks
+                )
+                bundle = None
+                if include_bundle:
+                    bundle = create_support_bundle()
+                    self.last_bundle_path = bundle
+                opened = open_github_issue(message, doctor_text=doctor_text)
+                if opened:
+                    status = "已打开 GitHub Issue 页面，请检查后提交。"
+                    if bundle is not None:
+                        status += f" 请手动附加支持包：{bundle}"
+                else:
+                    status = "无法打开浏览器。"
+            except Exception as exc:  # noqa: BLE001
+                status = f"准备 GitHub Issue 失败：{exc}"
             GLib.idle_add(self.feedback_status.set_text, status)
 
         threading.Thread(target=work, daemon=True).start()

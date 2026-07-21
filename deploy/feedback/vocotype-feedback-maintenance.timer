@@ -1,0 +1,11 @@
+[Unit]
+Description=Run VoCoType feedback maintenance daily
+
+[Timer]
+OnCalendar=*-*-* 03:40:00
+RandomizedDelaySec=20m
+Persistent=true
+Unit=vocotype-feedback-maintenance.service
+
+[Install]
+WantedBy=timers.target

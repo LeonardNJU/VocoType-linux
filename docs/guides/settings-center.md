@@ -123,20 +123,32 @@ vocotype-doctor --probe-slm
 
 ### 反馈
 
-未配置反馈端点时，按钮会打开预填的 GitHub issue。设置项目运营的 HTTPS endpoint 后，设置中心可以直接 POST JSON；用户可选择附带 Doctor 和不超过 5 MiB 的支持包。
+设置中心提供两个明确入口：
 
-反馈 endpoint 接收格式：
+- **发送给 VoCoType 维护者**：发送到项目官方 HTTPS 端点；
+- **在 GitHub 创建公开 Issue**：打开预填页面，用户检查后自行提交。
+
+Doctor 和支持包默认都不附带。点击官方发送后，设置中心会先展示完整 JSON、目标地址以及支持包路径和大小；只有用户再次确认才会联网。联系方式可留空，此时报告为匿名，维护者也无法追问。
+
+客户端首次使用时会在 `~/.config/vocotype/installation-id` 生成随机 UUID。它不读取 MAC 地址、硬件序列号或账户信息，删除该文件即可重置。该 ID 只用于服务端限流和合并重复报告。
+
+官方端点使用 `multipart/form-data`：
+
+- `payload`：UTF-8 JSON；
+- `bundle`：可选的 `.tar.gz`、`.tgz` 或 `.zip`，最大 5 MiB。
 
 ```json
 {
+  "schema_version": 1,
   "product": "VoCoType-linux",
   "version": "...",
+  "category": "bug",
   "message": "...",
   "platform": "...",
-  "doctor": [],
-  "bundle_name": "vocotype-support-....tar.gz",
-  "bundle_base64": "..."
+  "installation_id": "随机 UUID",
+  "doctor": null,
+  "contact": ""
 }
 ```
 
-endpoint 留空时不会向任何第三方自动发送数据。
+企业、发行版维护者和 fork 可以在“高级：使用自托管反馈服务器”中显式启用自定义 HTTPS 端点。普通配置不能静默覆盖官方地址。
