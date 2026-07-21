@@ -5,6 +5,13 @@ All notable changes to VoCoType Linux will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0-rc.4] - 2026-07-22
+
+### Fixed
+
+- Disabled automatic RPM debuginfo/debugsource side packages for Release builds. The IBus-only flavor has no compiled module, so Fedora's generated debugsource package had an empty file list and incorrectly failed an otherwise valid RPM build.
+
+
 ## [3.0.0-rc.3] - 2026-07-22
 
 ### Fixed

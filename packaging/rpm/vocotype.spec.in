@@ -1,3 +1,5 @@
+%global debug_package %{nil}
+
 Name:           @PACKAGE_NAME@
 Version:        @VERSION@
 Release:        @RELEASE@%{?dist}

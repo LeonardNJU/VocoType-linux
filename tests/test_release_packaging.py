@@ -364,11 +364,11 @@ def test_backend_launcher_fails_cleanly_before_gui_setup(tmp_path: Path):
 def test_version_is_consistent_across_package_metadata():
     version = _version()
     assert version.startswith("3.0.0")
-    assert _version_field("tag") == "v3.0.0-rc.3"
-    assert _version_field("debian") == "3.0.0~rc3"
+    assert _version_field("tag") == "v3.0.0-rc.4"
+    assert _version_field("debian") == "3.0.0~rc4"
     assert _version_field("rpm_version") == "3.0.0"
-    assert _version_field("rpm_release") == "0.rc3"
-    assert _version_field("arch") == "3.0.0rc3"
+    assert _version_field("rpm_release") == "0.rc4"
+    assert _version_field("arch") == "3.0.0rc4"
     changelog = (ROOT / "packaging/debian/changelog").read_text(encoding="utf-8")
     assert changelog.startswith(
         f"vocotype-linux ({_version_field('debian')}-1)"
@@ -486,6 +486,7 @@ def test_native_package_recipes_share_one_staging_contract(tmp_path: Path):
         assert f"pkgname={package_name}" in pkgbuild
         assert "Architecture: amd64" in control
         assert "License:        GPL-3.0-or-later" in spec
+        assert "%global debug_package %{nil}" in spec
         assert "sha256sums=('@SOURCE_SHA256@')" in pkgbuild
         assert "options=('!debug')" in pkgbuild
         assert "--libexecdir /usr/lib/vocotype" in pkgbuild
