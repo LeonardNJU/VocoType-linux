@@ -17,6 +17,7 @@ site/icon-192.png
 pyproject.toml
 requirements.txt
 uv.lock
+vocotype_package.py
 vocotype_version.py
 LICENSE
 THIRD_PARTY_NOTICES.md

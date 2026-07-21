@@ -708,6 +708,7 @@ def test_release_validator_accepts_complete_artifacts_and_rejects_corruption(tmp
         for suffix in (
             "README.md",
             "MANIFEST.in",
+            "vocotype_package.py",
             ".github/workflows/release.yml",
             "packaging/tools/stage-system-package.sh",
             "fcitx5/module/vocotype_module.cpp",
@@ -724,6 +725,7 @@ def test_release_validator_accepts_complete_artifacts_and_rejects_corruption(tmp
             "ibus/main.py",
             "settings_center/application.py",
             "settings_center/playground_service.py",
+            "vocotype_package.py",
             "vocotype_version.py",
             "vocotype_linux.data/share/vocotype/terms.yaml",
             "vocotype_linux.data/share/vocotype/ibus/vocotype.xml.in",
@@ -738,6 +740,7 @@ def test_release_validator_accepts_complete_artifacts_and_rejects_corruption(tmp
             for suffix in (
                 "README.md",
                 "MANIFEST.in",
+                "vocotype_package.py",
                 "packaging/tools/stage-system-package.sh",
                 "fcitx5/module/vocotype_module.cpp",
                 "ibus/scripts/install-gui.sh",

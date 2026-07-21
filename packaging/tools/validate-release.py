@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import tarfile
@@ -15,12 +14,14 @@ import sys
 TOOLS_DIR = Path(__file__).resolve().parent
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
+from release_common import file_sha256
 from versioning import ReleaseVersion, normalize_expected_version
 
 HEX_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 SOURCE_REQUIRED = (
     "README.md",
     "MANIFEST.in",
+    "vocotype_package.py",
     ".github/workflows/release.yml",
     "packaging/tools/stage-system-package.sh",
     "fcitx5/module/vocotype_module.cpp",
@@ -31,6 +32,7 @@ SOURCE_REQUIRED = (
 SDIST_REQUIRED = (
     "README.md",
     "MANIFEST.in",
+    "vocotype_package.py",
     "packaging/tools/stage-system-package.sh",
     "fcitx5/module/vocotype_module.cpp",
     "ibus/scripts/install-gui.sh",
@@ -42,20 +44,13 @@ WHEEL_REQUIRED = (
     "ibus/main.py",
     "settings_center/application.py",
     "settings_center/playground_service.py",
+    "vocotype_package.py",
     "vocotype_version.py",
     "share/vocotype/terms.yaml",
     "share/vocotype/ibus/vocotype.xml.in",
     "share/metainfo/io.github.LeonardNJU.VoCoType.metainfo.xml",
 )
 FORBIDDEN_ARCHIVE_PARTS = ("/build/", "/__pycache__/")
-
-
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def safe_relative_path(value: str) -> PurePosixPath:
@@ -113,7 +108,7 @@ def validate_release(
         if not artifact.is_file():
             raise ValueError(f"missing artifact: {relative}")
         actual_size = artifact.stat().st_size
-        actual_hash = sha256(artifact)
+        actual_hash = file_sha256(artifact)
         if row.get("size") != actual_size or row.get("sha256") != actual_hash:
             raise ValueError(f"manifest digest mismatch: {relative}")
         manifest_entries[relative] = row
@@ -130,7 +125,7 @@ def validate_release(
     if set(checksum_entries) != set(manifest_entries):
         raise ValueError("checksum and manifest artifact sets differ")
     for relative, digest in checksum_entries.items():
-        if sha256(root / relative) != digest:
+        if file_sha256(root / relative) != digest:
             raise ValueError(f"checksum mismatch: {relative}")
 
     source_name = f"VocoType-linux-{version}.tar.gz"

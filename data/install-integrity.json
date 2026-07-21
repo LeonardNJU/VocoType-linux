@@ -18,10 +18,11 @@
     "settings_center/application.py": "f05364d1672df9e2a2a362ec28b957a6c8dd34d6b6d6fd685af9d04d342ede8a",
     "settings_center/config_service.py": "cd4c4e0ec15bc3635c4e23e97c7914b662a5d5a2c8e9d2fb95f43e3537005e63",
     "settings_center/doctor.py": "f99b6d3d8c00adcc4eaca1ea409704facdc828f3821088151bc55a91a206d27b",
-    "settings_center/install_integrity.py": "f45b1f9b65d3d084442a7e5569e3d11858aa4b0c5221ea536a8d24b4198a9577",
+    "settings_center/install_integrity.py": "546dfdc0d20407de849e3245a1d76cb2a47b82d7edaf8cd480193cb0ec2a8689",
     "settings_center/playground_service.py": "2c9b2ae0771835b1088cf6c88f2bdb227e22fb7190ed7febc3c720b12d07c910",
-    "settings_center/setup_manager.py": "d0885ad90d0947405a31775fe1b92d6d330d13083af9186d19ce112ec004cc70",
+    "settings_center/setup_manager.py": "ae4b3c47a93ac1a6e89d87d569f61f30c39802490407dcdfbeb47922daea0e64",
     "settings_center/version_check.py": "13eb8aadfed10eb8a1b307cd51c6b1292906c11cd1fd83ceb8d274bf122c3b1a",
+    "vocotype_package.py": "fa6419ec51f9c6b74a3a31d372a1c15a20517f4e2ad7536f451212ce70c15c77",
     "vocotype_version.py": "0d8ea43b85a1679d3845674ca1bb81671914c8604c7f37a2a7fa16e61732f12a"
   },
   "schema_version": 1,

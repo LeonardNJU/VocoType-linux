@@ -12,6 +12,7 @@ from typing import Callable, Literal
 
 from app.download_models import inspect_required_models
 from app.fcitx_session import query_fcitx_addon_names, restart_fcitx_session
+from vocotype_package import read_system_package_marker
 
 ProgressCallback = Callable[[str], None]
 Framework = Literal["fcitx5", "ibus"]
@@ -58,35 +59,6 @@ class IntegrationStatus:
     missing: tuple[str, ...]
 
 
-def _read_native_package_marker(path: Path) -> dict[str, str]:
-    if not path.is_file():
-        return {}
-    result: dict[str, str] = {}
-    try:
-        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            if "=" not in raw:
-                continue
-            key, value = raw.split("=", 1)
-            key = key.strip()
-            if key:
-                result[key] = value.strip()
-    except OSError:
-        return {}
-    if not result:
-        return {}
-    flavor = result.get("flavor", "universal").lower()
-    if flavor not in {"universal", "ibus", "fcitx5"}:
-        flavor = "universal"
-    result["flavor"] = flavor
-    defaults = {
-        "universal": "vocotype-linux",
-        "ibus": "vocotype-linux-ibus",
-        "fcitx5": "vocotype-linux-fcitx5",
-    }
-    result.setdefault("package", defaults[flavor])
-    return result
-
-
 def native_package_metadata(project_root: Path | None = None) -> dict[str, str]:
     candidates: list[Path] = []
     if project_root is not None:
@@ -99,7 +71,7 @@ def native_package_metadata(project_root: Path | None = None) -> dict[str, str]:
         ]
     )
     for marker in dict.fromkeys(candidates):
-        metadata = _read_native_package_marker(marker)
+        metadata = read_system_package_marker(marker)
         if metadata:
             metadata["marker"] = str(marker)
             return metadata
@@ -378,7 +350,7 @@ def find_project_root(start: str | os.PathLike[str] | None = None) -> Path | Non
             if path in seen:
                 continue
             seen.add(path)
-            marker = _read_native_package_marker(path / ".system-package")
+            marker = read_system_package_marker(path / ".system-package")
             if marker:
                 flavor = marker["flavor"]
                 common = (

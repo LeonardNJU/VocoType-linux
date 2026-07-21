@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import gzip
-import hashlib
 import json
 import shutil
 import subprocess
@@ -16,6 +15,7 @@ from pathlib import Path
 TOOLS_DIR = Path(__file__).resolve().parent
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
+from release_common import file_sha256
 from versioning import ReleaseVersion, normalize_expected_version
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -108,19 +108,11 @@ def build_python_distributions(output_dir: Path) -> list[Path]:
     return artifacts
 
 
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
 def write_metadata(output_dir: Path, version: str, commit: str, artifacts: list[Path]) -> None:
     relative = [path.relative_to(output_dir) for path in sorted(artifacts)]
     checksums = output_dir / "SHA256SUMS"
     checksums.write_text(
-        "".join(f"{sha256(output_dir / path)}  {path.as_posix()}\n" for path in relative),
+        "".join(f"{file_sha256(output_dir / path)}  {path.as_posix()}\n" for path in relative),
         encoding="utf-8",
     )
     manifest = {
@@ -132,7 +124,7 @@ def write_metadata(output_dir: Path, version: str, commit: str, artifacts: list[
             {
                 "path": path.as_posix(),
                 "size": (output_dir / path).stat().st_size,
-                "sha256": sha256(output_dir / path),
+                "sha256": file_sha256(output_dir / path),
             }
             for path in relative
         ],

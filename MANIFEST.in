@@ -4,6 +4,7 @@ include CHANGELOG.md
 include README.md
 include requirements.txt
 include uv.lock
+include vocotype_package.py
 include vocotype_version.py
 recursive-include app *.py
 recursive-include ibus *.py *.sh *.md

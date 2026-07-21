@@ -4,43 +4,16 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
+import sys
 
-FLAVORS = {
-    "universal": {
-        "package_name": "vocotype-linux",
-        "title": "IBus and Fcitx 5",
-        "summary": "Offline voice input for IBus and Fcitx 5",
-        "includes_ibus": True,
-        "includes_fcitx5": True,
-    },
-    "ibus": {
-        "package_name": "vocotype-linux-ibus",
-        "title": "IBus",
-        "summary": "Offline voice input for IBus",
-        "includes_ibus": True,
-        "includes_fcitx5": False,
-    },
-    "fcitx5": {
-        "package_name": "vocotype-linux-fcitx5",
-        "title": "Fcitx 5",
-        "summary": "Offline voice input for Fcitx 5",
-        "includes_ibus": False,
-        "includes_fcitx5": True,
-    },
-}
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
+from vocotype_package import package_flavor_metadata
 
-def metadata(value: str) -> dict[str, object]:
-    key = str(value or "").strip().lower()
-    aliases = {"fcitx": "fcitx5", "all": "universal", "both": "universal"}
-    key = aliases.get(key, key)
-    if key not in FLAVORS:
-        raise ValueError(f"unknown package flavor: {value}")
-    result = dict(FLAVORS[key])
-    result["flavor"] = key
-    package_names = [item["package_name"] for item in FLAVORS.values()]
-    result["conflicts"] = [name for name in package_names if name != result["package_name"]]
-    return result
+metadata = package_flavor_metadata
 
 
 def main() -> int:

@@ -59,7 +59,7 @@ vocotype-settings = "settings_center.application:main"
 vocotype-doctor = "settings_center.doctor:main"
 
 [tool.setuptools]
-py-modules = ["vocotype_version"]
+py-modules = ["vocotype_package", "vocotype_version"]
 
 [tool.setuptools.packages.find]
 include = ["app*", "ibus*", "settings_center*"]
