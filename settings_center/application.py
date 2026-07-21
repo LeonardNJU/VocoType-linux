@@ -2035,7 +2035,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         )
         options_card.pack_start(
             self._row(
-                "共享用户数据",
+                "VoCoType 用户数据",
                 "此选项会删除 VoCoType 的统一用户配置；所有已安装 integration 都会受影响。默认关闭。",
                 remove_user_data,
             ),

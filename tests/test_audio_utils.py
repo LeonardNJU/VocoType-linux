@@ -37,3 +37,15 @@ def test_resample_audio_preserves_int16_and_expected_length():
     assert result.dtype == np.int16
     assert len(result) == 1600
     assert np.max(np.abs(result.astype(np.int32))) <= 32767
+
+
+def test_resample_audio_rejects_invalid_sample_rates():
+    source = np.zeros(100, dtype=np.int16)
+
+    for orig_sr, target_sr in ((0, 0), (0, 16000), (44100, 0), (-1, 16000)):
+        try:
+            resample_audio(source, orig_sr=orig_sr, target_sr=target_sr)
+        except ValueError as exc:
+            assert "采样率必须为正整数" in str(exc)
+        else:
+            raise AssertionError("invalid sample rate must fail")

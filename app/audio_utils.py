@@ -1,6 +1,6 @@
 """音频处理工具模块
 
-提供音频配置加载和重采样等通用功能，供 IBus 和 Fcitx5 共享使用。
+提供 VoCoType 各 integration 共用的音频配置加载和重采样功能。
 """
 from __future__ import annotations
 
@@ -123,16 +123,22 @@ def resample_audio(audio: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarra
     Returns:
         重采样后的音频数据
     """
+    if orig_sr <= 0 or target_sr <= 0:
+        raise ValueError("采样率必须为正整数")
     if orig_sr == target_sr:
         return audio
 
-    import librosa
+    import math
 
-    float_audio = audio.astype(np.float32) / 32768.0
-    resampled = librosa.resample(
+    from scipy.signal import resample_poly
+
+    float_audio = np.asarray(audio, dtype=np.float32) / 32768.0
+    divisor = math.gcd(int(orig_sr), int(target_sr))
+    resampled = resample_poly(
         float_audio,
-        orig_sr=orig_sr,
-        target_sr=target_sr,
-        res_type="soxr_hq",
+        int(target_sr) // divisor,
+        int(orig_sr) // divisor,
+        axis=0,
     )
-    return np.clip(resampled * 32768.0, -32768, 32767).astype(np.int16)
+    scaled = np.rint(resampled * 32768.0)
+    return np.clip(scaled, -32768, 32767).astype(np.int16)

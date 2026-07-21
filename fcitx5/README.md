@@ -152,7 +152,7 @@ Backend 只处理语音和 SLM，不再处理普通键盘事件或 Rime session�
 
 ## 术语库与原生热词
 
-Fcitx backend 与 IBus 共用 `~/.config/vocotype/terms.yaml`。默认 ASR 是官方
+术语库属于统一的 VoCoType 配置：`~/.config/vocotype/terms.yaml`。默认 ASR 是官方
 Contextual Paraformer ONNX，术语可以同时进入原生 hotword 编码器和转录后的
 确定性标准化层。安装器只在没有新旧术语文件时创建模板。
 

@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Audio decoding and resampling now use soundfile, NumPy, and SciPy end to end; VoCoType passes contiguous NumPy waveforms directly to FunASR ONNX and no longer contains a GStreamer/PyGObject compatibility path.
+- User-facing configuration messages now describe one VoCoType configuration instead of implying that saving settings installs or configures both input frameworks.
 - Native packages install system integration without running pip, downloading models, writing user configuration, or prompting during the package-manager transaction; the graphical settings center performs per-user runtime setup afterward.
 - The Fcitx module version now follows `vocotype_version.py`, and packaged installations reuse the system module/component instead of recompiling or requesting duplicate Polkit authorization.
 - The default ASR model is now the official Contextual Paraformer ONNX snapshot; both empty and configured native-hotword inference paths are supported.

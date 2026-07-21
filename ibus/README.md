@@ -8,7 +8,7 @@ VoCoType 离线语音输入法的 IBus 版本实现。
 
 ## 术语库与原生热词
 
-IBus 与 Fcitx 5 共用 `~/.config/vocotype/terms.yaml`。默认 Contextual Paraformer
+术语库属于统一的 VoCoType 配置：`~/.config/vocotype/terms.yaml`。默认 Contextual Paraformer
 会使用其中的原生 hotword，识别后再执行确定性术语标准化和数字保护。
 详见 [`docs/guides/terms.md`](../docs/guides/terms.md)。
 

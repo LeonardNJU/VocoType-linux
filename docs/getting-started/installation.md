@@ -67,7 +67,7 @@ CLI 是兼容入口，不再是普通桌面用户的首选安装方式。
 | KDE、已经使用 Fcitx 5 / Rime / Mozc | [Fcitx 5](../integrations/fcitx5.md) |
 | GNOME、发行版默认使用 IBus | [IBus](../integrations/ibus.md) |
 | 希望使用当前稳定的语音编辑 | IBus |
-| 两套桌面环境都会使用 | 可以同时安装，共享配置 |
+| 确实需要在两套桌面环境间切换 | 可以同时安装；两者读取同一份 VoCoType 配置 |
 
 ## 安装后没有反应
 

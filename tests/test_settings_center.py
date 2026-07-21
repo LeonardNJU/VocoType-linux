@@ -882,6 +882,8 @@ def test_settings_application_exposes_both_install_paths():
     assert "配置已同步写入 IBus 与 Fcitx" not in source
     assert "IBus 会在下一次按下录音键时自动重载配置" not in source
     assert "同时删除 VoCoType 用户配置、术语和音频设置" in source
+    assert "VoCoType 用户数据" in source
+    assert "共享用户数据" not in source
     assert "API Key 环境变量名（高级）" in source
     assert "直接 API Key" in source
     assert "remove_system_integration" in source

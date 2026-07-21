@@ -34,7 +34,7 @@ def test_runtime_check_loads_the_actual_asr_entry_points():
         "numpy",
         "sounddevice",
         "soundfile",
-        "librosa",
+        "scipy.signal",
         "yaml",
         "itn.chinese.inverse_normalizer",
         "modelscope.hub.snapshot_download",
@@ -77,6 +77,12 @@ def test_package_manifests_pin_torch_free_funasr_onnx_release():
     assert '"funasr_onnx==0.4.2"' in pyproject
     assert "funasr_onnx==0.4.1" not in requirements
     assert "funasr_onnx==0.4.1" not in pyproject
+    assert "numpy==1.26.4" in requirements
+    assert '"numpy==1.26.4"' in pyproject
+    assert "scipy==1.16.3" in requirements
+    assert '"scipy==1.16.3"' in pyproject
+    assert "librosa==" not in requirements
+    assert '"librosa' not in pyproject
 
 
 def test_installer_does_not_offer_obsolete_funasr_onnx_torch_workaround():

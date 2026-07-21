@@ -9,7 +9,7 @@ REQUIRED_IMPORTS = (
     "numpy",
     "sounddevice",
     "soundfile",
-    "librosa",
+    "scipy.signal",
     "yaml",
     "itn.chinese.inverse_normalizer",
     "modelscope.hub.snapshot_download",

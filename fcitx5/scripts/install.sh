@@ -670,8 +670,9 @@ fi
 if [ "$USE_SYSTEM_PYTHON" = "1" ]; then
     if ! "$PYTHON" - << 'PY' >/dev/null 2>&1
 import jieba  # noqa: F401
-import librosa  # noqa: F401
 import modelscope  # noqa: F401
+import numpy  # noqa: F401
+from scipy import signal  # noqa: F401
 import yaml  # noqa: F401
 from itn.chinese.inverse_normalizer import InverseNormalizer  # noqa: F401
 import sounddevice  # noqa: F401

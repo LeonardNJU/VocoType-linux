@@ -278,9 +278,9 @@ print_plan() {
         echo "- 删除程序代码与 integration 文件，保留虚拟环境和缓存"
     fi
     if [[ "$REMOVE_USER_DATA" == true ]]; then
-        echo "- 删除共享用户配置、术语和音频设置：$VOCOTYPE_CONFIG_DIR"
+        echo "- 删除 VoCoType 用户配置、术语和音频设置：$VOCOTYPE_CONFIG_DIR"
     else
-        echo "- 保留共享用户配置、术语和音频设置：$VOCOTYPE_CONFIG_DIR"
+        echo "- 保留 VoCoType 用户配置、术语和音频设置：$VOCOTYPE_CONFIG_DIR"
     fi
     if native_package_present; then
         echo "- 检测到原生软件包；/usr 下的文件继续由包管理器管理"
@@ -309,7 +309,7 @@ if [[ "$REMOVE_USER_DATA" == true ]]; then
     if [[ "$FRAMEWORK" == fcitx5 ]]; then
         rm -f "$XDG_CONFIG_HOME/fcitx5/conf/vocotype.conf"
     fi
-    echo "共享用户数据已删除。"
+    echo "VoCoType 用户数据已删除。"
 else
     echo "用户配置已保留：$VOCOTYPE_CONFIG_DIR"
 fi

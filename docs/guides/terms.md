@@ -1,11 +1,11 @@
 # 术语库与原生热词
 
-VoCoType 使用一份共享术语库同时驱动两层能力：
+VoCoType 使用一份统一术语库同时驱动两层能力：
 
 1. **Contextual Paraformer 原生热词**：在 ASR 解码阶段提高专有名词的识别概率。
 2. **确定性标准化**：在 ASR 完成后把常见错写统一为指定的标准写法，并保护结果不被 ITN/数字规则误改。
 
-IBus 与 Fcitx 5 共用：
+术语库属于 VoCoType 配置，与当前采用哪种输入法 integration 无关：
 
 ```text
 ~/.config/vocotype/terms.yaml

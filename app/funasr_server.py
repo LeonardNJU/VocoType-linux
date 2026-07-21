@@ -476,10 +476,8 @@ class FunASRServer:
                 f"所有FunASR模型并行初始化完成，总耗时: {total_time:.2f}秒"
             )
             
-            # Verify the PCM reader used by the ONNX path. Passing NumPy
-            # waveforms avoids funasr_onnx's optional librosa/audioread
-            # GStreamer backend, which is incompatible with some PyGObject
-            # versions.
+            # Verify the exact soundfile -> NumPy PCM path used by ONNX
+            # inference so startup and production share one decoder pipeline.
             self._warmup_audio_reader()
             
             return {
@@ -744,15 +742,16 @@ class FunASRServer:
             return {"success": False, "error": error_msg, "type": "transcription_error"}
 
     def _get_audio_duration(self, audio_path):
-        """获取音频时长"""
+        """使用 soundfile 元数据获取音频时长。"""
         try:
-            import librosa
+            import soundfile as sf
 
-            duration = librosa.get_duration(path=audio_path)
-            self.total_audio_duration += duration  # 累计音频时长
+            info = sf.info(audio_path)
+            duration = info.frames / info.samplerate if info.samplerate else 0.0
+            self.total_audio_duration += duration
             return duration
-        except Exception as e:
-            logger.debug(f"获取音频时长失败: {str(e)}")
+        except Exception as exc:
+            logger.debug("获取音频时长失败: %s", exc)
             return 0.0
 
     @staticmethod
@@ -783,7 +782,7 @@ class FunASRServer:
             return 16000
 
     def _load_onnx_waveform(self, audio_path: str):
-        """Read PCM audio without invoking librosa's optional GStreamer path."""
+        """Decode audio into a contiguous mono float32 NumPy waveform."""
 
         import math
         import numpy as np
