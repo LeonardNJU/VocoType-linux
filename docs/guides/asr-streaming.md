@@ -17,9 +17,19 @@ VoCoType 仍把完整 PCM 交给原来的 Contextual Paraformer，并继续使�
 在线通道初始化失败、处理过慢或 IPC 中断时，本次录音会自动退化为原来的
 “录完后识别”模式，最终离线识别不受影响。
 
+## 安装可选 runtime
+
+基础 DEB、RPM 与 Arch 包只安装稳定的最终识别链路，不捆绑体积较大的 native streaming runtime，也不会在包管理器构建阶段联网下载第三方源码。开发者可在源码树运行：
+
+```bash
+./native/streaming_worker/build.sh
+```
+
+随后重新运行 VoCoType 的 IBus 或 Fcitx 5 安装 / 修复流程；安装器会检测预构建 bundle 并复制到用户目录。未来也可以安装单独发布的 native streaming bundle。
+
 ## 开启方式
 
-在设置中心的“语音识别与 ITN”页面开启“实时识别预览（2-pass）”，保存后：
+安装上述可选 runtime 后，在设置中心的“逆文本标准化（ITN）”页面开启“实时识别预览（2-pass）”，保存后：
 
 - Fcitx 5 后端会自动重启，但不会立即加载在线模型；
 - IBus 会在下一次开始录音前重新载入配置；
@@ -41,8 +51,7 @@ VoCoType 仍把完整 PCM 交给原来的 Contextual Paraformer，并继续使�
 }
 ```
 
-IBus 使用 `~/.config/vocotype/ibus.json`，Fcitx 5 使用
-`~/.config/vocotype/fcitx5-backend.json`；设置中心会同步写入两份配置。
+该开关属于统一的 VoCoType 配置，与当前采用 IBus 还是 Fcitx 5 integration 无关。
 
 ## 资源策略
 

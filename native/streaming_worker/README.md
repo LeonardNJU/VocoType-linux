@@ -15,6 +15,8 @@ it automatically when `ONNXRUNTIME_DIR` is not supplied:
 
 For a fully offline build, set `ONNXRUNTIME_DIR` to an already extracted SDK.
 
+This runtime is optional and is not built inside the base DEB, RPM, or Arch package transaction. Build or install it separately, then rerun the VoCoType integration installer to place the bundle under the user runtime.
+
 For local source inspection or offline builds, set `FUNASR_SOURCE_DIR` to an
 existing FunASR checkout. The resulting relocatable local bundle is written to
 `native/streaming_worker/build/bundle/` (`bin/` plus its private `lib/`).

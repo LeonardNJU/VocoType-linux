@@ -745,16 +745,73 @@ def test_systemd_backend_disables_python_bytecode_writes():
     assert "Environment=PYTHONDONTWRITEBYTECODE=1" in source
 
 
-def test_native_streaming_runtime_is_required_by_all_native_package_recipes():
+def test_base_native_packages_are_offline_and_streaming_runtime_is_optional():
     debian = (ROOT / "packaging/debian/rules").read_text(encoding="utf-8")
+    control = (ROOT / "packaging/debian/control").read_text(encoding="utf-8")
     rpm = (ROOT / "packaging/rpm/vocotype.spec.in").read_text(encoding="utf-8")
     arch = (ROOT / "packaging/arch/PKGBUILD.in").read_text(encoding="utf-8")
     for source in (debian, rpm, arch):
-        assert "native/streaming_worker/build.sh" in source
-        assert "--require-streaming-bundle" in source
+        assert "native/streaming_worker/build.sh" not in source
+        assert "--require-streaming-bundle" not in source
+        assert "--skip-streaming-bundle" in source
+    assert "clang" not in control
+    assert "curl" not in control.split("Package:", 1)[0]
+    assert "BuildRequires:  clang" not in rpm
+    assert "BuildRequires:  curl" not in rpm
+    assert "vocotype-streaming-worker" not in rpm
+    assert "'clang'" not in arch
+    assert "'curl'" not in arch.split("optdepends", 1)[0]
     smoke = (ROOT / "packaging/tests/smoke-installed-package.sh").read_text(encoding="utf-8")
+    assert "PACKAGE_STREAMING_RUNTIME_OPTIONAL_ABSENT" in smoke
     assert "PACKAGE_STREAMING_RUNTIME_OK" in smoke
     assert '"$streaming_worker" --help' in smoke
+
+
+def test_staging_skip_streaming_bundle_ignores_a_valid_cached_bundle(tmp_path: Path):
+    bundle = tmp_path / "bundle"
+    (bundle / "bin").mkdir(parents=True)
+    (bundle / "lib").mkdir()
+    worker = bundle / "bin/vocotype-streaming-worker"
+    worker.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    worker.chmod(0o755)
+    (bundle / "lib/libfunasr.so").write_bytes(b"cached")
+    dest = tmp_path / "root"
+    env = os.environ.copy()
+    env["VOCOTYPE_STREAMING_BUNDLE_DIR"] = str(bundle)
+
+    result = subprocess.run(
+        [
+            "bash",
+            "packaging/tools/stage-system-package.sh",
+            "--destdir",
+            str(dest),
+            "--skip-module-build",
+            "--skip-streaming-bundle",
+        ],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "intentionally omitted" in result.stderr
+    assert not list(dest.rglob("vocotype-streaming-worker"))
+    assert not list(dest.rglob("libfunasr.so"))
+
+
+def test_staging_streaming_require_and_skip_modes_are_mutually_exclusive(tmp_path: Path):
+    result = _run(
+        "bash",
+        "packaging/tools/stage-system-package.sh",
+        "--destdir",
+        str(tmp_path / "root"),
+        "--require-streaming-bundle",
+        "--skip-streaming-bundle",
+    )
+    assert result.returncode == 2
+    assert "mutually exclusive" in result.stderr
 
 
 def test_native_build_pins_and_audits_official_onnxruntime():

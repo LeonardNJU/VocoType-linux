@@ -456,7 +456,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         card.pack_start(
             self._row(
                 "实时识别预览（2-pass）",
-                "按住说话时实时更新 preedit；松键后仍由原高精度离线模型给出最终结果。首次录音会按需加载约 238 MB 官方在线模型；本地 native worker 空闲后自动退出并释放内存。",
+                "可选功能，需要另行安装 native streaming runtime。按住说话时实时更新 preedit；松键后仍由原高精度离线模型给出最终结果。首次使用会按需加载约 238 MB 官方在线模型，worker 空闲后自动退出并释放内存。",
                 self.asr_streaming_enabled,
             ),
             False,

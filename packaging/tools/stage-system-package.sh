@@ -12,6 +12,7 @@ Options:
   --build-dir DIR       CMake build directory (default: build/package-fcitx)
   --skip-module-build   Stage files without compiling the Fcitx module
   --require-streaming-bundle  Fail if the native 2-pass runtime is absent
+  --skip-streaming-bundle     Never include the optional native 2-pass runtime
 EOF
 }
 
@@ -22,6 +23,7 @@ LIBEXECDIR=""
 BUILD_DIR=""
 SKIP_MODULE_BUILD=false
 REQUIRE_STREAMING_BUNDLE=${VOCOTYPE_REQUIRE_STREAMING_BUNDLE:-0}
+SKIP_STREAMING_BUNDLE=${VOCOTYPE_SKIP_STREAMING_BUNDLE:-0}
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --destdir) DESTDIR="${2:?missing destination}"; shift 2 ;;
@@ -31,11 +33,16 @@ while [[ $# -gt 0 ]]; do
     --build-dir) BUILD_DIR="${2:?missing build dir}"; shift 2 ;;
     --skip-module-build) SKIP_MODULE_BUILD=true; shift ;;
     --require-streaming-bundle) REQUIRE_STREAMING_BUNDLE=1; shift ;;
+    --skip-streaming-bundle) SKIP_STREAMING_BUNDLE=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
+if [[ "$REQUIRE_STREAMING_BUNDLE" == "1" && "$SKIP_STREAMING_BUNDLE" == "1" ]]; then
+  echo "--require-streaming-bundle and --skip-streaming-bundle are mutually exclusive" >&2
+  exit 2
+fi
 [[ -n "$DESTDIR" ]] || { echo "--destdir is required" >&2; exit 2; }
 DESTDIR=$(readlink -m "$DESTDIR")
 [[ "$DESTDIR" != "/" ]] || { echo "Refusing to stage directly into /" >&2; exit 2; }
@@ -71,7 +78,9 @@ install -Dm755 "$PROJECT_DIR/packaging/bin/vocotype-fcitx5-recorder" "$DESTDIR$P
 install -Dm755 "$PROJECT_DIR/packaging/bin/vocotype-ibus-engine" "$DESTDIR$LIBEXECDIR/vocotype-ibus-engine"
 
 streaming_bundle=${VOCOTYPE_STREAMING_BUNDLE_DIR:-"$PROJECT_DIR/native/streaming_worker/build/bundle"}
-if [[ -x "$streaming_bundle/bin/vocotype-streaming-worker" && -d "$streaming_bundle/lib" ]]; then
+if [[ "$SKIP_STREAMING_BUNDLE" == "1" ]]; then
+  echo "Optional native streaming bundle intentionally omitted from this package" >&2
+elif [[ -x "$streaming_bundle/bin/vocotype-streaming-worker" && -d "$streaming_bundle/lib" ]]; then
   if [[ "$LIBDIR" == /* ]]; then
     runtime_streaming_libdir="$LIBDIR/vocotype"
   else

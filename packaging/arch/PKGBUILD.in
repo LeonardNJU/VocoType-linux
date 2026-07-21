@@ -7,15 +7,10 @@ arch=('x86_64')
 url="https://github.com/LeonardNJU/VocoType-linux"
 license=('GPL-3.0-or-later')
 depends=('python>=3.11' 'python-gobject' 'python-yaml' 'gtk3' 'ibus' 'fcitx5' 'portaudio' 'polkit')
-makedepends=('cmake' 'clang' 'curl' 'git' 'patch' 'gcc' 'pkgconf' 'nlohmann-json')
+makedepends=('cmake' 'gcc' 'pkgconf' 'nlohmann-json')
 optdepends=('curl: bootstrap the recommended user Python runtime')
 source=("VocoType-linux-${pkgver}.tar.gz")
 sha256sums=('@SOURCE_SHA256@')
-
-build() {
-  cd "VocoType-linux-${pkgver}"
-  ./native/streaming_worker/build.sh
-}
 
 package() {
   cd "VocoType-linux-${pkgver}"
@@ -25,5 +20,5 @@ package() {
     --libdir lib \
     --libexecdir /usr/lib/vocotype \
     --build-dir "$srcdir/fcitx-build" \
-    --require-streaming-bundle
+    --skip-streaming-bundle
 }

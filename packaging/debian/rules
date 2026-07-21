@@ -9,7 +9,7 @@ export DEB_CXXFLAGS_MAINT_APPEND = -Wall -Wextra -Wpedantic
 override_dh_auto_configure:
 
 override_dh_auto_build:
-	./native/streaming_worker/build.sh
+	@echo "Skipping optional native streaming runtime in the base package"
 
 override_dh_auto_install:
 	./packaging/tools/stage-system-package.sh \
@@ -17,7 +17,7 @@ override_dh_auto_install:
 		--prefix /usr \
 		--libdir "lib/$$(dpkg-architecture -qDEB_HOST_MULTIARCH)" \
 		--build-dir "$(CURDIR)/build/debian-fcitx" \
-		--require-streaming-bundle
+		--skip-streaming-bundle
 
 override_dh_auto_test:
 	python3 -m compileall -q app settings_center ibus fcitx5/backend
