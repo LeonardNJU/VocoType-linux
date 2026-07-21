@@ -381,10 +381,7 @@ html[lang="zh-CN"] .metric-unit { font-family: "Noto Sans SC", sans-serif; font-
   background: #edf3ef;
 }
 .news-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(300px, .65fr);
-  gap: 18px;
-  align-items: stretch;
+  display: block;
 }
 .news-grid {
   display: grid;

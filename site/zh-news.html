@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>VocoType Linux 最新进展与路线图</title>
-  <meta name="description" content="VocoType Linux 的重大产品更新与开发路线，包括图形设置中心、自动诊断、Fcitx 5 语音编辑和流式识别。">
+  <title>VocoType Linux 最新进展</title>
+  <meta name="description" content="VocoType Linux 的重大产品更新：图形设置中心、自动诊断、IBus/Fcitx 5 统一语音编辑与原生流式 ASR 预览。">
   <meta name="robots" content="index,follow,max-image-preview:large">
   <meta name="theme-color" content="#0d151c">
   <link rel="canonical" href="https://vocotype-linux.lsamc.website/zh-news.html">
@@ -16,17 +16,18 @@
 </head>
 <body class="news-page">
   <nav class="site-nav"><div class="nav-inner"><a class="brand" href="zh.html"><span class="brand-mark">VT</span>VocoType Linux</a><div class="nav-links"><a href="zh.html">主页</a><a href="docs/">文档</a><a href="https://github.com/LeonardNJU/VocoType-linux/releases">下载</a><a href="https://github.com/LeonardNJU/VocoType-linux">GitHub</a><a class="lang-switch" href="news.html">English</a></div></div></nav>
-  <header class="page-hero"><div class="page-hero-inner"><p class="eyebrow">项目进展</p><h1>News 与<span class="hero-accent">路线图。</span></h1><p>这里记录足以改变用户体验的重大更新。细粒度修复继续进入 Changelog；尚未发布的能力会明确标注状态。</p></div></header>
+  <header class="page-hero"><div class="page-hero-inner"><p class="eyebrow">项目进展</p><h1>News，<span class="hero-accent">全部就位。</span></h1><p>最近一轮开发已经补齐了从安装到日常交互的完整闭环。细粒度修复继续进入 Changelog；下面四项用户可感知的关键能力均已实现并配有正式文档。</p></div></header>
   <main class="news-main">
     <section class="news-archive">
       <div class="section-inner">
-        <article class="update-entry" id="settings-center"><div class="update-aside"><span class="status shipped">已上线</span><time datetime="2026-07">2026.07</time></div><div class="update-copy"><p class="kicker">桌面安装</p><h2>统一图形设置中心取代手工配置。</h2><p>IBus 与 Fcitx 5 现在共享同一套图形安装和修复流程。环境选择、下载进度、构建输出与错误都留在设置窗口中；少数需要系统权限的操作则使用标准桌面 Polkit 授权。</p><div class="update-points"><span>安装与修复两套输入法集成</span><span>准备运行时并下载 ASR 模型</span><span>管理术语、ITN 与 AI 设置</span><span>测试音频、识别、润色和编辑</span></div><a class="text-button" href="docs/guides/settings-center/">阅读设置中心文档 →</a></div></article>
-        <article class="update-entry" id="doctor-feedback"><div class="update-aside"><span class="status shipped">已上线</span><time datetime="2026-07">2026.07</time></div><div class="update-copy"><p class="kicker">可诊断性</p><h2>Doctor 把“不能用”变成可行动的证据。</h2><p>新的诊断流程会检查 Python、依赖、模型、Fcitx Module、IBus component、服务、IPC socket、配置、术语、麦克风和 ITN。随后可以在同一窗口生成脱敏支持包，或打开预填的 GitHub Issue。</p><div class="update-points"><span>自动环境与安装检查</span><span>麦克风波形、录音与回放</span><span>脱敏日志和配置打包</span><span>反馈端点或 GitHub 回退</span></div><a class="text-button" href="docs/troubleshooting/faq/#doctor">打开排障文档 →</a></div></article>
+        <article class="update-entry" id="streaming-asr"><div class="update-aside"><span class="status shipped">已上线</span><time datetime="2026-07">2026.07</time></div><div class="update-copy"><p class="kicker">实时识别</p><h2>原生流式 ASR 在说话期间持续更新 preedit。</h2><p>VocoType 可选在本地 native worker 中运行 FunASR 官方在线 Paraformer。录音期间，部分识别结果会反复覆盖 IBus 或 Fcitx 5 的 preedit；随着后续音频到达，前面已经显示的文字也可以被修正。</p><div class="update-points"><span>IBus 与 Fcitx 5 可变 preedit</span><span>本地纯 CPU native worker</span><span>预览失败时自动降级</span><span>完整离线模型仍是最终依据</span></div><p>实时文字只用于预览，绝不直接提交。松开录音键后，完整 PCM 会立即进入原有 Contextual Paraformer、原生热词、标点、ITN 和标准化链路，并由该链路唯一决定最终输入。</p><a class="text-button" href="docs/guides/asr-streaming/">阅读实时识别文档 →</a></div></article>
+        <article class="update-entry" id="voice-editing"><div class="update-aside"><span class="status shipped">已上线</span><time datetime="2026-07">2026.07</time></div><div class="update-copy"><p class="kicker">语音编辑</p><h2>Ctrl+F9 在 IBus 与 Fcitx 5 上使用同一套编辑语言。</h2><p>两套集成现在共用同一个 surrounding-text 编辑核心。在兼容应用中，语音指令可以完成替换、插入、删除、导航、改写、格式化和撤销重做；Fcitx 用户无需放弃正在使用的 Rime、拼音、Mozc 或键盘输入法。</p><div class="update-points"><span>两套框架共用同一命令模型</span><span>确定性操作与模型辅助编辑</span><span>感知选区、光标和编辑历史</span><span>能力检查与安全拒绝</span></div><a class="text-button" href="docs/guides/voice-editing/">阅读兼容性与局限 →</a></div></article>
+        <article class="update-entry" id="settings-center"><div class="update-aside"><span class="status shipped">已上线</span><time datetime="2026-07">2026.07</time></div><div class="update-copy"><p class="kicker">桌面安装</p><h2>统一图形设置中心取代手工配置。</h2><p>IBus 与 Fcitx 5 共享同一套图形安装和修复流程。通用设置、语音识别、术语、AI、教程和 Playground 工具都集中在一个应用中；少数需要系统权限的操作使用标准桌面 Polkit 授权。</p><div class="update-points"><span>安装与修复两套输入法集成</span><span>准备运行时并下载 ASR 模型</span><span>管理识别、术语、ITN 与 AI</span><span>测试音频、识别、润色和编辑</span></div><a class="text-button" href="docs/guides/settings-center/">阅读设置中心文档 →</a></div></article>
+        <article class="update-entry" id="doctor-feedback"><div class="update-aside"><span class="status shipped">已上线</span><time datetime="2026-07">2026.07</time></div><div class="update-copy"><p class="kicker">可诊断性</p><h2>Doctor 把“不能用”变成可行动的证据。</h2><p>诊断流程会检查 Python、依赖、模型、已安装文件完整性、本地与可用版本、Fcitx Module、IBus component、服务、IPC socket、配置、麦克风和实际处理链路。随后可以通过官方反馈服务提交脱敏支持包，或在需要时回退到预填的 GitHub Issue。</p><div class="update-points"><span>自动环境与完整性检查</span><span>版本状态与修复指引</span><span>麦克风波形、录音与回放</span><span>脱敏支持包与反馈入口</span></div><a class="text-button" href="docs/troubleshooting/faq/#doctor">打开排障文档 →</a></div></article>
       </div>
     </section>
-    <section class="roadmap-section" id="roadmap"><div class="section-inner"><div class="section-head"><div><p class="kicker">接下来</p><h2>正在开发，不是发布日期承诺。</h2></div><p>以下内容代表当前工程和研究方向；正式进入稳定版本之前，具体设计仍可能调整。</p></div><div class="roadmap-large-grid"><article class="roadmap-large"><span class="status developing">开发中</span><h3>Fcitx 5 语音编辑</h3><p>把 IBus 已有的 surrounding-text 编辑模型带到 Fcitx 5：替换、插入、删除、导航、撤销与重做，同时不要求用户放弃现有输入法。</p><a href="docs/integrations/fcitx5/">关注 Fcitx 5 文档 →</a></article><article class="roadmap-large"><span class="status research">研究中</span><h3>真正的流式语音识别</h3><p>不再等到“录音结束再识别”。用户说话时持续展示可变的 preedit；后续音频可以根据更新后的后验分布修正前面已经显示的词。</p><p class="roadmap-note">这与当前已实现的 Fcitx 5 AI 润色流式预览是两项不同能力。</p></article></div></div></section>
   </main>
-  <section class="final-cta"><div class="final-inner"><h2>试用最新版本，并告诉我们哪里仍然不够好。</h2><div class="final-actions"><a class="button" href="docs/">阅读文档</a><a class="button outline" href="https://github.com/LeonardNJU/VocoType-linux/issues">提交 Issue ↗</a></div></div></section>
+  <section class="final-cta"><div class="final-inner"><h2>从安装到实时编辑，试用完整工作流。</h2><div class="final-actions"><a class="button" href="docs/">阅读文档</a><a class="button outline" href="https://github.com/LeonardNJU/VocoType-linux/issues">提交 Issue ↗</a></div></div></section>
   <footer><div class="footer-inner"><span>© 2025–2026 <a href="https://lsamc.website">Leonard Li</a></span><span><a href="zh.html">项目主页</a> · <a href="https://github.com/LeonardNJU/VocoType-linux/blob/master/CHANGELOG.md">版本记录</a></span></div></footer>
 </body>
 </html>

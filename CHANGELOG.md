@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added guarded Chinese ITN with `WeTextProcessing==1.2.0`, an expanded numeric regression matrix, and independently configurable compact date, time, distance, and currency styles.
 - Added a GTK settings center for graphical install/repair, synchronized IBus/Fcitx configuration, terminology editing, AI connection testing, Doctor checks, privacy-safe support bundles, tutorials, and feedback submission/GitHub fallback.
 - Added OpenAI-compatible SSE polishing events, Fcitx live previews, asynchronous start/poll/cancel tasks, OpenRouter reasoning/header support, and configurable stream idle timeouts.
+- Added one shared surrounding-text voice-editing core for IBus and Fcitx 5, including deterministic replacement/insertion/deletion/navigation, model-assisted rewriting, and undo/redo behavior.
+- Added optional native FunASR 2-pass streaming ASR previews for both IBus and Fcitx 5. Partial hypotheses update the preedit while recording, while the complete offline Contextual Paraformer pipeline remains the sole source of committed text.
+- Added installation-integrity manifests, local/remote version checks, a consolidated settings experience, framework-specific configuration panels, tutorials, and expanded Playground diagnostics.
+- Added an official privacy-conscious feedback service with multipart support-bundle uploads, deduplication, rate limits, retention policies, and an administrative triage CLI.
 
 ### Changed
 
@@ -27,13 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The default ASR model is now the official Contextual Paraformer ONNX snapshot; both empty and configured native-hotword inference paths are supported.
 - Fcitx 5 no longer embeds `pyrime`, creates a separate Rime session, or requires users to add VoCoType as an input method.
 - Remote polishing no longer sends a fixed output-token limit by default; `remote_max_tokens` is explicit, while `max_tokens` remains the local-model budget.
-- IBus keeps its final-result UI and `Ctrl+F9` editing workflow, but remote calls can consume SSE internally for idle-timeout and long-output improvements.
+- IBus and Fcitx 5 can optionally show mutable ASR preedit while recording; release immediately enters the original full-recording offline recognition path. Remote polishing calls can still consume SSE internally for idle-timeout and long-output improvements.
 - Numeric/ITN rewriting can now be disabled at runtime while terminology canonicalization remains active; compact styles default to ISO-like dates, 24-hour times, SI distance symbols, and `¥` currency output.
 - Python distribution metadata now describes the combined IBus/Fcitx 5 Linux package as `vocotype-linux`.
 - Installation examples consistently use the `VocoType-linux` clone directory.
 
 ### Fixed
 
+- Recordings shorter than the configured minimum duration are rejected consistently by the shared ASR service, IBus, and Fcitx 5 instead of entering inference with unusable audio.
 - Ubuntu 22.04/24.04 now install a Python 3.12-compatible PyGObject release without requiring the newer `girepository-2.0` toolchain.
 - IBus 1.5.26 no longer fails to import when optional `OSK` and `SYNC_PROCESS_KEY` capability constants are absent.
 - The system-Python installer validates the complete FunASR ONNX runtime before installing the IBus launcher.

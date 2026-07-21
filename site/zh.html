@@ -101,29 +101,36 @@
     <section class="news-section" id="news">
       <div class="section-inner">
         <div class="section-head">
-          <div><p class="kicker">最新进展</p><h2>VocoType 正在成为完整的桌面产品。</h2></div>
-          <p>最近的更新首先消除了安装与排障门槛；下一阶段则把语音编辑和真正的实时识别直接带进当前输入框。</p>
+          <div><p class="kicker">最新进展</p><h2>四项关键能力已经全部就位。</h2></div>
+          <p>最近的合并补齐了完整产品闭环：图形安装配置、可行动的自动诊断、两套输入法框架上的语音编辑，以及说话期间可选的实时 ASR 预览。</p>
         </div>
         <div class="news-layout">
           <div class="news-grid">
             <a class="news-card" href="zh-news.html#settings-center">
               <div class="news-meta"><span class="status shipped">已上线</span><time datetime="2026-07">2026.07</time></div>
               <h3>统一图形设置中心</h3>
-              <p>安装或修复 IBus 与 Fcitx 5、下载模型、配置术语和 AI，并测试完整链路；普通用户无需再手改 JSON。</p>
+              <p>安装或修复 IBus 与 Fcitx 5，管理模型和配置，并测试完整链路；普通用户无需再手改 JSON。</p>
               <span class="card-link">查看更新 →</span>
             </a>
             <a class="news-card" href="zh-news.html#doctor-feedback">
               <div class="news-meta"><span class="status shipped">已上线</span><time datetime="2026-07">2026.07</time></div>
-              <h3>Doctor、支持包与反馈</h3>
-              <p>自动检查运行时、模型、输入法、服务、IPC、麦克风和配置，并生成经过脱敏的支持包。</p>
+              <h3>Doctor、完整性检查与反馈</h3>
+              <p>检查运行环境与安装状态、比较版本、实测完整链路，并通过官方反馈流程提交经过脱敏的支持包。</p>
+              <span class="card-link">查看更新 →</span>
+            </a>
+            <a class="news-card" href="zh-news.html#voice-editing">
+              <div class="news-meta"><span class="status shipped">已上线</span><time datetime="2026-07">2026.07</time></div>
+              <h3>IBus 与 Fcitx 5 统一语音编辑</h3>
+              <p>在兼容应用中使用同一套 Ctrl+F9 指令完成替换、插入、删除、导航、改写和撤销重做。</p>
+              <span class="card-link">查看更新 →</span>
+            </a>
+            <a class="news-card" href="zh-news.html#streaming-asr">
+              <div class="news-meta"><span class="status shipped">已上线</span><time datetime="2026-07">2026.07</time></div>
+              <h3>原生流式 ASR 预览</h3>
+              <p>可选在说话期间持续更新可变 preedit，松键后仍由完整离线识别链路提交最终结果。</p>
               <span class="card-link">查看更新 →</span>
             </a>
           </div>
-          <aside class="roadmap-panel">
-            <div class="roadmap-head"><span>接下来</span><a href="zh-news.html#roadmap">完整路线 →</a></div>
-            <div class="roadmap-item"><span class="roadmap-dot active"></span><div><strong>Fcitx 5 语音编辑</strong><p>把基于 surrounding text 的替换、插入、删除、导航和撤销重做带到 Fcitx 5。</p></div></div>
-            <div class="roadmap-item"><span class="roadmap-dot research"></span><div><strong>真正的流式识别</strong><p>说话过程中持续更新 preedit，并允许后续语音修正前面的部分识别结果。</p></div></div>
-          </aside>
         </div>
       </div>
     </section>
@@ -152,7 +159,7 @@
         <div class="modes">
           <article class="mode-card"><span class="mode-key">F9</span><h3>极速听写</h3><p>从语音到文字的最短路径，不经过语言模型后处理，尽可能降低延迟。</p><span class="mode-note">仅 ASR</span></article>
           <article class="mode-card"><span class="mode-key">Shift + F9</span><h3>长句润色</h3><p>可将较长的识别结果交给本地模型或 OpenAI 兼容接口，补标点并清理表达。</p><span class="mode-note">可选 SLM</span></article>
-          <article class="mode-card"><span class="mode-key">Ctrl + F9</span><h3>语音编辑</h3><p>IBus 版本可读取输入框上下文，通过语音完成替换、插入、删除、导航、撤销与重做。</p><span class="mode-note">IBUS 编辑模式</span></article>
+          <article class="mode-card"><span class="mode-key">Ctrl + F9</span><h3>语音编辑</h3><p>IBus 与 Fcitx 5 均可读取输入框上下文，通过语音完成替换、插入、删除、导航、改写和撤销重做。</p><span class="mode-note">IBUS + FCITX 5</span></article>
         </div>
       </div>
     </section>
@@ -204,7 +211,7 @@
         </div>
         <div class="frameworks">
           <article class="framework"><div class="framework-top"><h3>IBus</h3><span class="badge">完整支持</span></div><p>适合 GNOME，以及默认采用 IBus 的 Linux 发行版。</p><ul><li>Python 输入法引擎</li><li>极速与润色听写</li><li>基于输入框上下文的语音编辑</li></ul></article>
-          <article class="framework"><div class="framework-top"><h3>Fcitx 5</h3><span class="badge">完整支持</span></div><p>适合 KDE，以及偏好模块化 Fcitx 5 生态的用户。</p><ul><li>C++ Addon + Python 后端</li><li>极速与润色听写</li><li>独立安装路径，可与 IBus 共存</li></ul></article>
+          <article class="framework"><div class="framework-top"><h3>Fcitx 5</h3><span class="badge">完整支持</span></div><p>适合 KDE，以及偏好模块化 Fcitx 5 生态的用户。</p><ul><li>全局 C++ Module + Python 后端</li><li>极速听写与实时 ASR 预览</li><li>基于 surrounding text 的语音编辑</li></ul></article>
         </div>
       </div>
     </section>

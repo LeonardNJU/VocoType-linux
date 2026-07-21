@@ -101,29 +101,36 @@
     <section class="news-section" id="news">
       <div class="section-inner">
         <div class="section-head">
-          <div><p class="kicker">What’s new</p><h2>VocoType is becoming a desktop product.</h2></div>
-          <p>The latest work removes setup friction today while preparing the next interaction model: editing and live recognition directly inside the active input field.</p>
+          <div><p class="kicker">What’s new</p><h2>Four major pieces are now in place.</h2></div>
+          <p>The latest merges complete the product loop: graphical setup, actionable diagnostics, voice editing on both input frameworks, and optional live ASR preview while speaking.</p>
         </div>
         <div class="news-layout">
           <div class="news-grid">
             <a class="news-card" href="news.html#settings-center">
               <div class="news-meta"><span class="status shipped">SHIPPED</span><time datetime="2026-07">JUL 2026</time></div>
               <h3>One graphical settings center</h3>
-              <p>Install or repair IBus and Fcitx 5, download models, configure terminology and AI, then test the complete pipeline without editing JSON.</p>
+              <p>Install or repair IBus and Fcitx 5, manage models and configuration, and test the complete pipeline without editing JSON.</p>
               <span class="card-link">Read the update →</span>
             </a>
             <a class="news-card" href="news.html#doctor-feedback">
               <div class="news-meta"><span class="status shipped">SHIPPED</span><time datetime="2026-07">JUL 2026</time></div>
-              <h3>Doctor, support bundles, and feedback</h3>
-              <p>Diagnose runtime, model, input-method, service, IPC, microphone, and configuration problems, then generate a privacy-safe support bundle.</p>
+              <h3>Doctor, integrity checks, and feedback</h3>
+              <p>Inspect runtime and installation health, compare versions, exercise the pipeline, and submit a privacy-safe support bundle through the official feedback flow.</p>
+              <span class="card-link">Read the update →</span>
+            </a>
+            <a class="news-card" href="news.html#voice-editing">
+              <div class="news-meta"><span class="status shipped">SHIPPED</span><time datetime="2026-07">JUL 2026</time></div>
+              <h3>Voice editing on IBus and Fcitx 5</h3>
+              <p>Use the same Ctrl+F9 commands to replace, insert, delete, navigate, rewrite, undo, and redo in supported applications.</p>
+              <span class="card-link">Read the update →</span>
+            </a>
+            <a class="news-card" href="news.html#streaming-asr">
+              <div class="news-meta"><span class="status shipped">SHIPPED</span><time datetime="2026-07">JUL 2026</time></div>
+              <h3>Native streaming ASR preview</h3>
+              <p>Optionally update a mutable preedit while speaking, then commit the final result from the complete offline recognition pipeline.</p>
               <span class="card-link">Read the update →</span>
             </a>
           </div>
-          <aside class="roadmap-panel">
-            <div class="roadmap-head"><span>COMING NEXT</span><a href="news.html#roadmap">Full roadmap →</a></div>
-            <div class="roadmap-item"><span class="roadmap-dot active"></span><div><strong>Fcitx 5 voice editing</strong><p>Bring surrounding-text replace, insert, delete, navigation, undo, and redo to Fcitx 5.</p></div></div>
-            <div class="roadmap-item"><span class="roadmap-dot research"></span><div><strong>True streaming recognition</strong><p>Continuously update preedit while speaking, including revisions to earlier partial hypotheses.</p></div></div>
-          </aside>
         </div>
       </div>
     </section>
@@ -152,7 +159,7 @@
         <div class="modes">
           <article class="mode-card"><span class="mode-key">F9</span><h3>Fast dictation</h3><p>The shortest path from speech to text. No language-model post-processing and minimal latency.</p><span class="mode-note">ASR ONLY</span></article>
           <article class="mode-card"><span class="mode-key">Shift + F9</span><h3>Polished long-form</h3><p>Optionally routes longer utterances through a local or OpenAI-compatible SLM endpoint for punctuation and cleanup.</p><span class="mode-note">OPTIONAL SLM</span></article>
-          <article class="mode-card"><span class="mode-key">Ctrl + F9</span><h3>Voice editing</h3><p>On IBus, commands can replace, insert, delete, navigate, undo, and redo using the active field’s surrounding text.</p><span class="mode-note">IBUS EDIT MODE</span></article>
+          <article class="mode-card"><span class="mode-key">Ctrl + F9</span><h3>Voice editing</h3><p>On IBus or Fcitx 5, commands can replace, insert, delete, navigate, rewrite, undo, and redo using the active field’s surrounding text.</p><span class="mode-note">IBUS + FCITX 5</span></article>
         </div>
       </div>
     </section>
@@ -204,7 +211,7 @@
         </div>
         <div class="frameworks">
           <article class="framework"><div class="framework-top"><h3>IBus</h3><span class="badge">Full support</span></div><p>Best suited to GNOME and distributions where IBus is the default input framework.</p><ul><li>Python input engine</li><li>Fast and polished dictation</li><li>Voice editing with surrounding text</li></ul></article>
-          <article class="framework"><div class="framework-top"><h3>Fcitx 5</h3><span class="badge">Full support</span></div><p>Designed for KDE and users who prefer the modular Fcitx 5 ecosystem.</p><ul><li>C++ addon + Python backend</li><li>Fast and polished dictation</li><li>Independent installation path</li></ul></article>
+          <article class="framework"><div class="framework-top"><h3>Fcitx 5</h3><span class="badge">Full support</span></div><p>Designed for KDE and users who prefer the modular Fcitx 5 ecosystem.</p><ul><li>Global C++ Module + Python backend</li><li>Fast dictation and live ASR preview</li><li>Voice editing with surrounding text</li></ul></article>
         </div>
       </div>
     </section>

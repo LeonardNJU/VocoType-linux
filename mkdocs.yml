@@ -86,6 +86,7 @@ nav:
   - 功能指南:
       - 术语与原生热词: guides/terms.md
       - 逆文本标准化（ITN）: guides/itn.md
+      - 实时识别预览: guides/asr-streaming.md
       - AI 润色与流式输出: guides/slm-streaming.md
       - 语音编辑兼容性与局限: guides/voice-editing.md
       - Rime 配置: guides/rime.md
@@ -96,5 +97,6 @@ nav:
   - 开发:
       - 仓库目录规范: development/repository-layout.md
       - 打包与分发: development/packaging.md
+      - 官方反馈服务: development/feedback-service.md
   - 项目主页: https://vocotype-linux.lsamc.website/zh.html
   - 最新进展: https://vocotype-linux.lsamc.website/zh-news.html
