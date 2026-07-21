@@ -188,6 +188,7 @@ AI 功能默认关闭；只有用户主动配置远程接口时，文本才会�
 
 - [Fcitx 5 安装与排障](fcitx5/README.md)
 - [IBus 安装与排障](ibus/README.md)
+- [语音编辑兼容性与局限](docs/guides/voice-editing.md)
 - [常见问题](docs/troubleshooting/faq.md)
 - [版本记录](CHANGELOG.md)
 

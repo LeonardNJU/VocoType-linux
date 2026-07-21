@@ -7,6 +7,7 @@ VoCoType 保留两种 SLM provider：
 
 IBus 与 Fcitx 5 的 `Ctrl+F9` 语音编辑共用 `app/voice_edit.py` 的命令语义；远程 provider、本地 provider 和失败回退均保留。
 Fcitx 5 在此基础上增加异步任务与输入面板实时预览。
+应用兼容边界见 [语音编辑兼容性与局限](voice-editing.md)。
 
 > 推荐使用 `vocotype-settings` 的“AI 润色”页面配置 endpoint、模型、凭据、阈值、thinking 和连接测试。
 

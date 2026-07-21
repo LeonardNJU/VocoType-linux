@@ -47,7 +47,8 @@ VoCoType Linux 的完整使用手册。这里集中维护安装、图形配置�
 1. [安装与首次配置](getting-started/installation.md)
 2. [图形设置中心](guides/settings-center.md)
 3. 根据桌面环境阅读 [Fcitx 5](integrations/fcitx5.md) 或 [IBus](integrations/ibus.md)
-4. 按需配置 [术语库](guides/terms.md)、[ITN](guides/itn.md) 与 [AI 润色及语音编辑](guides/slm-streaming.md)
+4. 按需配置 [术语库](guides/terms.md)、[ITN](guides/itn.md) 与 [AI 润色](guides/slm-streaming.md)
+5. 使用 `Ctrl+F9` 前阅读 [语音编辑兼容性与局限](guides/voice-editing.md)
 
 !!! tip "文档与代码同步维护"
     文档源文件就在仓库的 `docs/` 中，通过 Git 和 Pull Request 与代码一起更新。项目网站部署时会自动构建本页面，不存在另一份需要手工同步的 Wiki。

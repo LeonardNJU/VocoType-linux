@@ -87,6 +87,7 @@ nav:
       - 术语与原生热词: guides/terms.md
       - 逆文本标准化（ITN）: guides/itn.md
       - AI 润色与流式输出: guides/slm-streaming.md
+      - 语音编辑兼容性与局限: guides/voice-editing.md
       - Rime 配置: guides/rime.md
   - 排障:
       - 常见问题: troubleshooting/faq.md

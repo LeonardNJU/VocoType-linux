@@ -28,6 +28,8 @@ VoCoType 在 IBus 中作为独立输入法引擎运行，适合 GNOME 和默认�
 
 编辑依赖当前应用对 IBus surrounding text 的支持。部分应用、沙箱环境或自绘输入框可能只能提供有限上下文；VoCoType 会在能力不足时拒绝危险修改，而不是盲目覆盖文本。
 
+完整限制、选区语义和失败行为见 [语音编辑兼容性与局限](../guides/voice-editing.md)。
+
 ## Rime
 
 需要拼音输入时，优先让系统的 `ibus-rime` 负责普通键盘输入，让 VoCoType 负责语音。历史上的内嵌 Rime 兼容路径只用于旧安装迁移。详见 [Rime 配置](../guides/rime.md)。
