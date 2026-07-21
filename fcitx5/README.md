@@ -8,6 +8,7 @@ VoCoType 只拦截配置的 PTT 热键并把语音识别结果直接提交到当
 
 - `F9`：按住录音，松开执行本地 ASR 并提交。
 - `Shift+F9`：长句模式；远程 SLM 生成期间在输入面板实时显示可见预览。
+- `Ctrl+F9`：读取当前输入框上下文并执行替换、删除、插入、导航、撤销或 AI 编辑。
 - 在所有 Fcitx 5 输入法下生效，不再代理普通键盘事件。
 - 不依赖 `pyrime`，不创建独立 Rime session，不复制候选词或 preedit。
 - 按下热键时记录原始 `InputContext`；焦点变化后取消或丢弃结果，避免误输到其他窗口。
@@ -22,7 +23,7 @@ VoCoType 只拦截配置的 PTT 热键并把语音识别结果直接提交到当
     ↕
 Fcitx 5 event pipeline
     └── VoCoType Module
-          ├── 监听 F9 / Shift+F9
+          ├── 监听 F9 / Shift+F9 / Ctrl+F9
           ├── 启动录音进程
           ├── 通过 Unix Socket 调用 Python backend
           └── InputContext::commitString() 提交结果
@@ -160,6 +161,20 @@ Contextual Paraformer ONNX，术语可以同时进入原生 hotword 编码器和
 ## ITN 与数字格式
 
 设置中心可整体开关数字/ITN，并分别控制 `2026/05/11`、`15:20`、`320m` 与 `¥128` 等紧凑书写风格。详见 [`docs/guides/itn.md`](../docs/guides/itn.md)。
+
+## 语音编辑（Ctrl+F9）
+
+按住 `Ctrl+F9` 说出编辑指令，松开后 VoCoType 会读取录音开始时的 surrounding text，并执行与 IBus 相同的共享编辑语义，例如：
+
+- `把 A 改成 B`、`删除当前句`、`删除上一句`；
+- `在结尾插入……`、`清空输入框`、`删除选中内容`；
+- `全选`、`移动到开头`、`下一个词`；
+- `撤销`、`重做`；
+- 未命中确定性命令时，使用已配置的 AI 模型编辑完整上下文。
+
+为避免误改，Module 会在录音前保存文本、光标、选区和 InputContext 标识，并在执行前再次校验。替换操作采用“删除 → 等待客户端更新 surrounding text → 提交新文本”的流程；如果录音期间内容或焦点发生变化，本次编辑会被取消。
+
+确定性命令不要求启用 AI。自由形式改写或生成指令需要在设置中心启用 AI 编辑。应用不提供 surrounding text 时，`Ctrl+F9` 会提示不支持，而不会退化为不安全的全局按键或剪贴板修改。
 
 ## AI 润色与实时预览
 

@@ -13,7 +13,7 @@
 - **100% 离线，隐私无忧** - 所有语音识别在本地完成，不上传任何数据
 - **旗舰级识别引擎** - 基于 FunASR Paraformer 模型，中英混合输入精准
 - **PTT 按键说话** - 按住 F9 说话，松开自动识别并输入；`Shift+F9` 支持长句润色模式
-- **语音编辑（IBus）** - `Ctrl+F9` 进入编辑指令模式，可改写/替换/插入/删除/导航/撤销重做
+- **语音编辑** - IBus 与 Fcitx 5 均支持 `Ctrl+F9`，可改写/替换/插入/删除/导航/撤销重做
 - **轻量化设计** - 仅需 700MB 内存，纯 CPU 推理，无需显卡
 - **0.1 秒级响应** - 感受所言即所得的畅快体验
 - **Fcitx 全局模块** - 在原有 Rime、拼音、Mozc 等任意 Fcitx 5 输入法中直接使用 F9，无需切换到 VoCoType
@@ -114,8 +114,8 @@ ASR 后的确定性 alias → canonical 替换，并保护标准词不被 ITN/�
 
 ## SLM 后处理配置（通用）
 
-VoCoType 保留 `local_ephemeral` 与 `remote` 两种 provider，以及 IBus 的 `Ctrl+F9`
-语音编辑链路。Fcitx 5 的远程润色默认使用 OpenAI-compatible SSE：模型生成期间在
+VoCoType 保留 `local_ephemeral` 与 `remote` 两种 provider，以及 IBus / Fcitx 5 共用的
+`Ctrl+F9` 语音编辑语义。Fcitx 5 的远程润色默认使用 OpenAI-compatible SSE：模型生成期间在
 输入面板显示可见预览，thinking/reasoning 内容不会上屏。
 
 默认快捷键仍是：
@@ -182,7 +182,7 @@ Fcitx 5 可将 `PolishByDefault=true`，此时两者语义反转：`F9` 默认�
 - `stream_idle_timeout_ms`：最后一次 SSE 事件后的空闲超时，而非整个生成过程总时长。
 - `extra_headers` / `extra_body`：provider 专属请求扩展。
 - `enable_thinking`：是否允许模型 reasoning；最终文本与 Fcitx 预览都会过滤 thinking。
-- `edit_enabled` / `edit_max_tokens`：IBus `Ctrl+F9` 语音编辑配置。
+- `edit_enabled` / `edit_max_tokens`：`Ctrl+F9` 语音编辑配置。
 
 OpenRouter endpoint 会自动获得项目标识 header，并按其 API 映射 reasoning 参数。远程失败、
 流式超时或只返回 thinking 时，Fcitx 会保留 ASR 原文供用户确认提交。
@@ -191,9 +191,9 @@ OpenRouter endpoint 会自动获得项目标识 header，并按其 API 映射 re
 
 ---
 
-## IBus 语音编辑（Ctrl+F9）
+## 语音编辑（Ctrl+F9）
 
-> 说明：该功能目前由 IBus 引擎提供，Fcitx5 暂未接入同等编辑链路。
+> IBus 与 Fcitx 5 共用同一套编辑命令和 AI 编辑核心；具体兼容性取决于应用是否提供 surrounding text。
 
 ### 快捷键
 

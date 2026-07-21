@@ -7,6 +7,10 @@
 #include <chrono>
 #include <cstdlib>
 #include <functional>
+#include <fstream>
+#include <iomanip>
+#include <mutex>
+#include <sstream>
 #include <thread>
 
 #include <signal.h>
@@ -37,6 +41,7 @@ namespace {
 
 constexpr auto FCITX_CONFIG_PATH = "conf/vocotype.conf";
 constexpr uint64_t RECORDING_ANIMATION_INTERVAL_US = 200000;
+constexpr uint64_t PTT_AUTOREPEAT_RELEASE_GRACE_US = 30000;
 constexpr uint64_t POLISH_POLL_INTERVAL_US = 100000;
 constexpr uint64_t DUPLICATE_COMMIT_SUPPRESS_US = 250000;
 
@@ -64,6 +69,32 @@ constexpr std::array<const char *, 8> POLISHING_ANIMATION_FRAMES = {
     "✨ 正在润色    ●  ", "✨ 正在润色     ● ", "✨ 正在润色    ●  ",
     "✨ 正在润色   ●   ", "✨ 正在润色  ●    ",
 };
+
+void editDebugLog(const std::string &message) {
+    const char *path = std::getenv("VOCOTYPE_FCITX5_DEBUG_LOG");
+    if (!path || *path == '\0') {
+        return;
+    }
+    static std::mutex mutex;
+    std::lock_guard<std::mutex> lock(mutex);
+    std::ofstream stream(path, std::ios::app);
+    if (stream) {
+        stream << fcitx::now(CLOCK_MONOTONIC) << " " << message << "\n";
+    }
+}
+
+std::string debugClip(std::string value, size_t limit = 160) {
+    for (char &ch : value) {
+        if (ch == '\n' || ch == '\r' || ch == '\t') {
+            ch = ' ';
+        }
+    }
+    if (value.size() > limit) {
+        value.resize(limit);
+        value += "...";
+    }
+    return value;
+}
 
 std::string toLower(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
@@ -117,6 +148,15 @@ bool copyTextToWaylandClipboard(const std::string &text) {
     return written == text.size() && status == 0;
 }
 
+std::string resolveBackendSocketPath() {
+    if (const char *override_path = std::getenv("VOCOTYPE_FCITX5_SOCKET")) {
+        if (*override_path != '\0') {
+            return override_path;
+        }
+    }
+    return "/tmp/vocotype-fcitx5.sock";
+}
+
 bool pasteTextToX11Client(const std::string &text) {
     constexpr auto command =
         "python3 -c 'import subprocess, sys, tkinter as tk; "
@@ -143,7 +183,8 @@ namespace vocotype {
 
 VoCoTypeModule::VoCoTypeModule(fcitx::Instance *instance)
     : instance_(instance),
-      ipc_client_(std::make_unique<IPCClient>("/tmp/vocotype-fcitx5.sock")) {
+      backend_socket_path_(resolveBackendSocketPath()),
+      ipc_client_(std::make_unique<IPCClient>(backend_socket_path_)) {
     event_dispatcher_.attach(&instance_->eventLoop());
     if (const char *home = std::getenv("HOME")) {
         const std::string user_launcher =
@@ -182,8 +223,12 @@ VoCoTypeModule::VoCoTypeModule(fcitx::Instance *instance)
 }
 
 VoCoTypeModule::~VoCoTypeModule() {
+    cancelPendingPttRelease();
     cancelPendingRecordingStart();
+    cancelActiveVoiceEditTask();
     cancelActivePolishTask();
+    clearPendingEditReplacement();
+    edit_hint_timer_.reset();
     stopPanelAnimation();
     if (recorder_pid_ > 0 || recorder_stdout_ || recorder_stdin_fd_ >= 0) {
         std::string audio_path = stopRecorderProcess(
@@ -259,6 +304,313 @@ bool VoCoTypeModule::polishModeForStates(fcitx::KeyStates states) const {
     return polish_by_default_ ? !modifier_active : modifier_active;
 }
 
+bool VoCoTypeModule::editModeForStates(fcitx::KeyStates states) const {
+    return static_cast<bool>(states & fcitx::KeyState::Ctrl);
+}
+
+std::string VoCoTypeModule::inputContextId(fcitx::InputContext *ic) {
+    if (!ic) {
+        return "unknown";
+    }
+    std::ostringstream stream;
+    stream << std::hex << std::setfill('0');
+    for (const auto byte : ic->uuid()) {
+        stream << std::setw(2) << static_cast<unsigned int>(byte);
+    }
+    return stream.str();
+}
+
+bool VoCoTypeModule::captureVoiceEditSnapshot(
+    fcitx::InputContext *ic,
+    VoiceEditSnapshot &snapshot,
+    std::string &error) const {
+    snapshot = VoiceEditSnapshot();
+    if (!ic ||
+        !ic->capabilityFlags().test(fcitx::CapabilityFlag::SurroundingText)) {
+        error = "当前输入框不支持获取输入内容";
+        return false;
+    }
+    const auto &surrounding = ic->surroundingText();
+    if (!surrounding.isValid()) {
+        error = "当前输入框没有可用的上下文";
+        return false;
+    }
+    snapshot.valid = true;
+    snapshot.context_id = inputContextId(ic);
+    snapshot.text = surrounding.text();
+    snapshot.cursor = surrounding.cursor();
+    snapshot.anchor = surrounding.anchor();
+    snapshot.selected_text = surrounding.selectedText();
+    return true;
+}
+
+bool VoCoTypeModule::voiceEditSnapshotStillMatches(
+    fcitx::InputContext *ic,
+    const VoiceEditSnapshot &snapshot) const {
+    if (!ic || !snapshot.valid || !ic->hasFocus()) {
+        return false;
+    }
+    const auto &surrounding = ic->surroundingText();
+    return surrounding.isValid() && surrounding.text() == snapshot.text &&
+           surrounding.cursor() == snapshot.cursor &&
+           surrounding.anchor() == snapshot.anchor;
+}
+
+void VoCoTypeModule::showTemporaryMessage(fcitx::InputContext *ic,
+                                           const std::string &message) {
+    if (!ic || !ic->hasFocus()) {
+        return;
+    }
+    edit_hint_timer_.reset();
+    showPanelMessage(ic, message);
+    auto ic_ref = ic->watch();
+    edit_hint_timer_ = instance_->eventLoop().addTimeEvent(
+        CLOCK_MONOTONIC,
+        fcitx::now(CLOCK_MONOTONIC) + 1200000ULL,
+        0,
+        [this, ic_ref](fcitx::EventSourceTime *, uint64_t) {
+            edit_hint_timer_.reset();
+            auto *ic_ptr = ic_ref.get();
+            if (ic_ptr && ic_ptr->hasFocus()) {
+                clearOwnedUI(ic_ptr);
+            }
+            return false;
+        });
+    edit_hint_timer_->setOneShot();
+}
+
+void VoCoTypeModule::runVoiceEditKeyActions(
+    fcitx::InputContext *ic,
+    const std::vector<EditKeyAction> &actions) {
+    if (!ic || !ic->hasFocus()) {
+        return;
+    }
+    for (const auto &action : actions) {
+        fcitx::KeySym sym = FcitxKey_None;
+        const std::string key = toLower(action.key);
+        if (key == "left") {
+            sym = FcitxKey_Left;
+        } else if (key == "right") {
+            sym = FcitxKey_Right;
+        } else if (key == "up") {
+            sym = FcitxKey_Up;
+        } else if (key == "down") {
+            sym = FcitxKey_Down;
+        } else if (key == "home") {
+            sym = FcitxKey_Home;
+        } else if (key == "end") {
+            sym = FcitxKey_End;
+        } else if (key == "a") {
+            sym = FcitxKey_a;
+        } else if (key == "z") {
+            sym = FcitxKey_z;
+        }
+        if (sym == FcitxKey_None) {
+            FCITX_WARN() << "Unknown voice edit key action: " << action.key;
+            continue;
+        }
+
+        fcitx::KeyStates states = fcitx::KeyState::NoState;
+        for (const auto &modifier_value : action.modifiers) {
+            const std::string modifier = toLower(modifier_value);
+            if (modifier == "ctrl") {
+                states |= fcitx::KeyState::Ctrl;
+            } else if (modifier == "shift") {
+                states |= fcitx::KeyState::Shift;
+            } else if (modifier == "alt") {
+                states |= fcitx::KeyState::Alt;
+            } else if (modifier == "super") {
+                states |= fcitx::KeyState::Super;
+            }
+        }
+        const int repeat = std::clamp(action.repeat, 1, 20);
+        for (int index = 0; index < repeat; ++index) {
+            const fcitx::Key forwarded(sym, states);
+            ic->forwardKey(forwarded, false, 0);
+            ic->forwardKey(forwarded, true, 0);
+        }
+    }
+}
+
+void VoCoTypeModule::confirmVoiceEditApplied(
+    const VoiceEditSnapshot &snapshot,
+    const std::string &new_text,
+    bool record_history) {
+    const std::string socket_path = backend_socket_path_;
+    std::thread([socket_path, snapshot, new_text, record_history]() {
+        IPCClient client(socket_path);
+        (void)client.confirmEditApplied(snapshot.context_id,
+                                        snapshot.text,
+                                        new_text,
+                                        record_history);
+    }).detach();
+}
+
+void VoCoTypeModule::clearPendingEditReplacement() {
+    edit_replace_timer_.reset();
+    edit_replace_pending_ = false;
+    edit_replace_snapshot_ = VoiceEditSnapshot();
+    edit_replace_new_text_.clear();
+    edit_replace_hint_.clear();
+    edit_replace_record_history_ = true;
+    edit_replace_retries_left_ = 0;
+}
+
+void VoCoTypeModule::scheduleEditReplacementCheck() {
+    edit_replace_timer_.reset();
+    edit_replace_timer_ = instance_->eventLoop().addTimeEvent(
+        CLOCK_MONOTONIC,
+        fcitx::now(CLOCK_MONOTONIC) + 40000ULL,
+        0,
+        [this](fcitx::EventSourceTime *, uint64_t) {
+            edit_replace_timer_.reset();
+            finalizeEditReplacement();
+            return false;
+        });
+    edit_replace_timer_->setOneShot();
+}
+
+void VoCoTypeModule::replaceSurroundingText(
+    fcitx::InputContext *ic,
+    const VoiceEditSnapshot &snapshot,
+    const std::string &new_text,
+    bool record_history,
+    const std::string &hint) {
+    if (!voiceEditSnapshotStillMatches(ic, snapshot)) {
+        showError(ic, "输入框内容已变化，请重试");
+        active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
+        return;
+    }
+    if (new_text == snapshot.text) {
+        if (!hint.empty()) {
+            showTemporaryMessage(ic, hint);
+        } else {
+            clearOwnedUI(ic);
+        }
+        active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
+        return;
+    }
+
+    clearPendingEditReplacement();
+    edit_replace_pending_ = true;
+    edit_replace_snapshot_ = snapshot;
+    edit_replace_new_text_ = new_text;
+    edit_replace_hint_ = hint;
+    edit_replace_record_history_ = record_history;
+    edit_replace_retries_left_ = 4;
+    const unsigned int original_length =
+        static_cast<unsigned int>(fcitx::utf8::length(snapshot.text));
+    ic->deleteSurroundingText(-static_cast<int>(snapshot.cursor),
+                              original_length);
+    scheduleEditReplacementCheck();
+}
+
+void VoCoTypeModule::finalizeEditReplacement() {
+    if (!edit_replace_pending_) {
+        return;
+    }
+    auto *ic = active_ic_.get();
+    if (!ic || !ic->hasFocus()) {
+        clearPendingEditReplacement();
+        active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
+        return;
+    }
+
+    const auto &surrounding = ic->surroundingText();
+    const bool unchanged =
+        surrounding.isValid() && !edit_replace_snapshot_.text.empty() &&
+        surrounding.text() == edit_replace_snapshot_.text &&
+        surrounding.cursor() == edit_replace_snapshot_.cursor;
+    if (unchanged && edit_replace_retries_left_ > 0) {
+        --edit_replace_retries_left_;
+        scheduleEditReplacementCheck();
+        return;
+    }
+    if (unchanged) {
+        edit_replace_state_ = "unsupported";
+        clearPendingEditReplacement();
+        showError(ic, "当前输入框不支持替换文本");
+        active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
+        return;
+    }
+
+    edit_replace_state_ = "supported";
+    const VoiceEditSnapshot snapshot = edit_replace_snapshot_;
+    const std::string new_text = edit_replace_new_text_;
+    const std::string hint = edit_replace_hint_;
+    const bool record_history = edit_replace_record_history_;
+    clearPendingEditReplacement();
+    commitText(ic, new_text);
+    confirmVoiceEditApplied(snapshot, new_text, record_history);
+    if (!hint.empty()) {
+        showTemporaryMessage(ic, hint);
+    }
+    active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
+}
+
+void VoCoTypeModule::applyVoiceEditResult(
+    fcitx::InputContext *ic,
+    const VoiceEditSnapshot &snapshot,
+    const VoiceEditResult &result) {
+    if (!ic || !ic->hasFocus()) {
+        active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
+        return;
+    }
+    if (!result.success) {
+        showVoiceEditFailure(
+            ic,
+            result.error.empty() ? "语音编辑失败" : result.error,
+            result.instruction);
+        active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
+        return;
+    }
+    if (!voiceEditSnapshotStillMatches(ic, snapshot)) {
+        showError(ic, "输入框内容已变化，请重试");
+        active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
+        return;
+    }
+
+    if (result.mode == "key_actions") {
+        clearOwnedUI(ic);
+        runVoiceEditKeyActions(ic, result.key_actions);
+        if (!result.hint.empty()) {
+            showTemporaryMessage(ic, result.hint);
+        }
+        active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
+        return;
+    }
+    if (result.mode == "no_replace") {
+        if (!result.hint.empty()) {
+            showTemporaryMessage(ic, result.hint);
+        } else {
+            clearOwnedUI(ic);
+        }
+        active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
+        return;
+    }
+    if (result.mode == "commit_only") {
+        if (!result.new_text.empty()) {
+            commitText(ic, result.new_text);
+            confirmVoiceEditApplied(
+                snapshot,
+                result.expected_text.empty() ? result.new_text
+                                             : result.expected_text,
+                result.record_history);
+        }
+        if (!result.hint.empty()) {
+            showTemporaryMessage(ic, result.hint);
+        }
+        active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
+        return;
+    }
+
+    replaceSurroundingText(ic,
+                           snapshot,
+                           result.new_text,
+                           result.record_history,
+                           result.hint);
+}
+
 void VoCoTypeModule::handleKeyEvent(fcitx::KeyEvent &event) {
     auto *ic = event.inputContext();
     if (!ic) {
@@ -270,6 +622,14 @@ void VoCoTypeModule::handleKeyEvent(fcitx::KeyEvent &event) {
     }
 
     const auto key = event.key();
+    if (!active_voice_edit_task_id_.empty() && !event.isRelease()) {
+        cancelActiveVoiceEditTask();
+        clearOwnedUI(ic);
+        if (key.sym() == FcitxKey_Escape) {
+            event.filterAndAccept();
+            return;
+        }
+    }
     if (!active_polish_task_id_.empty() && !event.isRelease()) {
         cancelActivePolishTask();
         clearOwnedUI(ic);
@@ -283,20 +643,59 @@ void VoCoTypeModule::handleKeyEvent(fcitx::KeyEvent &event) {
     }
 
     if (!event.isRelease()) {
+        // X11 autorepeat may arrive as a synthetic release immediately followed
+        // by another press. Keep the current PTT session alive when that press
+        // lands inside the release grace window. ReportKeyRepeat frontends also
+        // mark repeated presses explicitly on rawKey().
+        if (ptt_release_timer_) {
+            cancelPendingPttRelease();
+            event.filterAndAccept();
+            return;
+        }
+        if (event.rawKey().states().test(fcitx::KeyState::Repeat)) {
+            event.filterAndAccept();
+            return;
+        }
         if (!is_recording_ && !ptt_pressed_) {
             if (block_when_composing_ && hasActiveComposition(ic)) {
                 FCITX_INFO() << "VoCoType hotkey ignored because current input method has active composition";
                 event.filterAndAccept();
                 return;
             }
+            const bool edit_mode = editModeForStates(key.states());
+            VoiceEditSnapshot edit_snapshot;
+            if (edit_mode) {
+                std::string error;
+                if (!captureVoiceEditSnapshot(ic, edit_snapshot, error)) {
+                    editDebugLog("native_snapshot_unavailable program=" + ic->program() +
+                                 " frontend=" +
+                                 std::string(ic->frontend() ? ic->frontend() : "") +
+                                 " flags=" +
+                                 std::to_string(ic->capabilityFlags().toInteger()) +
+                                 " reason=" + error);
+                    showError(ic,
+                              error.empty()
+                                  ? "当前输入框未通过输入法接口提供上下文"
+                                  : error);
+                    event.filterAndAccept();
+                    return;
+                }
+            }
+            if (edit_mode && edit_snapshot.valid) {
+                editDebugLog("native_snapshot program=" + ic->program() +
+                             " bytes=" + std::to_string(edit_snapshot.text.size()) +
+                             " text=" + debugClip(edit_snapshot.text));
+            }
             pending_ptt_states_ = key.states();
             active_ic_ = ic->watch();
-            armPendingRecordingStart(ic, polishModeForStates(key.states()));
+            armPendingRecordingStart(
+                ic,
+                !edit_mode && polishModeForStates(key.states()),
+                edit_mode,
+                edit_snapshot);
         }
-    } else if (is_recording_) {
-        stopAndTranscribe();
-    } else if (ptt_pressed_) {
-        replayShortTapAsRegularKey(ic);
+    } else if (is_recording_ || ptt_pressed_) {
+        armPendingPttRelease(ic);
     } else {
         cancelPendingRecordingStart();
     }
@@ -310,7 +709,11 @@ void VoCoTypeModule::handleFocusOut(fcitx::InputContextEvent &event) {
         return;
     }
 
+    cancelActiveVoiceEditTask();
     cancelActivePolishTask();
+    clearPendingEditReplacement();
+    edit_hint_timer_.reset();
+    cancelPendingPttRelease();
     if (is_recording_) {
         FCITX_INFO() << "Input focus changed while recording; cancelling VoCoType session";
         stopRecording(false);
@@ -322,14 +725,19 @@ void VoCoTypeModule::handleFocusOut(fcitx::InputContextEvent &event) {
     }
 }
 
-void VoCoTypeModule::armPendingRecordingStart(fcitx::InputContext *ic,
-                                               bool long_mode) {
+void VoCoTypeModule::armPendingRecordingStart(
+    fcitx::InputContext *ic,
+    bool long_mode,
+    bool edit_mode,
+    const VoiceEditSnapshot &edit_snapshot) {
     cancelPendingRecordingStart();
     ptt_pressed_ = true;
     pending_long_mode_ = long_mode;
+    pending_edit_mode_ = edit_mode;
+    pending_edit_snapshot_ = edit_snapshot;
 
     if (ptt_hold_threshold_ms_ <= 0) {
-        startRecording(ic, long_mode);
+        startRecording(ic, long_mode, edit_mode, edit_snapshot);
         return;
     }
 
@@ -346,7 +754,10 @@ void VoCoTypeModule::armPendingRecordingStart(fcitx::InputContext *ic,
                 cancelPendingRecordingStart();
                 return false;
             }
-            startRecording(ic_ptr, pending_long_mode_);
+            startRecording(ic_ptr,
+                           pending_long_mode_,
+                           pending_edit_mode_,
+                           pending_edit_snapshot_);
             return false;
         });
     ptt_hold_timer_->setOneShot();
@@ -355,8 +766,36 @@ void VoCoTypeModule::armPendingRecordingStart(fcitx::InputContext *ic,
 void VoCoTypeModule::cancelPendingRecordingStart() {
     ptt_pressed_ = false;
     pending_long_mode_ = false;
+    pending_edit_mode_ = false;
+    pending_edit_snapshot_ = VoiceEditSnapshot();
     pending_ptt_states_ = fcitx::KeyState::NoState;
     ptt_hold_timer_.reset();
+}
+
+void VoCoTypeModule::armPendingPttRelease(fcitx::InputContext *ic) {
+    cancelPendingPttRelease();
+    auto ic_ref = ic->watch();
+    ptt_release_timer_ = instance_->eventLoop().addTimeEvent(
+        CLOCK_MONOTONIC,
+        fcitx::now(CLOCK_MONOTONIC) + PTT_AUTOREPEAT_RELEASE_GRACE_US,
+        0,
+        [this, ic_ref](fcitx::EventSourceTime *, uint64_t) {
+            ptt_release_timer_.reset();
+            auto *ic_ptr = ic_ref.get();
+            if (is_recording_) {
+                stopAndTranscribe();
+            } else if (ptt_pressed_ && ic_ptr && ic_ptr->hasFocus()) {
+                replayShortTapAsRegularKey(ic_ptr);
+            } else {
+                cancelPendingRecordingStart();
+            }
+            return false;
+        });
+    ptt_release_timer_->setOneShot();
+}
+
+void VoCoTypeModule::cancelPendingPttRelease() {
+    ptt_release_timer_.reset();
 }
 
 void VoCoTypeModule::replayShortTapAsRegularKey(fcitx::InputContext *ic) {
@@ -368,7 +807,12 @@ void VoCoTypeModule::replayShortTapAsRegularKey(fcitx::InputContext *ic) {
     ic->forwardKey(fcitx::Key(ptt_key_sym_, states), true, time);
 }
 
-void VoCoTypeModule::startRecording(fcitx::InputContext *ic, bool long_mode) {
+void VoCoTypeModule::startRecording(
+    fcitx::InputContext *ic,
+    bool long_mode,
+    bool edit_mode,
+    const VoiceEditSnapshot &edit_snapshot) {
+    cancelActiveVoiceEditTask();
     cancelActivePolishTask();
     if (is_recording_ || !ic || !ic->hasFocus()) {
         return;
@@ -425,17 +869,41 @@ void VoCoTypeModule::startRecording(fcitx::InputContext *ic, bool long_mode) {
         return;
     }
 
+    active_voice_session_id_ = ++voice_session_counter_;
+    recording_voice_session_id_ = active_voice_session_id_;
+    editDebugLog("recording_start session=" +
+                 std::to_string(recording_voice_session_id_) +
+                 " edit=" + std::to_string(edit_mode) +
+                 " context_bytes=" + std::to_string(edit_snapshot.text.size()));
     recorder_pid_ = pid;
     recorder_stdin_fd_ = stdin_pipe[1];
     recorder_stdout_ = stdout_file;
     is_recording_ = true;
     ptt_pressed_ = true;
     pending_long_mode_ = false;
+    pending_edit_mode_ = false;
+    pending_edit_snapshot_ = VoiceEditSnapshot();
     recording_long_mode_ = long_mode;
+    recording_edit_mode_ = edit_mode;
+    recording_edit_snapshot_ = edit_snapshot;
     active_ic_ = ic->watch();
 
-    if (long_mode) {
+    if (long_mode || edit_mode) {
         std::thread([this]() { (void)ipc_client_->prewarmSlm(); }).detach();
+    }
+    if (edit_mode) {
+        const std::string replace_flag =
+            edit_replace_state_ == "supported"
+                ? "ok"
+                : (edit_replace_state_ == "unsupported" ? "no" : "?");
+        showVoiceEditStatusBar(
+            ic,
+            "🎤 编辑中(del=" + replace_flag +
+                " sur=1 sel=" +
+                std::to_string(edit_snapshot.selected_text.size()) +
+                " active=1)",
+            "松开 Ctrl+F9 后识别编辑指令");
+    } else if (long_mode) {
         startPanelAnimation(ic, PanelAnimationKind::RecordingLong);
     } else {
         startPanelAnimation(ic, PanelAnimationKind::Recording);
@@ -455,16 +923,30 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
     // process and ASR continue off the Fcitx event thread after this point.
     stopPanelAnimation();
     ptt_hold_timer_.reset();
+    ptt_release_timer_.reset();
     ptt_pressed_ = false;
     pending_long_mode_ = false;
+    pending_edit_mode_ = false;
+    pending_edit_snapshot_ = VoiceEditSnapshot();
     is_recording_ = false;
     const bool long_mode = recording_long_mode_;
+    const bool edit_mode = recording_edit_mode_;
+    const VoiceEditSnapshot edit_snapshot = recording_edit_snapshot_;
+    const uint64_t session_id = recording_voice_session_id_;
     recording_long_mode_ = false;
+    recording_edit_mode_ = false;
+    recording_edit_snapshot_ = VoiceEditSnapshot();
+    recording_voice_session_id_ = 0;
 
     auto ic_ref = active_ic_;
     auto *ic = ic_ref.get();
     if (ic && transcribe && ic->hasFocus()) {
-        if (long_mode) {
+        if (edit_mode) {
+            showVoiceEditStatusBar(
+                ic,
+                "✍️ 正在识别编辑指令...",
+                "指令：等待识别结果...");
+        } else if (long_mode) {
             startPanelAnimation(ic, PanelAnimationKind::Polishing);
         } else {
             showPanelMessage(ic, "⏳ 识别中...");
@@ -481,15 +963,49 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
     recorder_stdout_ = nullptr;
 
     std::thread([this, pid, stdin_fd, stdout_file, transcribe, long_mode,
-                 ic_ref]() mutable {
+                 edit_mode, edit_snapshot, session_id, ic_ref]() mutable {
         std::string audio_path = stopRecorderProcess(pid, stdin_fd, stdout_file);
         if (!transcribe) {
             if (!audio_path.empty()) {
                 std::remove(audio_path.c_str());
             }
-            if (long_mode) {
+            if (long_mode || edit_mode) {
                 (void)ipc_client_->releaseSlm();
             }
+            return;
+        }
+
+        if (edit_mode) {
+            scheduleWithContext(
+                ic_ref,
+                [this, ic_ref, audio_path, edit_snapshot, session_id]() mutable {
+                    auto *ic_ptr = ic_ref.get();
+                    if (!ic_ptr || !ic_ptr->hasFocus() || session_id == 0 ||
+                        session_id != active_voice_session_id_) {
+                        if (!audio_path.empty()) {
+                            std::remove(audio_path.c_str());
+                        }
+                        return;
+                    }
+                    if (audio_path.empty()) {
+                        showVoiceEditFailure(ic_ptr, "录音失败", "");
+                        active_voice_session_id_ = 0;
+                        active_ic_ =
+                            fcitx::TrackableObjectReference<fcitx::InputContext>();
+                        return;
+                    }
+                    if (!edit_snapshot.valid) {
+                        std::remove(audio_path.c_str());
+                        showVoiceEditFailure(
+                            ic_ptr, "编辑上下文无效，请重试", "");
+                        active_voice_session_id_ = 0;
+                        active_ic_ =
+                            fcitx::TrackableObjectReference<fcitx::InputContext>();
+                        return;
+                    }
+                    launchVoiceEditTask(
+                        ic_ref, audio_path, edit_snapshot, session_id);
+                });
             return;
         }
 
@@ -515,8 +1031,9 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
                     if (!ic_ptr || !ic_ptr->hasFocus()) {
                         if (start_result.success && !start_result.task_id.empty()) {
                             const std::string task_id = start_result.task_id;
-                            std::thread([task_id]() {
-                                IPCClient client("/tmp/vocotype-fcitx5.sock");
+                            const std::string socket_path = backend_socket_path_;
+                            std::thread([socket_path, task_id]() {
+                                IPCClient client(socket_path);
                                 (void)client.cancelPolishTask(task_id);
                             }).detach();
                         }
@@ -567,6 +1084,257 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
                 }
             });
     }).detach();
+}
+
+void VoCoTypeModule::launchVoiceEditTask(
+    fcitx::TrackableObjectReference<fcitx::InputContext> ic_ref,
+    const std::string &audio_path,
+    const VoiceEditSnapshot &snapshot,
+    uint64_t session_id) {
+    std::thread([this, ic_ref, audio_path, snapshot, session_id]() {
+        VoiceEditStartResult start_result;
+        if (audio_path.empty()) {
+            start_result.error = "录音失败";
+        } else {
+            start_result = ipc_client_->startVoiceEdit(
+                audio_path,
+                snapshot.context_id,
+                snapshot.text,
+                snapshot.cursor,
+                snapshot.anchor,
+                snapshot.selected_text,
+                edit_replace_state_,
+                true);
+            // A successful async start transfers ownership of the audio file
+            // to the backend task. Failed starts leave cleanup to the module.
+            if (!start_result.success || start_result.task_id.empty()) {
+                std::remove(audio_path.c_str());
+            }
+        }
+
+        scheduleWithContext(
+            ic_ref,
+            [this, ic_ref, snapshot, session_id, start_result]() {
+                auto *ic_ptr = ic_ref.get();
+                const bool current =
+                    session_id != 0 && session_id == active_voice_session_id_;
+                if (!ic_ptr || !ic_ptr->hasFocus() || !current) {
+                    if (start_result.success && !start_result.task_id.empty()) {
+                        const std::string socket_path = backend_socket_path_;
+                        const std::string task_id = start_result.task_id;
+                        std::thread([socket_path, task_id]() {
+                            IPCClient client(socket_path);
+                            (void)client.cancelVoiceEditTask(task_id);
+                        }).detach();
+                    }
+                    return;
+                }
+                if (!start_result.success || start_result.task_id.empty()) {
+                    showVoiceEditFailure(
+                        ic_ptr,
+                        start_result.error.empty()
+                            ? "启动语音编辑任务失败"
+                            : start_result.error,
+                        "");
+                    active_voice_session_id_ = 0;
+                    active_ic_ =
+                        fcitx::TrackableObjectReference<fcitx::InputContext>();
+                    return;
+                }
+                startVoiceEditPolling(
+                    ic_ptr, start_result.task_id, snapshot, session_id);
+            });
+    }).detach();
+}
+
+void VoCoTypeModule::startVoiceEditPolling(
+    fcitx::InputContext *ic,
+    const std::string &task_id,
+    const VoiceEditSnapshot &snapshot,
+    uint64_t session_id) {
+    stopPanelAnimation();
+    active_voice_edit_task_id_ = task_id;
+    active_voice_edit_session_id_ = session_id;
+    active_voice_edit_instruction_.clear();
+    editDebugLog("edit_task_start id=" + task_id +
+                 " session=" + std::to_string(session_id));
+    active_voice_edit_snapshot_ = snapshot;
+    voice_edit_poll_in_flight_ = false;
+    voice_edit_poll_timer_.reset();
+    showVoiceEditProgress(ic, "asr", "");
+    scheduleVoiceEditPoll(ic->watch());
+}
+
+void VoCoTypeModule::scheduleVoiceEditPoll(
+    fcitx::TrackableObjectReference<fcitx::InputContext> ic_ref) {
+    if (active_voice_edit_task_id_.empty() || voice_edit_poll_timer_ ||
+        voice_edit_poll_in_flight_) {
+        return;
+    }
+    voice_edit_poll_timer_ = instance_->eventLoop().addTimeEvent(
+        CLOCK_MONOTONIC,
+        fcitx::now(CLOCK_MONOTONIC) + POLISH_POLL_INTERVAL_US,
+        0,
+        [this, ic_ref](fcitx::EventSourceTime *, uint64_t) {
+            voice_edit_poll_timer_.reset();
+            if (active_voice_edit_task_id_.empty() ||
+                voice_edit_poll_in_flight_) {
+                return false;
+            }
+            const std::string task_id = active_voice_edit_task_id_;
+            const uint64_t session_id = active_voice_edit_session_id_;
+            voice_edit_poll_in_flight_ = true;
+            std::thread([this, ic_ref, task_id, session_id]() {
+                const VoiceEditPollResult result =
+                    ipc_client_->pollVoiceEditTask(task_id);
+                scheduleWithContext(
+                    ic_ref, [this, ic_ref, task_id, session_id, result]() {
+                        voice_edit_poll_in_flight_ = false;
+                        auto *ic_ptr = ic_ref.get();
+                        if (!ic_ptr || !ic_ptr->hasFocus() ||
+                            task_id != active_voice_edit_task_id_ ||
+                            session_id == 0 ||
+                            session_id != active_voice_edit_session_id_ ||
+                            session_id != active_voice_session_id_) {
+                            return;
+                        }
+                        handleVoiceEditPollResult(ic_ptr, result);
+                    });
+            }).detach();
+            return false;
+        });
+    voice_edit_poll_timer_->setOneShot();
+}
+
+void VoCoTypeModule::handleVoiceEditPollResult(
+    fcitx::InputContext *ic,
+    const VoiceEditPollResult &result) {
+    if (!result.instruction.empty() &&
+        result.instruction != active_voice_edit_instruction_) {
+        active_voice_edit_instruction_ = result.instruction;
+        editDebugLog("edit_instruction id=" + active_voice_edit_task_id_ +
+                     " text=" + debugClip(result.instruction));
+    }
+    if (!result.success) {
+        const std::string instruction = active_voice_edit_instruction_;
+        active_voice_edit_task_id_.clear();
+        active_voice_edit_snapshot_ = VoiceEditSnapshot();
+        voice_edit_poll_timer_.reset();
+        showVoiceEditFailure(
+            ic,
+            result.error.empty() ? "读取语音编辑任务失败" : result.error,
+            instruction);
+        active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
+        return;
+    }
+
+    if (result.status == "final") {
+        editDebugLog("edit_task_final id=" + active_voice_edit_task_id_ +
+                     " instruction=" + debugClip(active_voice_edit_instruction_) +
+                     " result_bytes=" + std::to_string(result.result.new_text.size()));
+        VoiceEditResult edit_result = result.result;
+        if (edit_result.instruction.empty()) {
+            edit_result.instruction = active_voice_edit_instruction_;
+        }
+        const VoiceEditSnapshot snapshot = active_voice_edit_snapshot_;
+        active_voice_edit_task_id_.clear();
+        active_voice_edit_instruction_.clear();
+        active_voice_edit_snapshot_ = VoiceEditSnapshot();
+        voice_edit_poll_timer_.reset();
+        applyVoiceEditResult(ic, snapshot, edit_result);
+        return;
+    }
+
+    if (result.status == "error" || result.status == "cancelled") {
+        editDebugLog("edit_task_error id=" + active_voice_edit_task_id_ +
+                     " error=" + result.error +
+                     " instruction=" + debugClip(active_voice_edit_instruction_));
+        const std::string instruction = active_voice_edit_instruction_;
+        active_voice_edit_task_id_.clear();
+        active_voice_edit_instruction_.clear();
+        active_voice_edit_snapshot_ = VoiceEditSnapshot();
+        voice_edit_poll_timer_.reset();
+        showVoiceEditFailure(
+            ic,
+            result.error.empty() ? "语音编辑失败" : result.error,
+            instruction);
+        active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
+        return;
+    }
+
+    showVoiceEditProgress(
+        ic,
+        result.phase.empty() ? "asr" : result.phase,
+        active_voice_edit_instruction_);
+    scheduleVoiceEditPoll(ic->watch());
+}
+
+void VoCoTypeModule::showVoiceEditStatusBar(
+    fcitx::InputContext *ic,
+    const std::string &title,
+    const std::string &detail) {
+    if (!ic || !ic->hasFocus()) {
+        return;
+    }
+    stopPanelAnimation();
+    pending_fallback_text_.clear();
+    ui_owned_ = true;
+    auto &panel = ic->inputPanel();
+    panel.reset();
+
+    // Fcitx's KDE UI does not open an input-panel window for aux text alone.
+    // Panel preedit is UI-only (unlike clientPreedit), so it creates the same
+    // floating status bar as the old IBus auxiliary status without inserting
+    // anything into the application.
+    fcitx::Text preedit;
+    preedit.append(title);
+    panel.setPreedit(preedit);
+    if (!detail.empty()) {
+        fcitx::Text auxiliary;
+        auxiliary.append(detail);
+        panel.setAuxDown(auxiliary);
+    }
+    ic->updatePreedit();
+    ic->updateUserInterface(
+        fcitx::UserInterfaceComponent::InputPanel, true);
+}
+
+void VoCoTypeModule::showVoiceEditProgress(
+    fcitx::InputContext *ic,
+    const std::string &phase,
+    const std::string &instruction) {
+    showVoiceEditStatusBar(
+        ic,
+        phase == "asr" ? "✍️ 正在识别编辑指令..."
+                       : "✨ 正在执行编辑...",
+        instruction.empty() ? "指令：等待识别结果..."
+                            : "指令：" + instruction);
+}
+
+void VoCoTypeModule::showVoiceEditFailure(
+    fcitx::InputContext *ic,
+    const std::string &error,
+    const std::string &instruction) {
+    showVoiceEditStatusBar(
+        ic,
+        "❌ " + error,
+        instruction.empty() ? "" : "识别指令：" + instruction);
+}
+
+void VoCoTypeModule::cancelActiveVoiceEditTask() {
+    voice_edit_poll_timer_.reset();
+    voice_edit_poll_in_flight_ = false;
+    if (!active_voice_edit_task_id_.empty()) {
+        const std::string socket_path = backend_socket_path_;
+        const std::string task_id = active_voice_edit_task_id_;
+        std::thread([socket_path, task_id]() {
+            IPCClient client(socket_path);
+            (void)client.cancelVoiceEditTask(task_id);
+        }).detach();
+    }
+    active_voice_edit_task_id_.clear();
+    active_voice_edit_instruction_.clear();
+    active_voice_edit_snapshot_ = VoiceEditSnapshot();
 }
 
 void VoCoTypeModule::startPolishPolling(fcitx::InputContext *ic,
@@ -727,8 +1495,9 @@ void VoCoTypeModule::cancelActivePolishTask() {
         const std::string task_id = active_polish_task_id_;
         // Never block the Fcitx key-event thread on backend cancellation and
         // never capture the module object in the detached request.
-        std::thread([task_id]() {
-            IPCClient client("/tmp/vocotype-fcitx5.sock");
+        const std::string socket_path = backend_socket_path_;
+        std::thread([socket_path, task_id]() {
+            IPCClient client(socket_path);
             (void)client.cancelPolishTask(task_id);
         }).detach();
     }

@@ -47,6 +47,44 @@ struct TranscribeStartResult {
     std::string error;
 };
 
+struct EditKeyAction {
+    std::string key;
+    std::vector<std::string> modifiers;
+    int repeat = 1;
+};
+
+struct VoiceEditResult {
+    bool success = false;
+    bool handled = false;
+    bool record_history = true;
+    std::string mode;
+    std::string new_text;
+    std::string expected_text;
+    std::string hint;
+    std::string error;
+    std::string instruction;
+    std::string reason;
+    std::vector<EditKeyAction> key_actions;
+};
+
+struct VoiceEditStartResult {
+    bool success = false;
+    std::string task_id;
+    std::string status;
+    std::string error;
+};
+
+struct VoiceEditPollResult {
+    bool success = false;
+    std::string task_id;
+    std::string status;
+    std::string phase;
+    std::string instruction;
+    std::string error;
+    std::string reason;
+    VoiceEditResult result;
+};
+
 struct PolishEvent {
     int seq = 0;
     std::string kind;
@@ -96,6 +134,34 @@ public:
      */
     TranscribeResult transcribeAudio(const std::string& audio_path, bool long_mode = false);
 
+    VoiceEditResult editAudio(const std::string& audio_path,
+                              const std::string& context_id,
+                              const std::string& surrounding_text,
+                              unsigned int cursor_pos,
+                              unsigned int anchor_pos,
+                              const std::string& selected_text,
+                              const std::string& replace_state = "unknown",
+                              bool supports_surrounding = true);
+
+    VoiceEditStartResult startVoiceEdit(
+        const std::string& audio_path,
+        const std::string& context_id,
+        const std::string& surrounding_text,
+        unsigned int cursor_pos,
+        unsigned int anchor_pos,
+        const std::string& selected_text,
+        const std::string& replace_state = "unknown",
+        bool supports_surrounding = true);
+
+    VoiceEditPollResult pollVoiceEditTask(const std::string& task_id);
+
+    bool cancelVoiceEditTask(const std::string& task_id);
+
+    bool confirmEditApplied(const std::string& context_id,
+                            const std::string& original_text,
+                            const std::string& new_text,
+                            bool record_history);
+
     bool prewarmSlm();
     bool releaseSlm();
 
@@ -137,7 +203,8 @@ private:
      * @param request JSON 请求字符串
      * @return JSON 响应字符串
      */
-    std::string sendRequest(const std::string& request);
+    std::string sendRequest(const std::string& request,
+                            int receive_timeout_ms = 2000);
 
     std::string socket_path_;
 };

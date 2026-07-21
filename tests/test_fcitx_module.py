@@ -51,12 +51,33 @@ def test_dead_fcitx_rime_handler_is_removed():
     assert not (ROOT / "fcitx5" / "backend" / "rime_handler.py").exists()
 
 
-def test_ptt_release_stops_listening_immediately_without_debounce():
+def test_ptt_release_filters_x11_autorepeat_without_cutting_recording():
     source = (ROOT / "fcitx5/module/vocotype_module.cpp").read_text(encoding="utf-8")
     header = (ROOT / "fcitx5/module/vocotype_module.h").read_text(encoding="utf-8")
-    assert "PTT_RELEASE_DEBOUNCE_US" not in source
-    assert "armPendingRecordingStop" not in source
-    assert "ptt_release_timer_" not in header
-    assert "} else if (is_recording_) {\n        stopAndTranscribe();" in source
+    assert "PTT_AUTOREPEAT_RELEASE_GRACE_US = 30000" in source
+    assert "event.rawKey().states().test(fcitx::KeyState::Repeat)" in source
+    assert "if (ptt_release_timer_)" in source
+    assert "cancelPendingPttRelease();" in source
+    assert "armPendingPttRelease(ic);" in source
+    assert "ptt_release_timer_" in header
     stop_body = source.split("void VoCoTypeModule::stopRecording(bool transcribe)", 1)[1]
     assert stop_body.index("stopPanelAnimation();") < stop_body.index("is_recording_ = false;")
+
+
+def test_voice_edit_module_contains_no_clipboard_context_capture():
+    source = (ROOT / "fcitx5/module/vocotype_module.cpp").read_text(encoding="utf-8")
+    header = (ROOT / "fcitx5/module/vocotype_module.h").read_text(encoding="utf-8")
+    assert "ClipboardCapturePurpose" not in source
+    assert "ClipboardCapturePurpose" not in header
+    assert "canUseClipboardFallback" not in source
+    assert "beginClipboardCapture" not in source
+
+
+def test_voice_edit_status_uses_panel_preedit_not_candidate_rows():
+    source = (ROOT / "fcitx5/module/vocotype_module.cpp").read_text(encoding="utf-8")
+    status = source.split(
+        "void VoCoTypeModule::showVoiceEditStatusBar", 1
+    )[1].split("void VoCoTypeModule::showVoiceEditProgress", 1)[0]
+    assert "panel.setPreedit(preedit)" in status
+    assert "panel.setAuxDown(auxiliary)" in status
+    assert "setCandidateList" not in status

@@ -237,6 +237,8 @@ IBus 继续采用最终结果式 UI，不显示逐 token 面板预览；远程 S
 
 ### 语音编辑（Ctrl+F9）详解
 
+编辑命令解析、撤销状态和 AI 生成指令由 `app/voice_edit.py` 与 Fcitx 5 共用；本节仅说明 IBus 的 surrounding text 与按键执行适配。
+
 #### 触发流程
 
 1. 按下 `Ctrl+F9` 后先检测 surrounding 能力。
