@@ -455,6 +455,7 @@ def test_native_package_recipes_share_one_staging_contract(tmp_path: Path):
         assert "Architecture: amd64" in control
         assert "License:        GPL-3.0-or-later" in spec
         assert "sha256sums=('@SOURCE_SHA256@')" in pkgbuild
+        assert "options=('!debug')" in pkgbuild
         assert "--libexecdir /usr/lib/vocotype" in pkgbuild
         assert '--libexecdir "%{_libexecdir}"' in spec
         assert "SKIP" not in pkgbuild

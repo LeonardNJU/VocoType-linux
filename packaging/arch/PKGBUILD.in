@@ -4,6 +4,7 @@ pkgver=@VERSION@
 pkgrel=1
 pkgdesc="@SUMMARY@"
 arch=('x86_64')
+options=('!debug')
 url="https://github.com/LeonardNJU/VocoType-linux"
 license=('GPL-3.0-or-later')
 depends=(@DEPENDS@)
