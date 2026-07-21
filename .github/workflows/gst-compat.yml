@@ -1,0 +1,39 @@
+name: PyGObject 3.50 compatibility
+
+on:
+  pull_request:
+    paths:
+      - "app/funasr_server.py"
+      - "tests/test_gst_pygobject_compat.py"
+      - ".github/workflows/gst-compat.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gst-compat:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libportaudio2 portaudio19-dev \
+            libcairo2-dev libgirepository1.0-dev gir1.2-gstreamer-1.0 \
+            gstreamer1.0-plugins-base pkg-config cmake g++ \
+            libfcitx5core-dev nlohmann-json3-dev
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest "PyGObject==3.50.2"
+          python -m pip install -e .
+      - name: Reproduce and verify Gst.init compatibility
+        run: python -m pytest -q tests/test_gst_pygobject_compat.py
