@@ -68,6 +68,15 @@ detect_system_python() {
     return 1
 }
 
+escape_sed_replacement() {
+    local value="$1"
+    value=${value//\\/\\\\}
+    value=${value//&/\\&}
+    value=${value//|/\\|}
+    printf '%s' "$value"
+}
+
+
 emit_install_progress() {
     local percent="$1"
     shift

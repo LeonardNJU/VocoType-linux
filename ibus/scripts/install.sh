@@ -37,13 +37,6 @@ PYTHON_MIN_MINOR=11
 PYTHON_MAX_MINOR=12
 DEFAULT_UV_PYTHON="3.12"
 
-escape_sed_replacement() {
-    local value="$1"
-    value=${value//\\/\\\\}
-    value=${value//&/\\&}
-    value=${value//|/\\|}
-    printf '%s' "$value"
-}
 
 print_python_help() {
     echo ""

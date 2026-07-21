@@ -122,13 +122,6 @@ SLM_MAX_TOKENS=128
 SLM_ENABLE_THINKING=0
 SLM_API_KEY=""
 
-escape_sed_replacement() {
-    local value="$1"
-    value=${value//\\/\\\\}
-    value=${value//&/\\&}
-    value=${value//|/\\|}
-    printf '%s' "$value"
-}
 
 bootstrap_uv() {
     command -v uv >/dev/null 2>&1 && return 0
