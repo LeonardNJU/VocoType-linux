@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   gst-compat:
@@ -37,4 +38,21 @@ jobs:
           python -m pip install -q pytest "PyGObject==3.50.2" >>/tmp/pip.log 2>&1 || { cat /tmp/pip.log; exit 1; }
           python -m pip install -q -e . >>/tmp/pip.log 2>&1 || { cat /tmp/pip.log; exit 1; }
       - name: Reproduce and verify Gst.init compatibility
-        run: python -m pytest -q -s tests/test_gst_pygobject_compat.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          python -m pytest -q -s tests/test_gst_pygobject_compat.py > /tmp/gst-test.log 2>&1
+          status=$?
+          cat /tmp/gst-test.log
+          if [ "$status" -ne 0 ] && [ -n "${{ github.event.pull_request.number }}" ]; then
+            {
+              echo 'Focused PyGObject compatibility test failed:'
+              echo
+              echo '```text'
+              tail -n 80 /tmp/gst-test.log
+              echo '```'
+            } > /tmp/pr-comment.md
+            gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/pr-comment.md
+          fi
+          exit "$status"
