@@ -225,6 +225,7 @@ def save_fcitx_module_config(values: Mapping[str, Any]) -> Path:
     preferred_order = [
         "pttkey",
         "pttholdthresholdms",
+        "minrecordingms",
         "longmodemodifier",
         "polishminchars",
         "polishtimeoutms",
@@ -249,6 +250,7 @@ def save_fcitx_module_config(values: Mapping[str, Any]) -> Path:
                 canonical = {
                     "pttkey": "PTTKey",
                     "pttholdthresholdms": "PTTHoldThresholdMs",
+                    "minrecordingms": "MinRecordingMs",
                     "longmodemodifier": "LongModeModifier",
                     "polishminchars": "PolishMinChars",
                     "polishtimeoutms": "PolishTimeoutMs",

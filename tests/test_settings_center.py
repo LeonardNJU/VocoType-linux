@@ -22,6 +22,7 @@ from settings_center.feedback import build_issue_url, get_installation_id, submi
 from feedback_service.multipart import parse_multipart
 from settings_center.setup_manager import (
     InstallOptions,
+    IntegrationStatus,
     UninstallOptions,
     fcitx_installer_command,
     fcitx_uninstaller_command,
@@ -31,6 +32,7 @@ from settings_center.setup_manager import (
     integration_status,
     native_package_removal_command,
     parse_install_progress,
+    preferred_installed_framework,
     restart_fcitx,
     restart_ibus_backend,
 )
@@ -827,22 +829,27 @@ def test_settings_application_exposes_both_install_paths():
     source = Path("settings_center/application.py").read_text(encoding="utf-8")
     assert "安装 / 修复 VoCoType（Fcitx 5）" in source
     assert "安装 / 修复 VoCoType（IBus）" in source
-    assert 'uninstall_button = Gtk.Button(label=f"卸载 VoCoType（{title}）")' in source
+    assert 'label=f"卸载 VoCoType（{title}）"' in source
     assert "UninstallOptions" in source
     assert "uninstall_framework" in source
     assert "launch_ibus_installer" not in source
     assert "lifecycle_stack = Gtk.Stack()" in source
-    assert "lifecycle_switcher = Gtk.StackSwitcher()" in source
-    assert 'lifecycle_stack.add_titled(ibus_panel, "ibus", "IBus")' in source
-    assert 'lifecycle_stack.add_titled(fcitx_panel, "fcitx5", "Fcitx 5")' in source
-    assert "lifecycle_switcher.set_homogeneous(True)" in source
-    assert "lifecycle_switcher.set_hexpand(True)" in source
-    assert "lifecycle_switcher.set_halign(Gtk.Align.FILL)" in source
+    assert "Gtk.StackSwitcher" not in source
+    assert "Gtk.RadioButton.new_with_label" in source
+    assert "self.ibus_framework_radio" in source
+    assert "self.fcitx_framework_radio" in source
+    assert '"toggled", self._on_framework_radio_toggled, "ibus"' in source
+    assert '"toggled", self._on_framework_radio_toggled, "fcitx5"' in source
+    assert 'Gtk.Label(label="安装环境检查"' in source
+    assert 'Gtk.Label(label="选择输入法框架"' in source
+    assert 'lifecycle_stack.add_titled(' in source
     assert 'ui_config = self.runtime_config.get("ui")' in source
     assert '"lifecycle_framework"' in source
-    assert 'self._on_lifecycle_framework_changed' in source
+    assert 'preferred_installed_framework(' in source
+    assert 'self.tutorial_page.hide()' in source
+    assert 'self.tutorial_page.show()' in source
+    assert 'self.stack.get_visible_child_name() == "tutorial"' in source
     assert 'update_runtime_sections(' in source
-    assert 'lifecycle_stack.connect(' in source
     assert "button.set_hexpand(True)" in source
     assert "button.set_halign(Gtk.Align.FILL)" in source
     assert 'backend_button = Gtk.Button(label="重启 VoCoType 后台")' in source
@@ -902,6 +909,27 @@ def test_settings_application_exposes_both_install_paths():
     assert "Fcitx：F9 默认润色" not in source
     assert "PolishByDefault" not in source
     assert "F9 始终直接输出；Shift+F9" in source
+
+
+@pytest.mark.parametrize(
+    ("ibus_state", "fcitx_state", "selected", "expected"),
+    [
+        ("complete", "complete", "ibus", "ibus"),
+        ("complete", "complete", "fcitx5", "fcitx5"),
+        ("partial", "absent", "fcitx5", "ibus"),
+        ("absent", "partial", "ibus", "fcitx5"),
+        ("absent", "absent", "ibus", None),
+    ],
+)
+def test_preferred_framework_uses_installs_before_radio_selection(
+    ibus_state: str,
+    fcitx_state: str,
+    selected: str,
+    expected: str | None,
+):
+    ibus = IntegrationStatus(ibus_state, (), ())
+    fcitx = IntegrationStatus(fcitx_state, (), ())
+    assert preferred_installed_framework(ibus, fcitx, selected) == expected
 
 
 def test_installers_have_gui_noninteractive_paths_without_terminal_password_prompts():
@@ -1114,3 +1142,31 @@ def test_settings_center_exposes_optional_two_pass_preview_toggle():
     assert 'streaming["enabled"] = self.asr_streaming_enabled.get_active()' in source
     assert "松键后仍由原高精度离线模型给出最终结果" in source
     assert "本地 native worker 空闲后自动退出" in source
+
+
+def test_general_settings_exposes_minimum_recording_and_long_text_entries():
+    source = Path("settings_center/application.py").read_text(encoding="utf-8")
+    config = Path("app/config.py").read_text(encoding="utf-8")
+    assert '"min_recording_ms": 1000' in config
+    assert "Gtk.SpinButton.new_with_range(0, 5000, 100)" in source
+    assert '"最短有效录音（毫秒）"' in source
+    assert 'audio_runtime["min_recording_ms"]' in source
+    assert '"MinRecordingMs": int(self.min_recording_ms.get_value())' in source
+    assert "def _text_entry(self, *, width_chars: int = 40)" in source
+    assert "entry.set_width_chars(max(40, int(width_chars)))" in source
+    assert "entry.set_hexpand(True)" in source
+    # All ordinary single-line text fields go through the width helper. The
+    # only direct Gtk.Entry construction is inside that helper itself.
+    assert source.count("Gtk.Entry()") == 1
+
+
+def test_tutorial_is_framework_specific_and_hidden_without_installation():
+    source = Path("settings_center/application.py").read_text(encoding="utf-8")
+    assert "教程会根据当前已安装的集成" in source
+    assert "2. 添加并切换输入法" in source
+    assert "2. 不要添加 VoCoType 输入法" in source
+    assert "preferred_installed_framework(" in source
+    assert "self.tutorial_page.set_no_show_all(True)" in source
+    assert "self.tutorial_page.hide()" in source
+    assert "self.tutorial_page.show_all()" in source
+    assert "Gtk.StackSwitcher" not in source

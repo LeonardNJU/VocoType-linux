@@ -509,9 +509,47 @@ class FunASRServer:
                 return {"success": False, "error": f"音频文件不存在: {audio_path}"}
 
             logger.info(f"开始转录音频文件: {audio_path}")
+            request_options = dict(options or {})
+            try:
+                configured_minimum = float(
+                    request_options.get(
+                        "min_audio_seconds", MIN_ASR_AUDIO_SECONDS
+                    )
+                )
+            except (TypeError, ValueError):
+                configured_minimum = MIN_ASR_AUDIO_SECONDS
+            minimum_audio_seconds = max(
+                MIN_ASR_AUDIO_SECONDS, configured_minimum
+            )
+
+            def too_short_result(duration: float) -> dict:
+                self.transcription_count += 1
+                return {
+                    "success": True,
+                    "text": "",
+                    "raw_text": "",
+                    "confidence": 0.0,
+                    "duration": duration,
+                    "language": "zh-CN",
+                    "model_type": (
+                        "onnx"
+                        if "onnx" in str(self.model_names.get("asr", "")).lower()
+                        else "pytorch"
+                    ),
+                    "models": self.model_names,
+                    "reason": "audio_too_short",
+                }
+
             audio_probe = self._probe_audio_file(audio_path)
             if audio_probe is None:
                 duration = self._get_audio_duration(audio_path)
+                if duration < minimum_audio_seconds:
+                    logger.warning(
+                        "录音过短，跳过 ASR：%.3f 秒（至少需要 %.3f 秒）",
+                        duration,
+                        minimum_audio_seconds,
+                    )
+                    return too_short_result(duration)
             else:
                 frame_count, sample_rate = audio_probe
                 duration = frame_count / sample_rate
@@ -519,7 +557,7 @@ class FunASRServer:
 
                 minimum_frames = max(
                     1,
-                    math.ceil(sample_rate * MIN_ASR_AUDIO_SECONDS),
+                    math.ceil(sample_rate * minimum_audio_seconds),
                 )
                 if frame_count < minimum_frames:
                     logger.warning(
@@ -528,22 +566,7 @@ class FunASRServer:
                         sample_rate,
                         minimum_frames,
                     )
-                    self.transcription_count += 1
-                    return {
-                        "success": True,
-                        "text": "",
-                        "raw_text": "",
-                        "confidence": 0.0,
-                        "duration": duration,
-                        "language": "zh-CN",
-                        "model_type": (
-                            "onnx"
-                            if "onnx" in str(self.model_names.get("asr", "")).lower()
-                            else "pytorch"
-                        ),
-                        "models": self.model_names,
-                        "reason": "audio_too_short",
-                    }
+                    return too_short_result(duration)
 
             # 设置默认选项
             default_options = {

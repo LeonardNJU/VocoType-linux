@@ -169,3 +169,24 @@ def test_fcitx_recording_is_process_singleton_and_duplicate_release_is_consumed(
         "bool copyTextToWaylandClipboard", 1
     )[0]
     assert "close(lock_fd);" in finish
+
+
+def test_fcitx_rejects_short_recordings_before_preview_or_final_asr():
+    header = (ROOT / "fcitx5/module/vocotype_module.h").read_text(encoding="utf-8")
+    source = (ROOT / "fcitx5/module/vocotype_module.cpp").read_text(encoding="utf-8")
+    assert '"MinRecordingMs"' in header
+    assert '"最短有效录音时长（毫秒）"' in header
+    assert "int min_recording_ms_ = 1000;" in header
+    stop_body = source.split("void VoCoTypeModule::stopRecording(bool transcribe)", 1)[1]
+    stop_prefix = stop_body.split("std::thread", 1)[0]
+    assert "const bool recording_too_short" in stop_prefix
+    assert "transcribe = false;" in stop_prefix
+    assert "showTemporaryMessage(" in stop_prefix
+    assert "录音过短（至少 " in stop_prefix
+    assert stop_prefix.index("recording_too_short") < stop_prefix.index('showPanelMessage(ic, "⏳ 识别中")')
+    preview_body = source.split("void VoCoTypeModule::showStreamingPreview", 1)[1].split(
+        "void VoCoTypeModule::showAnimationFrame", 1
+    )[0]
+    assert "min_recording_ms_ > 0" in preview_body
+    assert "recording_started_us_" in preview_body
+    assert "return;" in preview_body

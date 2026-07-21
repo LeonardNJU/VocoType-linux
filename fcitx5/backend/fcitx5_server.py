@@ -306,6 +306,15 @@ class Fcitx5Backend:
         self._asr_options["normalization"] = dict(
             self.config.get("normalization", {})
         )
+        audio_value = self.config.get("audio", {})
+        audio_cfg = dict(audio_value) if isinstance(audio_value, dict) else {}
+        try:
+            min_recording_ms = int(audio_cfg.get("min_recording_ms", 1000))
+        except (TypeError, ValueError):
+            min_recording_ms = 1000
+        self._asr_options["min_audio_seconds"] = max(
+            0, min(5000, min_recording_ms)
+        ) / 1000.0
         self._slm_polisher = SLMPolisher(self.config.get("slm", {}))
         logger.info("SLM 长句润色: enabled=%s", self._slm_polisher.enabled)
         self._streaming_asr = StreamingASRProcess(

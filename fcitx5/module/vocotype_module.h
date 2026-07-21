@@ -51,6 +51,12 @@ FCITX_CONFIGURATION(
         "开始录音所需长按阈值（毫秒）",
         0,
         fcitx::IntConstrain(0, 2000)};
+    fcitx::Option<int, fcitx::IntConstrain> minRecordingMs{
+        this,
+        "MinRecordingMs",
+        "最短有效录音时长（毫秒）",
+        1000,
+        fcitx::IntConstrain(0, 5000)};
     fcitx::Option<fcitx::Key, fcitx::KeyConstrain> longModeModifier{
         this,
         "LongModeModifier",
@@ -241,6 +247,7 @@ private:
     fcitx::KeyStates long_mode_modifier_ = fcitx::KeyState::Shift;
     std::string ptt_key_name_ = "F9";
     int ptt_hold_threshold_ms_ = 0;
+    int min_recording_ms_ = 1000;
     int polish_min_chars_ = 8;
     int polish_timeout_ms_ = 20000;
     bool enable_thinking_ = false;
@@ -270,6 +277,7 @@ private:
     std::thread recorder_output_thread_;
     std::shared_ptr<RecorderOutputState> recorder_output_state_;
     uint64_t recording_generation_ = 0;
+    uint64_t recording_started_us_ = 0;
 
     std::unique_ptr<fcitx::EventSourceTime> ptt_hold_timer_;
     std::unique_ptr<fcitx::EventSourceTime> ptt_release_timer_;

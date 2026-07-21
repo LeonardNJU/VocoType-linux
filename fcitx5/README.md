@@ -103,6 +103,7 @@ vocotype-doctor
 
 - `PTTKey`：主热键，默认 `F9`。
 - `PTTHoldThresholdMs`：超过指定时长才开始录音；默认 `0`，即按下立即开始。
+- `MinRecordingMs`：最短有效录音时长；默认 `1000` 毫秒。更短的录音不会显示流式预览，也不会进入最终 ASR；设为 `0` 可关闭这一用户阈值（底层仍拒绝无法处理的极短音频）。
 - `LongModeModifier`：AI 润色修饰键，默认 `Shift`；按住该修饰键再按 F9 才会润色。
 - `PolishMinChars`：ASR 文本达到多少字符才调用 SLM，默认 `8`。
 - `PolishTimeoutMs`：流式输出空闲超时，默认 `20000` 毫秒。
