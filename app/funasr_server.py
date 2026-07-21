@@ -18,6 +18,38 @@ import time
 import threading
 import tempfile
 
+
+def _patch_audioread_gstreamer_compatibility() -> None:
+    """Make audioread 3.1 compatible with PyGObject 3.50.
+
+    audioread calls ``Gst.init(None)``, while newer PyGObject bindings require
+    an actual argument container. FunASR may import audioread internally when
+    librosa falls back from soundfile, so apply this before model loading.
+    """
+    try:
+        import gi
+
+        gi.require_version("Gst", "1.0")
+        from gi.repository import Gst
+
+        original_init = Gst.init
+        if getattr(original_init, "_vocotype_none_compatible", False):
+            return
+
+        def init_gst(args=None):
+            return original_init([] if args is None else args)
+
+        init_gst._vocotype_none_compatible = True
+        Gst.init = init_gst
+    except Exception:
+        # GStreamer is optional; audioread will skip its backend if unavailable.
+        logging.getLogger(__name__).debug(
+            "GStreamer compatibility patch skipped", exc_info=True
+        )
+
+
+_patch_audioread_gstreamer_compatibility()
+
 # 过滤掉 jieba 的 pkg_resources 弃用警告
 warnings.filterwarnings("ignore", category=UserWarning, module="jieba._compat")
 
@@ -671,13 +703,21 @@ class FunASRServer:
                 elif isinstance(first_item, dict) and "preds" in first_item:
                     preds = first_item["preds"]
                     if isinstance(preds, tuple) and len(preds) > 0:
-                        raw_text = str(preds[0])
+                        raw_text = preds[0]
                     else:
-                        raw_text = str(preds)
+                        raw_text = preds
                 else:
-                    raw_text = str(first_item)
+                    raw_text = first_item
             else:
-                raw_text = str(asr_result)
+                raw_text = asr_result
+
+            # Some FunASR versions return ``None`` for no-speech segments.
+            # Never pass that value to punc/ITN libraries implemented in C++.
+            if raw_text is None:
+                logger.warning("ASR返回空文本，原始结果: %r", asr_result)
+                raw_text = ""
+            elif not isinstance(raw_text, str):
+                raw_text = str(raw_text)
 
             logger.info(f"ASR识别完成，原始文本: {raw_text[:100]}...")
 
@@ -741,9 +781,10 @@ class FunASRServer:
     def _get_audio_duration(self, audio_path):
         """获取音频时长"""
         try:
-            import librosa
+            import soundfile as sf
 
-            duration = librosa.get_duration(path=audio_path)
+            info = sf.info(audio_path)
+            duration = info.frames / info.samplerate if info.samplerate else 0.0
             self.total_audio_duration += duration  # 累计音频时长
             return duration
         except Exception as e:
@@ -772,7 +813,7 @@ class FunASRServer:
             return None
 
     def _warmup_librosa(self):
-        """预热librosa库，避免首次load时的初始化延迟（这是真正的问题所在）"""
+        """预热音频解码库，不触发 audioread 的 GStreamer 探测。"""
         try:
             logger.info("开始预热librosa，触发音频库初始化...")
             warmup_start = time.time()
@@ -796,9 +837,11 @@ class FunASRServer:
                     wf.writeframes(audio_data.tobytes())
             
             try:
-                # 调用librosa.load触发初始化（这是funasr_onnx内部使用的）
-                import librosa
-                _, _ = librosa.load(tmp_path, sr=16000)
+                # FunASR ONNX 读取 WAV 时使用 soundfile；librosa 的
+                # audioread fallback 会调用 Gst.init(None)，而 PyGObject
+                # 新版本会拒绝 None 参数。
+                import soundfile as sf
+                _, _ = sf.read(tmp_path, dtype="int16")
                 
                 warmup_time = time.time() - warmup_start
                 logger.info(f"librosa预热完成，耗时: {warmup_time:.2f}秒")
