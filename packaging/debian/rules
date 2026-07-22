@@ -20,6 +20,7 @@ override_dh_auto_install:
 		--libdir "lib/$$(dpkg-architecture -qDEB_HOST_MULTIARCH)" \
 		--build-dir "$(CURDIR)/build/debian-fcitx-$(PACKAGE_FLAVOR)" \
 		--flavor "$(PACKAGE_FLAVOR)" \
+		--package-manager apt \
 		--require-streaming-bundle \
 		--require-wheelhouse
 

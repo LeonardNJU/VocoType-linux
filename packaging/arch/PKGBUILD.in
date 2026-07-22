@@ -25,6 +25,7 @@ package() {
     --libexecdir /usr/lib/vocotype \
     --build-dir "$srcdir/fcitx-build-@FLAVOR@" \
     --flavor "@FLAVOR@" \
+    --package-manager pacman \
     --require-streaming-bundle \
     --require-wheelhouse
 }

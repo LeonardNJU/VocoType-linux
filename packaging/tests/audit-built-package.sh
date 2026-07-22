@@ -13,16 +13,19 @@ trap 'rm -rf "$work"' EXIT
 
 case "$package" in
   *.deb)
+    expected_manager=apt
     command -v dpkg-deb >/dev/null
     dpkg-deb -x "$package" "$work/root"
     ;;
   *.rpm)
+    expected_manager=dnf
     command -v rpm2cpio >/dev/null
     command -v cpio >/dev/null
     mkdir -p "$work/root"
     (cd "$work/root" && rpm2cpio "$package" | cpio -idm --quiet)
     ;;
   *.pkg.tar.*)
+    expected_manager=pacman
     command -v bsdtar >/dev/null
     mkdir -p "$work/root"
     bsdtar -xf "$package" -C "$work/root"
@@ -38,6 +41,7 @@ marker="$project/.system-package"
 test -f "$marker"
 grep -Fxq "version=$expected_version" "$marker"
 grep -Fxq "flavor=$expected_flavor" "$marker"
+grep -Fxq "manager=$expected_manager" "$marker"
 python3 "$root/packaging/tools/audit-wheelhouse.py" "$project/wheelhouse"
 (cd "$project" && sha256sum -c .wheelhouse.sha256)
 
@@ -72,4 +76,4 @@ if [[ -e "$libexec_launcher" ]]; then
   grep -Fq 'exec /usr/' "$libexec_launcher"
 fi
 
-echo "BUILT_PACKAGE_AUDIT_OK $(basename "$package") flavor=$expected_flavor"
+echo "BUILT_PACKAGE_AUDIT_OK $(basename "$package") flavor=$expected_flavor manager=$expected_manager"

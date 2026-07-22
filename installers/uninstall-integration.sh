@@ -93,9 +93,29 @@ native_package_name() {
     printf '%s\n' 'vocotype-linux'
 }
 
+native_package_manager() {
+    local marker manager
+    for marker in "${NATIVE_MARKERS[@]}"; do
+        [[ -f "$marker" ]] || continue
+        manager=$(sed -n 's/^manager=//p' "$marker" | head -1)
+        case "$manager" in
+            apt|dnf|pacman) printf '%s\n' "$manager"; return 0 ;;
+        esac
+    done
+    return 1
+}
+
 native_package_command() {
-    local package
+    local package manager
     package=$(native_package_name)
+    manager=$(native_package_manager 2>/dev/null || true)
+    case "$manager" in
+        pacman) printf 'sudo pacman -Rns %s\n' "$package"; return ;;
+        dnf) printf 'sudo dnf remove %s\n' "$package"; return ;;
+        apt) printf 'sudo apt remove %s\n' "$package"; return ;;
+    esac
+
+    # Legacy packages did not record their owning package manager.
     if command -v pacman >/dev/null 2>&1; then
         printf 'sudo pacman -Rns %s\n' "$package"
     elif command -v dnf >/dev/null 2>&1; then

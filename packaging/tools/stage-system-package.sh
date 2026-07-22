@@ -11,6 +11,7 @@ Options:
   --libexecdir DIR      Executable helper directory (default: PREFIX/libexec)
   --build-dir DIR       CMake build directory (default: build/package-fcitx)
   --flavor FLAVOR       universal, ibus, or fcitx5 (default: universal)
+  --package-manager MGR apt, dnf, or pacman (default: auto-detect)
   --skip-module-build   Stage files without compiling the Fcitx module
   --require-streaming-bundle  Fail if the native 2-pass runtime is absent
   --skip-streaming-bundle     Never include the optional native 2-pass runtime
@@ -25,6 +26,7 @@ LIBDIR="lib"
 LIBEXECDIR=""
 BUILD_DIR=""
 FLAVOR=${VOCOTYPE_PACKAGE_FLAVOR:-universal}
+PACKAGE_MANAGER=${VOCOTYPE_PACKAGE_MANAGER:-auto}
 SKIP_MODULE_BUILD=false
 REQUIRE_STREAMING_BUNDLE=${VOCOTYPE_REQUIRE_STREAMING_BUNDLE:-0}
 SKIP_STREAMING_BUNDLE=${VOCOTYPE_SKIP_STREAMING_BUNDLE:-0}
@@ -38,6 +40,7 @@ while [[ $# -gt 0 ]]; do
     --libexecdir) LIBEXECDIR="${2:?missing libexecdir}"; shift 2 ;;
     --build-dir) BUILD_DIR="${2:?missing build dir}"; shift 2 ;;
     --flavor) FLAVOR="${2:?missing flavor}"; shift 2 ;;
+    --package-manager) PACKAGE_MANAGER="${2:?missing package manager}"; shift 2 ;;
     --skip-module-build) SKIP_MODULE_BUILD=true; shift ;;
     --require-streaming-bundle) REQUIRE_STREAMING_BUNDLE=1; shift ;;
     --skip-streaming-bundle) SKIP_STREAMING_BUNDLE=1; shift ;;
@@ -62,6 +65,22 @@ DESTDIR=$(readlink -m "$DESTDIR")
 [[ "$PREFIX" == /* ]] || { echo "--prefix must be absolute" >&2; exit 2; }
 LIBEXECDIR=${LIBEXECDIR:-"$PREFIX/libexec"}
 [[ "$LIBEXECDIR" == /* ]] || { echo "--libexecdir must be absolute" >&2; exit 2; }
+
+case "$PACKAGE_MANAGER" in
+  auto)
+    if command -v pacman >/dev/null 2>&1; then
+      PACKAGE_MANAGER=pacman
+    elif command -v dnf >/dev/null 2>&1; then
+      PACKAGE_MANAGER=dnf
+    elif command -v apt-get >/dev/null 2>&1; then
+      PACKAGE_MANAGER=apt
+    else
+      PACKAGE_MANAGER=""
+    fi
+    ;;
+  apt|dnf|pacman) ;;
+  *) echo "--package-manager must be apt, dnf, pacman, or auto" >&2; exit 2 ;;
+esac
 
 PROJECT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 FLAVOR=$(python3 "$PROJECT_DIR/packaging/tools/package-flavor.py" "$FLAVOR" --field flavor)
@@ -96,6 +115,9 @@ if [[ "$INCLUDES_FCITX5" != true ]]; then
 fi
 printf 'version=%s\nmanaged-by=native-package\nflavor=%s\npackage=%s\n' \
   "$VERSION" "$FLAVOR" "$PACKAGE_NAME" > "$source_root/.system-package"
+if [[ -n "$PACKAGE_MANAGER" ]]; then
+  printf 'manager=%s\n' "$PACKAGE_MANAGER" >> "$source_root/.system-package"
+fi
 
 
 wheelhouse=${VOCOTYPE_WHEELHOUSE_DIR:-"$PROJECT_DIR/vendor/wheelhouse"}
@@ -202,4 +224,4 @@ if [[ "$INCLUDES_FCITX5" == true && "$SKIP_MODULE_BUILD" != true ]]; then
   DESTDIR="$DESTDIR" cmake --install "$BUILD_DIR"
 fi
 
-echo "Staged VoCoType $VERSION flavor=$FLAVOR package=$PACKAGE_NAME under $DESTDIR"
+echo "Staged VoCoType $VERSION flavor=$FLAVOR package=$PACKAGE_NAME manager=${PACKAGE_MANAGER:-unknown} under $DESTDIR"

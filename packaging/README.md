@@ -32,7 +32,7 @@ Every Release build first creates one portable native streaming artifact. The DE
 
 A native package must install:
 
-- `/usr/share/vocotype/`: complete setup/runtime source tree, distro-compatible wheelhouse, and a `.system-package` marker;
+- `/usr/share/vocotype/`: complete setup/runtime source tree, distro-compatible wheelhouse, and a `.system-package` marker recording the package name, flavor, and owning package manager;
 - the Fcitx global module and addon metadata;
 - the IBus component and launcher (`/usr/libexec` on DEB/RPM, `/usr/lib/vocotype` on Arch);
 - `vocotype-settings`, backend, recorder, and precompiled native streaming launchers with private runtime libraries;

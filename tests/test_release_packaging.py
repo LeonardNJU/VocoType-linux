@@ -195,6 +195,7 @@ def test_staging_script_builds_complete_noninteractive_tree(tmp_path: Path):
     marker = (source_root / ".system-package").read_text(encoding="utf-8")
     assert f"version={_version()}" in marker
     assert "managed-by=native-package" in marker
+    assert any(f"manager={name}" in marker for name in ("apt", "dnf", "pacman"))
     assert "source=" not in marker
     assert str(ROOT) not in marker
     for entry in _release_entries():
@@ -485,15 +486,16 @@ def test_package_metadata_renderer_rejects_placeholders_next_to_punctuation(
 
 
 def test_native_package_recipes_share_one_staging_contract(tmp_path: Path):
-    recipes = [
-        ROOT / "packaging/debian/rules",
-        ROOT / "packaging/rpm/vocotype.spec.in",
-        ROOT / "packaging/arch/PKGBUILD.in",
-    ]
-    for recipe in recipes:
+    recipes = {
+        ROOT / "packaging/debian/rules": "apt",
+        ROOT / "packaging/rpm/vocotype.spec.in": "dnf",
+        ROOT / "packaging/arch/PKGBUILD.in": "pacman",
+    }
+    for recipe, manager in recipes.items():
         source = recipe.read_text(encoding="utf-8")
         assert "packaging/tools/stage-system-package.sh" in source
         assert "--flavor" in source
+        assert f"--package-manager {manager}" in source
         assert "pip install" not in source
         assert "download_models" not in source
     for flavor, package_name in (
@@ -976,7 +978,9 @@ def test_release_packages_are_offline_but_require_complete_prebuilt_runtimes():
     assert 'smoke-installed-package.sh "${{ needs.validate-version.outputs.version }}" "$flavor"' in release
     stage = (ROOT / "packaging/tools/stage-system-package.sh").read_text(encoding="utf-8")
     assert '--flavor) FLAVOR=' in stage
+    assert '--package-manager) PACKAGE_MANAGER=' in stage
     assert 'flavor=%s' in stage and 'package=%s' in stage
+    assert "printf 'manager=%s\\n'" in stage
     assert 'rm -rf "$source_root/ibus"' in stage
     assert 'rm -rf "$source_root/fcitx5"' in stage
     assert ".wheelhouse.sha256" in stage

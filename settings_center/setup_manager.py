@@ -88,6 +88,11 @@ def native_package_name(project_root: Path | None = None) -> str | None:
     return metadata.get("package") if metadata else None
 
 
+def native_package_manager(project_root: Path | None = None) -> str | None:
+    metadata = native_package_metadata(project_root)
+    return metadata.get("manager") if metadata else None
+
+
 def package_supports_framework(
     framework: Framework,
     project_root: Path | None = None,
@@ -567,9 +572,20 @@ def native_package_present(project_root: Path | None = None) -> bool:
 
 
 def native_package_removal_command(project_root: Path | None = None) -> str | None:
-    package = native_package_name(project_root)
+    metadata = native_package_metadata(project_root)
+    package = metadata.get("package") if metadata else None
     if not package:
         return None
+
+    manager = metadata.get("manager") if metadata else None
+    if manager == "pacman":
+        return f"sudo pacman -Rns {package}"
+    if manager == "dnf":
+        return f"sudo dnf remove {package}"
+    if manager == "apt":
+        return f"sudo apt remove {package}"
+
+    # Legacy packages did not record their owning package manager.
     if shutil.which("pacman"):
         return f"sudo pacman -Rns {package}"
     if shutil.which("dnf"):

@@ -29,3 +29,19 @@ def test_package_marker_preserves_legacy_defaults(tmp_path: Path):
         "flavor": "universal",
         "package": "vocotype-linux",
     }
+
+
+def test_package_marker_validates_package_manager(tmp_path: Path):
+    marker = tmp_path / ".system-package"
+    marker.write_text(
+        "version=3.0.0b1\nflavor=ibus\npackage=vocotype-linux-ibus\n"
+        "manager=PACMAN\n",
+        encoding="utf-8",
+    )
+    assert read_system_package_marker(marker)["manager"] == "pacman"
+
+    marker.write_text(
+        "version=3.0.0b1\nflavor=ibus\nmanager=brew\n",
+        encoding="utf-8",
+    )
+    assert "manager" not in read_system_package_marker(marker)

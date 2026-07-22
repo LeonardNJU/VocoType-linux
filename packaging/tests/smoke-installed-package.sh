@@ -29,7 +29,14 @@ done
 grep -Fxq 'managed-by=native-package' "$marker"
 flavor=$(sed -n 's/^flavor=//p' "$marker")
 package_name=$(sed -n 's/^package=//p' "$marker")
+package_manager=$(sed -n 's/^manager=//p' "$marker")
 case "$flavor" in universal|ibus|fcitx5) ;; *) echo "invalid package flavor: $flavor" >&2; exit 1 ;; esac
+case "$package_manager" in
+  apt) removal_command="sudo apt remove $package_name" ;;
+  dnf) removal_command="sudo dnf remove $package_name" ;;
+  pacman) removal_command="sudo pacman -Rns $package_name" ;;
+  *) echo "invalid package manager: $package_manager" >&2; exit 1 ;;
+esac
 [[ -z "$expected_flavor" || "$flavor" == "$expected_flavor" ]] || {
   echo "package flavor mismatch: expected=$expected_flavor actual=$flavor" >&2
   exit 1
@@ -177,7 +184,7 @@ fi
 echo "PACKAGE_WHEELHOUSE_OK $wheel_count"
 
 grep -Fq 'PYTHONDONTWRITEBYTECODE=1' /usr/bin/vocotype-settings
-echo "PACKAGE_METADATA_OK flavor=$flavor package=$package_name"
+echo "PACKAGE_METADATA_OK flavor=$flavor package=$package_name manager=$package_manager"
 [[ "$includes_ibus" == true ]] && "$(dirname "$0")/smoke-ibus-registry.sh"
 [[ "$includes_fcitx" == true ]] && "$(dirname "$0")/smoke-fcitx-addon.sh"
 
@@ -225,8 +232,7 @@ for framework in "${frameworks[@]}"; do
   HOME="$lifecycle_home" XDG_CONFIG_HOME="$lifecycle_home/.config" \
     bash "/usr/share/vocotype/$framework/scripts/uninstall-gui.sh" \
     --purge-runtime >"$log" 2>&1
-  grep -Fq "NATIVE_PACKAGE_COMMAND:" "$log"
-  grep -Fq "$package_name" "$log"
+  grep -Fxq "NATIVE_PACKAGE_COMMAND: $removal_command" "$log"
 done
 [[ "$includes_ibus" != true ]] || check_path /usr/share/ibus/component/vocotype.xml
 [[ "$includes_fcitx" != true ]] || check_path "$module"

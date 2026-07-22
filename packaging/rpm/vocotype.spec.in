@@ -36,6 +36,7 @@ native streaming runtime, and a distro-compatible Python wheelhouse.
   --libexecdir "%{_libexecdir}" \
   --build-dir "%{_builddir}/vocotype-fcitx-build-@FLAVOR@" \
   --flavor "@FLAVOR@" \
+  --package-manager dnf \
   --require-streaming-bundle \
   --require-wheelhouse
 

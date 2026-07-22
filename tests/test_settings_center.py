@@ -809,7 +809,11 @@ def test_native_package_removal_command_uses_available_package_manager(
 ):
     import settings_center.setup_manager as setup_manager
 
-    monkeypatch.setattr(setup_manager, "native_package_name", lambda _root=None: "vocotype-linux")
+    monkeypatch.setattr(
+        setup_manager,
+        "native_package_metadata",
+        lambda _root=None: {"package": "vocotype-linux"},
+    )
     monkeypatch.setattr(
         setup_manager.shutil,
         "which",
@@ -1239,7 +1243,7 @@ def test_native_package_flavor_marker_locks_framework_and_package_name(
     root.mkdir()
     (root / ".system-package").write_text(
         "version=3.0.0rc1\nmanaged-by=native-package\n"
-        "flavor=ibus\npackage=vocotype-linux-ibus\n",
+        "flavor=ibus\npackage=vocotype-linux-ibus\nmanager=pacman\n",
         encoding="utf-8",
     )
     assert native_package_flavor(root) == "ibus"
@@ -1251,7 +1255,7 @@ def test_native_package_flavor_marker_locks_framework_and_package_name(
     monkeypatch.setattr(
         setup_manager.shutil,
         "which",
-        lambda command: "/usr/bin/pacman" if command == "pacman" else None,
+        lambda command: "/usr/bin/apt-get" if command == "apt-get" else None,
     )
     assert native_package_removal_command(root) == (
         "sudo pacman -Rns vocotype-linux-ibus"
@@ -1271,43 +1275,51 @@ def test_settings_center_source_locks_specialized_package_framework():
 def test_shared_uninstaller_reports_flavor_specific_native_package_command(
     tmp_path: Path,
 ):
-    for flavor, package in (
-        ("ibus", "vocotype-linux-ibus"),
-        ("fcitx5", "vocotype-linux-fcitx5"),
-    ):
-        home = tmp_path / f"home-{flavor}"
-        prefix = tmp_path / f"prefix-{flavor}"
-        marker = prefix / "share/vocotype/.system-package"
-        marker.parent.mkdir(parents=True)
-        marker.write_text(
-            f"version=3.0.0rc1\nmanaged-by=native-package\n"
-            f"flavor={flavor}\npackage={package}\n",
-            encoding="utf-8",
-        )
-        home.mkdir()
-        env = {
-            **os.environ,
-            "HOME": str(home),
-            "XDG_CONFIG_HOME": str(home / ".config"),
-            "VOCOTYPE_SYSTEM_PREFIX": str(prefix),
-        }
-        result = subprocess.run(
-            [
-                "bash",
-                "installers/uninstall-integration.sh",
-                "--framework",
-                flavor,
-                "--non-interactive",
-                "--yes",
-                "--purge-runtime",
-            ],
-            env=env,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert result.returncode == 0, result.stdout + result.stderr
-        assert f"NATIVE_PACKAGE_COMMAND: sudo pacman -Rns {package}" in result.stdout
+    managers = {
+        "apt": "sudo apt remove",
+        "dnf": "sudo dnf remove",
+        "pacman": "sudo pacman -Rns",
+    }
+    for manager, command in managers.items():
+        for flavor, package in (
+            ("ibus", "vocotype-linux-ibus"),
+            ("fcitx5", "vocotype-linux-fcitx5"),
+        ):
+            home = tmp_path / f"home-{manager}-{flavor}"
+            prefix = tmp_path / f"prefix-{manager}-{flavor}"
+            marker = prefix / "share/vocotype/.system-package"
+            marker.parent.mkdir(parents=True)
+            marker.write_text(
+                f"version=3.0.0b1\nmanaged-by=native-package\n"
+                f"flavor={flavor}\npackage={package}\nmanager={manager}\n",
+                encoding="utf-8",
+            )
+            home.mkdir()
+            env = {
+                **os.environ,
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "VOCOTYPE_SYSTEM_PREFIX": str(prefix),
+            }
+            result = subprocess.run(
+                [
+                    "bash",
+                    "installers/uninstall-integration.sh",
+                    "--framework",
+                    flavor,
+                    "--non-interactive",
+                    "--yes",
+                    "--purge-runtime",
+                ],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            assert result.returncode == 0, result.stdout + result.stderr
+            assert (
+                f"NATIVE_PACKAGE_COMMAND: {command} {package}" in result.stdout
+            )
 
 
 def test_settings_window_models_construction_state_explicitly():

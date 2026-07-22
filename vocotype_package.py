@@ -28,6 +28,9 @@ PACKAGE_FLAVORS: dict[str, dict[str, object]] = {
     },
 }
 
+PACKAGE_MANAGERS = {"apt", "dnf", "pacman"}
+
+
 _FLAVOR_ALIASES = {
     "fcitx": "fcitx5",
     "all": "universal",
@@ -75,4 +78,10 @@ def read_system_package_marker(path: Path) -> dict[str, str]:
         flavor = "universal"
     result["flavor"] = flavor
     result.setdefault("package", str(PACKAGE_FLAVORS[flavor]["package_name"]))
+
+    manager = result.get("manager", "").lower()
+    if manager in PACKAGE_MANAGERS:
+        result["manager"] = manager
+    else:
+        result.pop("manager", None)
     return result

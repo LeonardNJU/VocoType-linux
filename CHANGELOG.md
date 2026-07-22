@@ -46,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced the Debian multiarch streaming-worker ELF symlink with an executable wrapper so `$ORIGIN` resolves from the private runtime directory.
 - Locked distro-specific PyGObject wheels to verified versions and added byte-for-byte payload manifests, wheel ZIP/CRC validation, and pre-install archive audits for DEB, RPM, and Arch.
 - Ubuntu Python 3.11/3.12 CI now installs the verified PyGObject 3.50.2 binding under an explicit resolver constraint instead of drifting to a newer girepository-2.0-only release.
+- Native package markers now record their owning package manager, so uninstall guidance remains correct even when multiple package-manager binaries are present; legacy packages retain PATH-based fallback detection.
 - Prevented Debian reproducibility tooling from rewriting package-local wheels and corrupting ZIP64 metadata.
 - Normalized GitHub-safe asset filenames before generating manifests and checksums, and made dry runs assemble and validate the exact downloadable Release asset set.
 - Recordings shorter than the configured minimum duration are rejected consistently by the shared ASR service, IBus, and Fcitx 5 instead of entering inference with unusable audio.
