@@ -1,9 +1,16 @@
-.PHONY: test release package-deb package-rpm package-arch package-stage clean
+.PHONY: test cpp-core cpp-core-test release package-deb package-rpm package-arch package-stage clean
 
 PYTHON ?= .venv/bin/python
 
 test:
 	$(PYTHON) -m pytest -q
+
+cpp-core:
+	cmake -S native/core -B build/native-core -DCMAKE_BUILD_TYPE=RelWithDebInfo
+	cmake --build build/native-core -j
+
+cpp-core-test: cpp-core
+	ctest --test-dir build/native-core --output-on-failure
 
 release:
 	$(PYTHON) packaging/tools/build-release.py
