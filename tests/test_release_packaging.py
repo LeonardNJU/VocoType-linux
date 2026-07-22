@@ -621,6 +621,29 @@ def test_workflows_parse_and_pin_current_major_actions():
     assert "--prerelease" in publish_script
     assert "--draft" in publish_script
     assert "cleanup_failed_release" in publish_script
+    assert 'notes_file=".github/release-notes/${RELEASE_TAG}.md"' in publish_script
+    assert '--notes-file "$notes_file"' in publish_script
+    assert "--generate-notes" in publish_script  # fallback only
+
+
+
+def test_v3_beta_release_notes_cover_product_level_changes():
+    notes = (ROOT / ".github/release-notes/v3.0.0-beta.1.md").read_text(
+        encoding="utf-8"
+    )
+    for required in (
+        "统一的图形设置中心",
+        "Fcitx 5 成为真正的全局 Module",
+        "IBus 与 Fcitx 5 统一语音编辑",
+        "原生流式 ASR 预览",
+        "用户术语与原生热词",
+        "可配置的中文 ITN",
+        "Doctor、Playground 与反馈",
+        "完整的发行版安装包",
+        "v2.2.3...v3.0.0-beta.1",
+    ):
+        assert required in notes
+    assert "## What's Changed" not in notes
 
 
 def test_release_documentation_explains_all_distribution_layers():

@@ -361,9 +361,15 @@ jobs:
             --repo "$GITHUB_REPOSITORY"
             --target "$GITHUB_SHA"
             --title "$RELEASE_TAG"
-            --generate-notes
             --latest=false
           )
+          notes_file=".github/release-notes/${RELEASE_TAG}.md"
+          if [[ -f "$notes_file" ]]; then
+            release_flags+=(--notes-file "$notes_file")
+          else
+            echo "No curated release notes found at $notes_file; falling back to GitHub-generated notes." >&2
+            release_flags+=(--generate-notes)
+          fi
           if [[ "$PRERELEASE" == true ]]; then
             release_flags+=(--prerelease)
           else

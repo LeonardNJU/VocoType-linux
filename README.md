@@ -9,7 +9,7 @@
   <a href="https://github.com/LeonardNJU/VocoType-linux/issues">问题反馈</a>
 </p>
 
-**VoCoType Linux** 是面向 Linux 桌面的语音输入工具，同时支持 **Fcitx 5** 与 **IBus**。核心语音识别在本地运行，无需 GPU；可选接入本地或远程小语言模型，对长句进行润色和编辑。
+**VoCoType Linux** 是面向 Linux 桌面的语音输入工具，同时支持 **Fcitx 5** 与 **IBus**。核心语音识别在本地运行，无需 GPU；可选连接本机、局域网或云端的 OpenAI-compatible API，对长句进行润色和编辑。
 
 > Windows / macOS 用户请使用 VoCoType 官方桌面版：[vocotype.com](https://vocotype.com/)
 
@@ -142,13 +142,13 @@ VoCoType 作为独立 IBus 引擎运行，并提供与 Fcitx 5 相同的 `Ctrl+F
 
 `Shift+F9` 可将识别结果交给 AI 模型进行断句、纠错和长句润色，支持：
 
-- 本地按需加载的小模型；
-- OpenAI-compatible 远程接口；
-- 流式预览；
+- 任意 OpenAI-compatible API，端点可位于本机、局域网或云端；
+- 与 Ollama、llama.cpp、vLLM、OpenRouter 等兼容服务连接；
+- SSE 流式预览；
 - reasoning / thinking 过滤；
 - 失败时保留原始识别文本。
 
-AI 功能默认关闭。`Shift+F9` 润色和 `Ctrl+F9` 语音编辑都使用用户选择的本地或远程模型；使用远程 provider 时，相应的转写文本会发送到该接口，语音编辑还会发送当前应用提供的 surrounding text、光标和选区。IBus 与 Fcitx 5 共用同一套受限 JSON 编辑计划与本地安全执行器，不再使用自然语言硬编码命令。
+AI 功能默认关闭。`Shift+F9` 润色和 `Ctrl+F9` 语音编辑都调用用户配置并测活的 OpenAI-compatible API；VoCoType 不负责下载、启动、预热或停止模型服务。若端点不在本机，相应的转写文本会发送到该接口，语音编辑还会发送当前应用提供的 surrounding text、光标和选区。IBus 与 Fcitx 5 共用同一套受限 JSON 编辑计划与本地安全执行器，不再使用自然语言硬编码命令。
 
 ### 语音编辑
 
