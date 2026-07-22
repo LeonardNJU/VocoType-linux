@@ -9,14 +9,13 @@ Homepage: https://github.com/LeonardNJU/VocoType-linux
 
 Package: @PACKAGE_NAME@
 Architecture: amd64
-Depends: @DEPENDS@, curl
+Depends: @DEPENDS@
 Provides: vocotype-linux-runtime
 Conflicts: @CONFLICTS@
 Replaces: @CONFLICTS@
-Recommends: python3-venv, libnotify-bin
 Description: @SUMMARY@
  VoCoType provides push-to-talk offline speech input, terminology handling,
  inverse text normalization, and optional AI polishing through an
  OpenAI-compatible API. This flavor installs the @TITLE@ integration,
- the default native C++ core and native ASR runtime, and a binary Python wheelhouse. Graphical setup
- creates the user runtime without local compilation and downloads only models.
+ the native C++ core, compiled desktop integrations, and native ASR runtime.
+ The installed runtime contains only compiled executables and shared resources.

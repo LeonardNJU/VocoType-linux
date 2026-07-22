@@ -169,16 +169,6 @@ std::string finishRecorderProcess(
     return audio_path;
 }
 
-bool copyTextToWaylandClipboard(const std::string &text) {
-    FILE *pipe = popen("wl-copy", "w");
-    if (!pipe) {
-        return false;
-    }
-    const size_t written = fwrite(text.data(), 1, text.size(), pipe);
-    const int status = pclose(pipe);
-    return written == text.size() && status == 0;
-}
-
 std::string resolveBackendSocketPath() {
     if (const char *override_path = std::getenv("VOCOTYPE_FCITX5_SOCKET")) {
         if (*override_path != '\0') {
@@ -186,26 +176,6 @@ std::string resolveBackendSocketPath() {
         }
     }
     return "/tmp/vocotype-fcitx5.sock";
-}
-
-bool pasteTextToX11Client(const std::string &text) {
-    constexpr auto command =
-        "python3 -c 'import subprocess, sys, tkinter as tk; "
-        "data = sys.stdin.read(); root = tk.Tk(); root.withdraw(); "
-        "sentinel = \"__VOCOTYPE_CLIPBOARD_EMPTY__\"; "
-        "previous = root.tk.eval(\"if {[catch {clipboard get} result]} {set result {__VOCOTYPE_CLIPBOARD_EMPTY__}}; set result\"); "
-        "root.clipboard_clear(); root.clipboard_append(data); root.update(); "
-        "root.after(50, lambda: subprocess.Popen([\"xdotool\", \"key\", \"--clearmodifiers\", \"ctrl+v\"])); "
-        "root.after(800, lambda: (root.clipboard_clear(), None if previous == sentinel else root.clipboard_append(previous), root.update())); "
-        "root.after(30000, root.destroy); root.mainloop()'";
-
-    FILE *pipe = popen(command, "w");
-    if (!pipe) {
-        return false;
-    }
-    const size_t written = fwrite(text.data(), 1, text.size(), pipe);
-    const int status = pclose(pipe);
-    return written == text.size() && status == 0;
 }
 
 } // namespace
@@ -1877,42 +1847,6 @@ bool VoCoTypeModule::handlePendingFallbackKey(fcitx::KeyEvent &event) {
     return true;
 }
 
-bool VoCoTypeModule::pasteTextForClient(fcitx::InputContext *ic,
-                                        const std::string &text) {
-    const std::string program = toLower(ic->program());
-    if (program.find("wechat") == std::string::npos) {
-        return false;
-    }
-
-    const std::string session_type = toLower(
-        std::getenv("XDG_SESSION_TYPE") ? std::getenv("XDG_SESSION_TYPE") : "");
-    clearOwnedUI(ic);
-
-    if (session_type == "x11") {
-        auto ic_ref = ic->watch();
-        std::thread([this, ic_ref, text]() {
-            if (pasteTextToX11Client(text)) {
-                return;
-            }
-            scheduleWithContext(
-                ic_ref, [this, ic_ref, text]() {
-                    auto *ic_ptr = ic_ref.get();
-                    if (ic_ptr && ic_ptr->hasFocus()) {
-                        ic_ptr->commitString(text);
-                    }
-                });
-        }).detach();
-        return true;
-    }
-
-    if (!copyTextToWaylandClipboard(text)) {
-        return false;
-    }
-    ic->forwardKey(fcitx::Key(FcitxKey_v, fcitx::KeyState::Ctrl), false, 0);
-    ic->forwardKey(fcitx::Key(FcitxKey_v, fcitx::KeyState::Ctrl), true, 0);
-    return true;
-}
-
 void VoCoTypeModule::commitText(fcitx::InputContext *ic,
                                 const std::string &text,
                                 bool strip_trailing_period) {
@@ -1932,10 +1866,8 @@ void VoCoTypeModule::commitText(fcitx::InputContext *ic,
         return;
     }
 
-    if (!pasteTextForClient(ic, commit_text)) {
-        clearOwnedUI(ic);
-        ic->commitString(commit_text);
-    }
+    clearOwnedUI(ic);
+    ic->commitString(commit_text);
 
     last_committed_ic_ = ic;
     last_committed_program_ = program;

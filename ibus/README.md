@@ -1,107 +1,44 @@
 # VoCoType IBus
 
-VoCoType 的 IBus 集成同时提供离线语音输入、语音编辑和普通 Rime 键盘输入。
-打包安装默认由 Python/GObject 输入法壳按需启动 `vocotype-core`；最终 ASR、
-实时预览、ITN、术语规范化、SSE 润色和语音编辑计划均在 C++ core 中执行。
-`VOCOTYPE_BACKEND=python` 可显式回退旧 inference 路径。
+IBus 集成是一个编译后的原生 `IBusEngine`，不使用 Python/GObject 壳。
 
 ## 功能
 
-- `F9`：低延迟离线语音输入
-- `Shift+F9`：语音识别后通过用户配置的 OpenAI-compatible API 润色
+- `F9`：本地离线语音输入
+- `Shift+F9`：识别后调用 OpenAI-compatible API 流式润色
 - `Ctrl+F9`：基于 surrounding text 的语音编辑
-- 普通字母键：由系统 `librime` 处理并显示预编辑与候选词
-
-VoCoType 不启动或管理本地语言模型。Ollama、llama.cpp、vLLM、局域网服务和云端服务都只作为 OpenAI-compatible API endpoint 使用。
-
-## Rime 架构
-
-IBus 版本分成两条链路：
+- 普通按键：直接链接系统 librime，显示 preedit 和候选词
 
 ```text
-语音：ibus/engine.py → app/native_core_client.py → vocotype-core
-键盘：ibus/engine.py → ibus/rime_runtime.py → ctypes → 系统 librime
+IBus daemon
+  └─ vocotype-ibus-engine
+       ├─ librime
+       ├─ vocotype-audio-recorder
+       └─ vocotype-core
 ```
 
-不需要 `pyrime`，也不会在用户机器上编译任何 Rime Python binding。适配层同时支持 Ubuntu 22.04 的传统直接 C API，以及当前 Fedora/Arch 的 `rime_get_api` 函数表。
-
-VoCoType 使用独立目录：
-
-```text
-~/.config/vocotype/rime/
-├── default.custom.yaml
-├── user.yaml
-└── build/
-```
-
-安装器只部署用户选择的 schema，不修改 `~/.config/ibus/rime`。
-
-## 系统依赖
-
-原生 DEB/RPM/Arch 包会自动安装正确依赖。源码安装时可使用：
-
-```bash
-# Ubuntu / Debian
-sudo apt install ibus librime1 librime-bin librime-data rime-data-luna-pinyin
-
-# Fedora
-sudo dnf install ibus librime librime-tools brise
-
-# Arch
-sudo pacman -S --needed ibus librime librime-data
-```
-
-这些都是运行时依赖；不需要 `librime-dev` 或 `librime-devel`。
+原生引擎通过 `rime_get_api()` 函数表调用 librime，适配当前发行版 ABI。Rime 用户数据位于 `~/.config/vocotype/rime`，不会修改系统 IBus Rime 用户目录。
 
 ## 安装
 
-推荐打开图形设置中心：
+发行包安装后，可在 **VoCoType 设置 → 概览** 点击“安装 / 修复 IBus”，或运行：
 
 ```bash
-bash installers/launch-settings.sh
+bash ibus/scripts/install.sh --download-models
 ```
 
-在“概览与安装”中选择 IBus，并保持“集成 Rime 拼音”启用。安装器会：
+源码构建需要 IBus、librime、GTK、PortAudio、yaml-cpp、libcurl、OpenSSL、nlohmann-json 和 C++20 工具链。安装后的运行环境不需要编译器或 Python。
 
-1. 创建 IBus/GObject、录音和可选 Rime 所需的隔离 Python 环境；
-2. 安装并校验 native core 与两个 FunASR worker；
-3. 下载并校验 ASR/VAD/标点模型；
-4. 部署选择的 Rime schema；
-5. 创建真实 librime session，发送普通按键并验证 preedit；
-6. 注册 IBus component。
+安装完成后，在桌面输入源中添加 **VoCoType Voice Input**。
 
-兼容的交互式源码安装入口仍为：
+## Rime 部署
 
 ```bash
-./ibus/scripts/install.sh
+vocotype-ibus-engine --deploy-rime
 ```
 
-## 使用
+该命令使用 librime 自身的部署 API准备 `~/.config/vocotype/rime/build`。
 
-在桌面输入源中添加 **VoCoType Voice Input**，切换到该输入法后：
+## 诊断
 
-- 直接键入拼音：Rime 候选输入；
-- 按住 `F9`：语音识别；
-- 按住 `Shift+F9`：语音识别与可选 API 润色；
-- 按住 `Ctrl+F9`：语音编辑；
-- 按住 `Ctrl+Shift+F9`：surrounding-text 调试探针。
-
-## 更换 Rime schema
-
-在设置中心修改 schema ID 后重新运行“安装 / 修复”。安装器会重写最小 `schema_list` 并重新部署。例如：
-
-```text
-luna_pinyin
-rime_ice
-```
-
-自定义 schema 的 YAML 和词库必须先存在于系统共享目录或 VoCoType 用户目录中。
-
-## 安装后诊断
-
-```bash
-python tools/diagnostics/validate-ibus-install.py
-python tools/diagnostics/debug-rime.py
-```
-
-诊断会直接调用系统 librime，并验证普通按键、preedit 和候选词，而不是只检查文件或 import。
+打开 `vocotype-settings` 的 Doctor 页面。Doctor 会检查 IBus ELF、librime、模型、音频设备、native core socket，并确认没有 VoCoType Python 进程。

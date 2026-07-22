@@ -5,44 +5,39 @@ from app.config import DEFAULT_CONFIG
 
 
 ROOT = Path(__file__).resolve().parents[1]
-COMMON_RUNTIME = ROOT / "installers" / "runtime-common.sh"
 INSTALLERS = (
     ROOT / "ibus" / "scripts" / "install.sh",
     ROOT / "fcitx5" / "scripts" / "install.sh",
 )
 
 
-def test_pygobject_is_built_in_ci_for_each_supported_distro():
+def test_native_packages_do_not_build_or_ship_pygobject_wheelhouses():
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    dependencies = project["project"]["dependencies"]
-    assert "PyGObject>=3.46" in dependencies
+    # The retained Python development package may still describe legacy tools;
+    # native package/release jobs must not build that dependency closure.
+    assert "project" in project
+    for workflow_name in ("ci.yml", "release.yml"):
+        workflow = (ROOT / ".github/workflows" / workflow_name).read_text(encoding="utf-8")
+        assert "build-runtime-wheelhouse.sh" not in workflow
+        assert "wheelhouse-fcitx5" not in workflow
+        assert "wheelhouse-ibus" not in workflow
+        assert "VOCOTYPE_WHEELHOUSE_DIR" not in workflow
+        assert "PyGObject==" not in workflow
+    stage = (ROOT / "packaging/tools/stage-system-package.sh").read_text(encoding="utf-8")
+    assert "runtime=native" in stage
+    assert "vendor/wheelhouse" not in stage
 
-    ubuntu_constraint = (
-        ROOT / "packaging/constraints/ubuntu-ci.txt"
-    ).read_text(encoding="utf-8")
-    assert "PyGObject==3.50.2" in ubuntu_constraint
-
-    ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    assert "--constraint packaging/constraints/ubuntu-ci.txt" in ci
-    assert "python -m pip install -e ." not in ci
-
-    release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
-    assert "PyGObject==3.50.2" in release
-    assert release.count("PyGObject==3.56.3") >= 2
-    assert "build-runtime-wheelhouse.sh" in release
-    assert "pyrime==0.2.2" not in release
-    assert "VOCOTYPE_PYRIME_SPEC" not in release
-    assert "wheelhouse-fcitx5" in release and "wheelhouse-ibus" in release
 
 
 def test_ibus_release_installers_check_runtime_not_build_dependencies():
-    gui = (ROOT / "ibus" / "scripts" / "install-gui.sh").read_text(encoding="utf-8")
-    cli = (ROOT / "ibus" / "scripts" / "install.sh").read_text(encoding="utf-8")
-    assert "from gi.repository import Gtk, IBus" in gui
-    assert "check_runtime_deps" in cli
-    for source in (gui, cli):
-        assert "check_build_deps" not in source
-        assert "libgirepository1.0-dev" not in source
+    for path in INSTALLERS:
+        source = path.read_text(encoding="utf-8")
+        assert "install-native-user.sh" in source
+        assert "python" not in source.lower()
+    helper = Path("installers/install-system-dependencies.sh").read_text(encoding="utf-8")
+    assert "libibus-1.0-dev" in helper
+    assert "librime-dev" in helper
+
 
 
 def test_default_remote_slm_budget_is_not_the_legacy_600ms_24_tokens():
@@ -57,24 +52,12 @@ def test_default_remote_slm_budget_is_not_the_legacy_600ms_24_tokens():
 
 
 def test_installers_only_offer_openai_compatible_api():
-    shared = COMMON_RUNTIME.read_text(encoding="utf-8")
-    for obsolete in (
-        "local_model",
-        "local_python",
-        "warmup_timeout_ms",
-        "keepalive_ms",
-        "ready_wait_ms",
-    ):
-        assert f'"{obsolete}"' in shared  # migration cleanup only
-    assert 'slm["endpoint"]' not in shared
-    assert '"endpoint": endpoint' in shared
-    for path in INSTALLERS:
-        script = path.read_text(encoding="utf-8")
-        assert "OpenAI-compatible API" in script
-        assert "不启动或管理模型进程" in script
-        assert "torch" not in script
-        assert "transformers" not in script
-        assert "local_ephemeral" not in script
+    source = Path("installers/install-native-user.sh").read_text(encoding="utf-8")
+    assert "OpenAI-compatible" not in source or "chat/completions" in source
+    assert "chat/completions" in source
+    assert "local_model" not in source
+    assert "local_python" not in source
+
 
 def test_default_asr_model_is_contextual_onnx_with_native_hotword_support():
     from app.funasr_config import MODELS
@@ -84,20 +67,22 @@ def test_default_asr_model_is_contextual_onnx_with_native_hotword_support():
 
 
 def test_installers_create_shared_terms_template_without_overwriting_legacy_file():
-    for path in INSTALLERS:
-        script = path.read_text(encoding="utf-8")
-        assert 'TERMS_FILE="$TERMS_DIR/terms.yaml"' in script
-        assert 'LEGACY_TERMS_FILE="$TERMS_DIR/user-dictionary.yaml"' in script
-        assert 'cp "$PROJECT_DIR/data/terms.yaml" "$TERMS_FILE"' in script
-        assert '[ ! -e "$TERMS_FILE" ] && [ ! -e "$LEGACY_TERMS_FILE" ]' in script
+    source = Path("installers/install-native-user.sh").read_text(encoding="utf-8")
+    assert 'local path="$CONFIG_DIR/terms.yaml"' in source
+    assert '[[ -f "$path" ]] && return 0' in source
+    assert "canonical: VoCoType" in source
+    assert "hotword: true" in source
+
 
 
 def test_installers_write_remote_streaming_defaults():
-    shared = COMMON_RUNTIME.read_text(encoding="utf-8")
-    assert '"remote_stream": True' in shared
-    assert '"stream_idle_timeout_ms": timeout_ms' in shared
-    assert '"remote_max_tokens": int(slm.get("remote_max_tokens", 0) or 0)' in shared
-    assert '"extra_headers": slm.get("extra_headers", {})' in shared
+    installer = (ROOT / "installers/install-native-user.sh").read_text(encoding="utf-8")
+    assert '"remote_stream": true' in installer
+    assert '"enable_thinking": false' in installer
+    assert '"timeout_ms": 20000' in installer
+    assert '"max_tokens": 128' in installer
+    assert '"edit_enabled": true' in installer
+
 
 
 def test_official_two_pass_preview_is_optional_and_cpu_bounded_by_default():

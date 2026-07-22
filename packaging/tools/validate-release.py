@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate VoCoType source, wheel, and sdist release artifacts."""
+"""Validate the VoCoType source release archive and metadata."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import argparse
 import json
 import re
 import tarfile
-import zipfile
 from pathlib import Path, PurePosixPath
 import sys
 
@@ -26,30 +25,14 @@ SOURCE_REQUIRED = (
     "packaging/tools/stage-system-package.sh",
     "fcitx5/module/vocotype_module.cpp",
     "ibus/scripts/install-gui.sh",
-    "settings_center/playground_service.py",
+    "native/desktop/CMakeLists.txt",
+    "native/desktop/src/settings_main.cpp",
+    "native/desktop/src/ibus_main.cpp",
+    "native/desktop/src/model_manager_main.cpp",
+    "installers/install-native-user.sh",
     "data/metainfo/io.github.LeonardNJU.VoCoType.metainfo.xml",
 )
-SDIST_REQUIRED = (
-    "README.md",
-    "MANIFEST.in",
-    "vocotype_package.py",
-    "packaging/tools/stage-system-package.sh",
-    "fcitx5/module/vocotype_module.cpp",
-    "ibus/scripts/install-gui.sh",
-    "settings_center/playground_service.py",
-    "tests/test_release_packaging.py",
-)
-WHEEL_REQUIRED = (
-    "app/config.py",
-    "ibus/main.py",
-    "settings_center/application.py",
-    "settings_center/playground_service.py",
-    "vocotype_package.py",
-    "vocotype_version.py",
-    "share/vocotype/terms.yaml",
-    "share/vocotype/ibus/vocotype.xml.in",
-    "share/metainfo/io.github.LeonardNJU.VoCoType.metainfo.xml",
-)
+
 FORBIDDEN_ARCHIVE_PARTS = ("/build/", "/__pycache__/")
 
 
@@ -129,21 +112,13 @@ def validate_release(
             raise ValueError(f"checksum mismatch: {relative}")
 
     source_name = f"VocoType-linux-{version}.tar.gz"
-    wheel_names = [name for name in manifest_entries if name.endswith(".whl")]
-    sdist_names = [
-        name
-        for name in manifest_entries
-        if name.startswith("python/") and name.endswith(".tar.gz")
-    ]
-    if source_name not in manifest_entries or len(wheel_names) != 1 or len(sdist_names) != 1:
-        raise ValueError("release must contain one source archive, one wheel, and one Python sdist")
-    python_files = sorted(
-        path.relative_to(root).as_posix()
-        for path in (root / "python").iterdir()
-        if path.is_file()
-    )
-    if python_files != sorted([wheel_names[0], sdist_names[0]]):
-        raise ValueError(f"unexpected Python release files: {python_files}")
+    if set(manifest_entries) != {source_name}:
+        raise ValueError(
+            "source release must contain exactly one source archive; "
+            f"found {sorted(manifest_entries)}"
+        )
+    if (root / "python").exists() or any(name.endswith(".whl") for name in manifest_entries):
+        raise ValueError("Python distribution artifacts are not part of the native release")
 
     with tarfile.open(root / source_name) as archive:
         source_members = archive.getnames()
@@ -155,10 +130,6 @@ def validate_release(
         raise ValueError("source archive has an inconsistent top-level directory")
     _require_suffixes(source_members, SOURCE_REQUIRED, "source archive")
 
-    with zipfile.ZipFile(root / wheel_names[0]) as archive:
-        _require_suffixes(archive.namelist(), WHEEL_REQUIRED, "wheel")
-    with tarfile.open(root / sdist_names[0]) as archive:
-        _require_suffixes(archive.getnames(), SDIST_REQUIRED, "sdist")
 
     return manifest
 

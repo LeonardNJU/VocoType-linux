@@ -78,7 +78,7 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
-  source-python-deb:
+  source-deb:
     needs: [validate-version, native-streaming]
     runs-on: ubuntu-22.04
     steps:
@@ -92,38 +92,24 @@ jobs:
         with:
           name: native-streaming-linux-x86_64
           path: ${{ runner.temp }}/native-artifact
-      - name: Install DEB, Python wheel, and smoke-test dependencies
+      - name: Install DEB native build and smoke-test dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             build-essential debhelper cmake pkg-config \
-            libfcitx5core-dev nlohmann-json3-dev \
-            libgirepository1.0-dev libcairo2-dev libglib2.0-dev libffi-dev \
-            python3-gi gir1.2-gtk-3.0 ibus fcitx5 \
-            librime-bin librime-data rime-data-luna-pinyin \
+            libfcitx5core-dev nlohmann-json3-dev libibus-1.0-dev librime-dev \
+            libgtk-3-dev libyaml-cpp-dev libcurl4-openssl-dev libssl-dev \
+            ibus fcitx5 librime-bin librime-data rime-data-luna-pinyin \
             libportaudio2 portaudio19-dev policykit-1 dbus-daemon \
             meson ninja-build
-          python -m pip install --upgrade pip
-          python -m pip install build twine uv wheel
       - name: Unpack audited native runtime
         run: |
           archive=$(find "$RUNNER_TEMP/native-artifact" -name 'vocotype-native-streaming-*.tar.gz' -print -quit)
           test -n "$archive"
           packaging/tools/unpack-native-streaming-release.sh "$archive" "$RUNNER_TEMP/native-bundle"
-      - name: Build Ubuntu-compatible flavor wheelhouses
-        env:
-          VOCOTYPE_WHEELHOUSE_PYTHON: python
-          VOCOTYPE_PYGOBJECT_SPEC: PyGObject==3.50.2
-        run: |
-          packaging/tools/build-runtime-wheelhouse.sh \
-            "$RUNNER_TEMP/wheelhouse-fcitx5" fcitx5
-          VOCOTYPE_BASE_WHEELHOUSE_DIR="$RUNNER_TEMP/wheelhouse-fcitx5" \
-            packaging/tools/build-runtime-wheelhouse.sh \
-            "$RUNNER_TEMP/wheelhouse-ibus" ibus
-      - name: Build and validate source/Python release metadata
+      - name: Build and validate source release metadata
         run: |
           python packaging/tools/build-release.py --expected-version "${{ needs.validate-version.outputs.version }}"
-          python -m twine check dist/release/python/*
           python packaging/tools/validate-release.py \
             --expected-version "${{ needs.validate-version.outputs.version }}" \
             --expected-commit "$GITHUB_SHA"
@@ -132,10 +118,7 @@ jobs:
           VOCOTYPE_STREAMING_BUNDLE_DIR: ${{ runner.temp }}/native-bundle
         run: |
           for flavor in universal ibus fcitx5; do
-            wheelhouse="$RUNNER_TEMP/wheelhouse-ibus"
-            [[ "$flavor" == fcitx5 ]] && wheelhouse="$RUNNER_TEMP/wheelhouse-fcitx5"
-            VOCOTYPE_WHEELHOUSE_DIR="$wheelhouse" \
-              packaging/tools/build-deb.sh dist/packages "$flavor"
+            packaging/tools/build-deb.sh dist/packages "$flavor"
           done
       - name: Install and validate every Debian flavor
         run: |
@@ -144,9 +127,7 @@ jobs:
             package_name=$(python3 packaging/tools/package-flavor.py "$flavor" --field package_name)
             package=$(find dist/packages -maxdepth 1 -name "${package_name}_${debian_version}-*_amd64.deb" -print -quit)
             test -n "$package"
-            wheelhouse="$RUNNER_TEMP/wheelhouse-ibus"
-            [[ "$flavor" == fcitx5 ]] && wheelhouse="$RUNNER_TEMP/wheelhouse-fcitx5"
-            packaging/tests/audit-built-package.sh "$package" "$wheelhouse" "${{ needs.validate-version.outputs.version }}" "$flavor"
+            packaging/tests/audit-built-package.sh "$package" "${{ needs.validate-version.outputs.version }}" "$flavor"
             sudo apt-get install -y "$(realpath "$package")"
             sudo packaging/tests/smoke-installed-package.sh "${{ needs.validate-version.outputs.version }}" "$flavor"
             sudo env PATH="$PATH" packaging/tests/smoke-binary-runtime.sh
@@ -155,7 +136,7 @@ jobs:
           done
       - uses: actions/upload-artifact@v7
         with:
-          name: source-python-deb
+          name: source-deb
           path: |
             dist/release/
             dist/packages/*.deb
@@ -169,17 +150,15 @@ jobs:
     runs-on: ubuntu-24.04
     container: fedora:44
     steps:
-      - name: Install RPM, wheel, and smoke-test tools
+      - name: Install RPM native build and smoke-test tools
         run: |
           dnf install -y \
             git python3 python3-pip rpm-build cmake gcc gcc-c++ \
-            pkgconf-pkg-config fcitx5-devel nlohmann-json-devel \
-            systemd-rpm-macros python3-gobject gtk3 ibus fcitx5 \
-            librime librime-tools brise \
-            portaudio portaudio-devel polkit dbus-daemon \
-            glib2-devel gobject-introspection-devel cairo-gobject-devel libffi-devel \
+            pkgconf-pkg-config fcitx5-devel nlohmann-json-devel ibus-devel librime-devel \
+            systemd-rpm-macros gtk3 gtk3-devel ibus fcitx5 \
+            librime librime-tools brise yaml-cpp yaml-cpp-devel \
+            libcurl-devel openssl-devel portaudio portaudio-devel polkit dbus-daemon \
             meson ninja-build binutils cpio
-          python3 -m pip install --break-system-packages uv
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -189,34 +168,17 @@ jobs:
         with:
           name: native-streaming-linux-x86_64
           path: ${{ runner.temp }}/native-artifact
-      - name: Prepare Python 3.12 wheel builder
-        run: |
-          uv python install 3.12
-          uv venv --python 3.12 --seed "$RUNNER_TEMP/wheel-builder"
       - name: Unpack audited native runtime
         run: |
           archive=$(find "$RUNNER_TEMP/native-artifact" -name 'vocotype-native-streaming-*.tar.gz' -print -quit)
           test -n "$archive"
           packaging/tools/unpack-native-streaming-release.sh "$archive" "$RUNNER_TEMP/native-bundle"
-      - name: Build Fedora-compatible flavor wheelhouses
-        env:
-          VOCOTYPE_WHEELHOUSE_PYTHON: ${{ runner.temp }}/wheel-builder/bin/python
-          VOCOTYPE_PYGOBJECT_SPEC: PyGObject==3.56.3
-        run: |
-          packaging/tools/build-runtime-wheelhouse.sh \
-            "$RUNNER_TEMP/wheelhouse-fcitx5" fcitx5
-          VOCOTYPE_BASE_WHEELHOUSE_DIR="$RUNNER_TEMP/wheelhouse-fcitx5" \
-            packaging/tools/build-runtime-wheelhouse.sh \
-            "$RUNNER_TEMP/wheelhouse-ibus" ibus
       - name: Build all complete RPM flavors
         env:
           VOCOTYPE_STREAMING_BUNDLE_DIR: ${{ runner.temp }}/native-bundle
         run: |
           for flavor in universal ibus fcitx5; do
-            wheelhouse="$RUNNER_TEMP/wheelhouse-ibus"
-            [[ "$flavor" == fcitx5 ]] && wheelhouse="$RUNNER_TEMP/wheelhouse-fcitx5"
-            VOCOTYPE_WHEELHOUSE_DIR="$wheelhouse" \
-              packaging/tools/build-rpm.sh dist/packages "$flavor"
+            packaging/tools/build-rpm.sh dist/packages "$flavor"
           done
       - name: Install and validate every RPM flavor
         run: |
@@ -226,9 +188,7 @@ jobs:
             package_name=$(python3 packaging/tools/package-flavor.py "$flavor" --field package_name)
             package=$(find dist/packages -maxdepth 1 -name "${package_name}-${rpm_version}-${rpm_release}*.x86_64.rpm" ! -name '*debug*' -print -quit)
             test -n "$package"
-            wheelhouse="$RUNNER_TEMP/wheelhouse-ibus"
-            [[ "$flavor" == fcitx5 ]] && wheelhouse="$RUNNER_TEMP/wheelhouse-fcitx5"
-            packaging/tests/audit-built-package.sh "$package" "$wheelhouse" "${{ needs.validate-version.outputs.version }}" "$flavor"
+            packaging/tests/audit-built-package.sh "$package" "${{ needs.validate-version.outputs.version }}" "$flavor"
             dnf install -y "$package"
             packaging/tests/smoke-installed-package.sh "${{ needs.validate-version.outputs.version }}" "$flavor"
             packaging/tests/smoke-binary-runtime.sh
@@ -247,14 +207,12 @@ jobs:
     runs-on: ubuntu-24.04
     container: archlinux:base-devel
     steps:
-      - name: Install Arch, wheel, and smoke-test tools
+      - name: Install Arch native build and smoke-test tools
         run: |
           pacman -Syu --noconfirm \
-            git python python-pip cmake gcc pkgconf fcitx5 nlohmann-json \
-            python-gobject gtk3 ibus librime librime-data \
-            portaudio polkit dbus \
-            glib2-devel gobject-introspection cairo libffi meson ninja binutils
-          python -m pip install --break-system-packages uv
+            git python cmake gcc pkgconf fcitx5 nlohmann-json \
+            gtk3 ibus librime librime-data yaml-cpp curl openssl \
+            portaudio polkit dbus meson ninja binutils
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -262,36 +220,18 @@ jobs:
         with:
           name: native-streaming-linux-x86_64
           path: ${{ runner.temp }}/native-artifact
-      - name: Prepare Python 3.12 wheel builder
-        run: |
-          uv python install 3.12
-          uv venv --python 3.12 --seed "$RUNNER_TEMP/wheel-builder"
       - name: Unpack audited native runtime
         run: |
           archive=$(find "$RUNNER_TEMP/native-artifact" -name 'vocotype-native-streaming-*.tar.gz' -print -quit)
           test -n "$archive"
           packaging/tools/unpack-native-streaming-release.sh "$archive" "$RUNNER_TEMP/native-bundle"
-      - name: Build Arch-compatible flavor wheelhouses
-        env:
-          VOCOTYPE_WHEELHOUSE_PYTHON: ${{ runner.temp }}/wheel-builder/bin/python
-          VOCOTYPE_PYGOBJECT_SPEC: PyGObject==3.56.3
-        run: |
-          packaging/tools/build-runtime-wheelhouse.sh \
-            "$RUNNER_TEMP/wheelhouse-fcitx5" fcitx5
-          VOCOTYPE_BASE_WHEELHOUSE_DIR="$RUNNER_TEMP/wheelhouse-fcitx5" \
-            packaging/tools/build-runtime-wheelhouse.sh \
-            "$RUNNER_TEMP/wheelhouse-ibus" ibus
       - name: Build all complete Arch flavors as an unprivileged user
         run: |
           useradd -m builder
-          chown -R builder:builder "$GITHUB_WORKSPACE" "$RUNNER_TEMP/native-bundle" \
-            "$RUNNER_TEMP/wheelhouse-fcitx5" "$RUNNER_TEMP/wheelhouse-ibus"
+          chown -R builder:builder "$GITHUB_WORKSPACE" "$RUNNER_TEMP/native-bundle"
           for flavor in universal ibus fcitx5; do
-            wheelhouse="$RUNNER_TEMP/wheelhouse-ibus"
-            [[ "$flavor" == fcitx5 ]] && wheelhouse="$RUNNER_TEMP/wheelhouse-fcitx5"
             su builder -c "cd '$GITHUB_WORKSPACE' && \
               VOCOTYPE_STREAMING_BUNDLE_DIR='$RUNNER_TEMP/native-bundle' \
-              VOCOTYPE_WHEELHOUSE_DIR='$wheelhouse' \
               packaging/tools/build-arch.sh dist/packages '$flavor'"
           done
       - name: Install and validate every Arch flavor
@@ -301,9 +241,7 @@ jobs:
             package_name=$(python3 packaging/tools/package-flavor.py "$flavor" --field package_name)
             package=$(find dist/packages -maxdepth 1 -name "${package_name}-${arch_version}-*.pkg.tar.*" ! -name '*debug*' -print -quit)
             test -n "$package"
-            wheelhouse="$RUNNER_TEMP/wheelhouse-ibus"
-            [[ "$flavor" == fcitx5 ]] && wheelhouse="$RUNNER_TEMP/wheelhouse-fcitx5"
-            packaging/tests/audit-built-package.sh "$package" "$wheelhouse" "${{ needs.validate-version.outputs.version }}" "$flavor"
+            packaging/tests/audit-built-package.sh "$package" "${{ needs.validate-version.outputs.version }}" "$flavor"
             pacman -U --noconfirm "$package"
             packaging/tests/smoke-installed-package.sh "${{ needs.validate-version.outputs.version }}" "$flavor"
             packaging/tests/smoke-binary-runtime.sh
@@ -318,7 +256,7 @@ jobs:
           compression-level: 0
 
   assemble:
-    needs: [validate-version, native-streaming, source-python-deb, rpm, arch]
+    needs: [validate-version, native-streaming, source-deb, rpm, arch]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6

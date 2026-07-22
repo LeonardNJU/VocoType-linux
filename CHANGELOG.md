@@ -5,6 +5,25 @@ All notable changes to VoCoType Linux will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added a compiled PortAudio recorder, checksum-pinned ModelScope model manager, native GTK settings center, and native IBus engine with direct librime integration.
+- Added native graphical install/repair, model validation/download, Playground, ITN, terminology, SLM, and zero-Python Doctor workflows.
+
+### Changed
+
+- The installed runtime is now native-only: DEB, RPM, and Arch packages contain ELF executables, shared libraries, resources, and shell lifecycle scripts, with no Python interpreter, virtual environment, wheelhouse, or Python path launcher.
+- Fcitx 5 and IBus both use the same C++ core, C++ audio recorder, C++ normalization/terminology layer, and C++ OpenAI-compatible SSE client.
+- Fcitx text submission now uses only official input-method commit and surrounding-text APIs; clipboard injection fallbacks were removed.
+- Source and graphical install entrypoints now build or activate the native runtime and preserve existing configuration and model caches during upgrades.
+
+### Removed
+
+- Removed runtime dependencies on PyGObject, NumPy, SoundDevice, PyYAML, Python FunASR wrappers, private venvs, and package-local wheelhouses.
+- Removed the Python backend fallback from installed launchers.
+
 ## [3.0.0-beta.2] - 2026-07-22
 
 ### Added

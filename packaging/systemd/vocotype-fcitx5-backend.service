@@ -1,5 +1,5 @@
 [Unit]
-Description=VoCoType Fcitx 5 Backend
+Description=VoCoType Native Fcitx 5 Backend
 After=graphical-session.target
 PartOf=graphical-session.target
 
@@ -7,9 +7,7 @@ PartOf=graphical-session.target
 Type=simple
 ExecStart=/usr/bin/vocotype-fcitx5-backend
 Restart=on-failure
-RestartSec=5
-Environment=PYTHONIOENCODING=UTF-8
-Environment=PYTHONDONTWRITEBYTECODE=1
+RestartSec=3
 
 [Install]
 WantedBy=default.target

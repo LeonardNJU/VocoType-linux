@@ -59,18 +59,14 @@ def test_runtime_check_reports_nested_dependency_failure():
 
 
 def test_ibus_system_python_uses_runtime_check_and_bound_pip_command():
-    source = IBUS_INSTALLER.read_text(encoding="utf-8")
+    wrapper = IBUS_INSTALLER.read_text(encoding="utf-8")
+    native = (ROOT / "installers/install-native-user.sh").read_text(encoding="utf-8")
+    assert "install-native-user.sh" in wrapper
+    assert "vocotype-model-manager" in native
+    assert "verify_models" in native
+    assert "pip install" not in native
+    assert "python_choice" not in native.lower()
 
-    assert '"$PYTHON" "$PROJECT_DIR/installers/check-python-runtime.py"' in source
-    assert 'install_runtime_requirements "$PYTHON" "$PROJECT_DIR"' in source
-    shared = Path("installers/runtime-common.sh").read_text(encoding="utf-8")
-    assert "--only-binary=:all:" in shared
-    assert '--no-index --find-links "$wheelhouse"' in shared
-    assert "拒绝在本机编译依赖" in shared
-    assert "pip install -r $PROJECT_DIR/requirements.txt" not in source.replace(
-        "$PYTHON -m pip install -r $PROJECT_DIR/requirements.txt",
-        "",
-    )
 
 
 def test_package_manifests_pin_torch_free_funasr_onnx_release():
@@ -97,170 +93,32 @@ def test_installer_does_not_offer_obsolete_funasr_onnx_torch_workaround():
 
 
 
-def test_shared_sed_replacement_helper_escapes_metacharacters():
-    library = ROOT / "installers/runtime-common.sh"
-    result = subprocess.run(
-        [
-            "bash",
-            "-c",
-            f'source "{library}"; escape_sed_replacement "$1"',
-            "bash",
-            "a" + chr(92) + "b&c|d",
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
-    assert result.stdout == "a" + chr(92) * 2 + "b" + chr(92) + "&c" + chr(92) + "|d"
+def test_native_installer_uses_an_exact_user_fcitx_module_stem():
+    installer = (ROOT / "installers/install-native-user.sh").read_text(encoding="utf-8")
+    assert 'Library=$HOME/.local/lib/fcitx5/vocotype' in installer
+    assert 'vocotype.so' in installer
+    assert 'FCITX_ADDON_DIRS' in installer
+    assert 'escape_sed_replacement' not in installer
+
 
 def test_shared_runtime_helpers_are_sourced_once_and_keep_behavior(tmp_path: Path):
-    library = ROOT / "installers/runtime-common.sh"
-    source = library.read_text(encoding="utf-8")
-    for function in (
-        "get_python_version",
-        "resolve_python_cmd",
-        "is_supported_python",
-        "detect_system_python",
-        "escape_sed_replacement",
-        "write_slm_config_json",
-    ):
-        assert source.count(f"{function}()") == 1
-    for relative in ("ibus/scripts/install.sh", "fcitx5/scripts/install.sh"):
-        installer = (ROOT / relative).read_text(encoding="utf-8")
-        assert 'source "$PROJECT_DIR/installers/runtime-common.sh"' in installer
-        for function in (
-            "get_python_version",
-            "resolve_python_cmd",
-            "is_supported_python",
-            "detect_system_python",
-            "escape_sed_replacement",
-            "write_slm_config_json",
-        ):
-            assert f"{function}()" not in installer
+    for relative, framework in (("ibus/scripts/install.sh", "ibus"), ("fcitx5/scripts/install.sh", "fcitx5")):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        assert "install-native-user.sh" in source
+        assert f"--framework {framework}" in source
+        assert "runtime-common.sh" not in source
+        assert "python" not in source.lower()
+    native = (ROOT / "installers/install-native-user.sh").read_text(encoding="utf-8")
+    assert "write_default_config" in native
+    assert "write_terms_template" in native
+    assert "cleanup_legacy_python" in native
 
-    version = subprocess.run(
-        ["bash", "-c", f'source "{library}"; get_python_version "{sys.executable}"'],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert version.returncode == 0, version.stderr
-    assert version.stdout.strip() == f"{sys.version_info.major}.{sys.version_info.minor}"
-
-    resolved = subprocess.run(
-        [
-            "bash",
-            "-c",
-            f'source "{library}"; resolve_python_cmd "{sys.executable}"',
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert resolved.returncode == 0, resolved.stderr
-    assert Path(resolved.stdout.strip()).resolve() == Path(sys.executable).resolve()
-
-    supported = subprocess.run(
-        [
-            "bash",
-            "-c",
-            f'source "{library}"; PYTHON_MIN_MINOR=11; PYTHON_MAX_MINOR=12; '
-            f'is_supported_python "{sys.executable}"',
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert supported.returncode == 0, supported.stderr
-
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    (bin_dir / "python3.12").symlink_to(Path(sys.executable).resolve())
-    detected = subprocess.run(
-        [
-            "bash",
-            "-c",
-            f'PATH="{bin_dir}"; source "{library}"; '
-            'PYTHON_MIN_MINOR=11; PYTHON_MAX_MINOR=12; detect_system_python',
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert detected.returncode == 0, detected.stderr
-    assert Path(detected.stdout.strip()).resolve() == Path(sys.executable).resolve()
-
-    config = tmp_path / "runtime.json"
-    command = (
-        f'source "{library}"; '
-        f'write_slm_config_json "{config}" "{sys.executable}" '
-        '1 "https://api.example/v1/chat/completions" model '
-        '12000 4 256 0 secret'
-    )
-    result = subprocess.run(
-        ["bash", "-c", command],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
-    payload = json.loads(config.read_text(encoding="utf-8"))
-    assert payload["slm"]["enabled"] is True
-    assert "provider" not in payload["slm"]
-    assert payload["slm"]["endpoint"] == "https://api.example/v1/chat/completions"
-    assert payload["slm"]["api_key"] == "secret"
-    assert payload["slm"]["remote_stream"] is True
-    for obsolete in ("local_model", "local_python", "warmup_timeout_ms"):
-        assert obsolete not in payload["slm"]
 
 
 def test_native_streaming_bundle_helper_is_shared_and_installs_private_runtime(tmp_path: Path):
-    library = ROOT / "installers/runtime-common.sh"
-    source = library.read_text(encoding="utf-8")
-    assert source.count("install_native_streaming_bundle()") == 1
-    for relative in ("ibus/scripts/install.sh", "fcitx5/scripts/install.sh"):
-        installer = (ROOT / relative).read_text(encoding="utf-8")
-        assert 'install_native_streaming_bundle "$PROJECT_DIR"' in installer
-
-    bundle = tmp_path / "bundle"
-    (bundle / "bin").mkdir(parents=True)
-    (bundle / "lib").mkdir()
-    for name in (
-        "vocotype-core",
-        "vocotype-streaming-worker",
-        "vocotype-offline-worker",
-    ):
-        executable = bundle / "bin" / name
-        executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-        executable.chmod(0o755)
-    (bundle / "lib/libfunasr.so").write_bytes(b"local-runtime")
-    home = tmp_path / "home"
-    env = os.environ.copy()
-    env.update(
-        {
-            "HOME": str(home),
-            "VOCOTYPE_STREAMING_BUNDLE_DIR": str(bundle),
-            "VOCOTYPE_SYSTEM_PREFIX": str(tmp_path / "system"),
-        }
-    )
-    result = subprocess.run(
-        [
-            "bash",
-            "-c",
-            f'source "{library}"; install_native_streaming_bundle "{ROOT}"',
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
-        env=env,
-    )
-    assert result.returncode == 0, result.stderr
-    installed = home / ".local/lib/vocotype-streaming"
-    for name in (
-        "vocotype-core",
-        "vocotype-streaming-worker",
-        "vocotype-offline-worker",
-    ):
-        assert (installed / "bin" / name).stat().st_mode & 0o100
-    assert (installed / "lib/libfunasr.so").read_bytes() == b"local-runtime"
+    source = (ROOT / "installers/install-native-user.sh").read_text(encoding="utf-8")
+    assert "native/streaming_worker/build/bundle" in source
+    assert 'cp -a "$PROJECT_DIR/native/streaming_worker/build/bundle/." "$STREAMING_HOME/"' in source
+    assert "vocotype-audio-recorder" in source
+    assert "vocotype-model-manager" in source
+    assert "vocotype-settings" in source

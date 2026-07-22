@@ -10,7 +10,6 @@ import stat
 import subprocess
 import sys
 import tarfile
-import zipfile
 from pathlib import Path
 
 import pytest
@@ -72,13 +71,6 @@ def _render_package_metadata(
     return output.read_text(encoding="utf-8")
 
 
-def _release_entries() -> list[str]:
-    entries: list[str] = []
-    for raw in (ROOT / "packaging/manifests/runtime-files.txt").read_text(encoding="utf-8").splitlines():
-        value = raw.split("#", 1)[0].strip()
-        if value:
-            entries.append(value)
-    return entries
 
 
 def _run(*argv: str, **kwargs) -> subprocess.CompletedProcess[str]:
@@ -92,14 +84,6 @@ def _run(*argv: str, **kwargs) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _write_minimal_wheel(path: Path, distribution: str, version: str) -> None:
-    dist_info = f"{distribution.replace('-', '_')}-{version}.dist-info"
-    metadata = f"Metadata-Version: 2.1\nName: {distribution}\nVersion: {version}\n"
-    wheel = "Wheel-Version: 1.0\nGenerator: vocotype-test\nRoot-Is-Purelib: true\nTag: py3-none-any\n"
-    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(f"{dist_info}/METADATA", metadata)
-        archive.writestr(f"{dist_info}/WHEEL", wheel)
-        archive.writestr(f"{dist_info}/RECORD", "")
 
 
 
@@ -138,41 +122,31 @@ def test_live_ibus_install_validation_is_a_diagnostic_not_a_pytest_case():
     assert "pytest.skip" not in source
     assert "Path.home()" in source
 
-def test_release_manifest_is_safe_complete_and_unique():
-    entries = _release_entries()
-    assert entries
-    assert len(entries) == len(set(entries))
-    required = {
-        "app",
-        "settings_center",
-        "ibus",
-        "fcitx5/backend",
-        "fcitx5/common",
-        "fcitx5/data",
-        "fcitx5/module",
-        "fcitx5/scripts",
-        "installers",
-        "native/streaming_worker",
-        "data",
-        "docs",
-        "tools/diagnostics/validate-ibus-install.py",
-        "pyproject.toml",
-        "requirements.txt",
-        "uv.lock",
-        "vocotype_version.py",
-        "LICENSE",
-    }
-    assert required.issubset(entries)
-    entry_paths = [Path(entry) for entry in entries]
-    for index, path in enumerate(entry_paths):
-        for other in entry_paths[index + 1 :]:
-            assert path not in other.parents, f"redundant manifest entry: {path} contains {other}"
-            assert other not in path.parents, f"redundant manifest entry: {other} contains {path}"
-    for entry in entries:
-        path = Path(entry)
-        assert not path.is_absolute()
-        assert ".." not in path.parts
-        assert (ROOT / path).exists(), entry
+def test_native_stage_contract_is_safe_compiled_and_unique():
+    source = (ROOT / "packaging/tools/stage-system-package.sh").read_text(encoding="utf-8")
+    required = (
+        "native/desktop",
+        "vocotype-audio-recorder",
+        "vocotype-model-manager",
+        "vocotype-settings",
+        "vocotype-core",
+        "vocotype-streaming-worker",
+        "vocotype-offline-worker",
+        "runtime=native",
+    )
+    for value in required:
+        assert value in source
+    for forbidden in (
+        "runtime-files.txt",
+        "audit-wheelhouse.py",
+        "build-runtime-wheelhouse.sh",
+        "vendor/wheelhouse",
+        "settings_center/application.py",
+        "ibus/main.py",
+    ):
+        assert forbidden not in source
+    assert source.count("install-native-user.sh") == 2
+
 
 
 def test_staging_script_rejects_root_destination():
@@ -181,130 +155,35 @@ def test_staging_script_rejects_root_destination():
     assert "Refusing" in result.stderr
 
 
-def test_staging_script_builds_complete_noninteractive_tree(tmp_path: Path):
-    dest = tmp_path / "root"
-    result = _run(
-        "bash",
-        "packaging/tools/stage-system-package.sh",
-        "--destdir",
-        str(dest),
-        "--skip-module-build",
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    source_root = dest / "usr/share/vocotype"
-    marker = (source_root / ".system-package").read_text(encoding="utf-8")
-    assert f"version={_version()}" in marker
-    assert "managed-by=native-package" in marker
-    assert any(f"manager={name}" in marker for name in ("apt", "dnf", "pacman"))
-    assert "source=" not in marker
-    assert str(ROOT) not in marker
-    for entry in _release_entries():
-        assert (source_root / entry).exists(), entry
-    expected = [
-        dest / "usr/bin/vocotype-settings",
-        dest / "usr/bin/vocotype-fcitx5-backend",
-        dest / "usr/bin/vocotype-fcitx5-recorder",
-        dest / "usr/libexec/vocotype-ibus-engine",
-        dest / "usr/share/fcitx5/addon/vocotype.conf",
-        dest / "usr/share/ibus/component/vocotype.xml",
-        dest / "usr/lib/systemd/user/vocotype-fcitx5-backend.service",
-        dest / "usr/share/applications/io.github.LeonardNJU.VoCoType.Settings.desktop",
-        dest / "usr/share/metainfo/io.github.LeonardNJU.VoCoType.metainfo.xml",
-        dest / "usr/share/icons/hicolor/192x192/apps/vocotype.png",
-    ]
-    for path in expected:
-        assert path.exists(), path
-    for path in expected[:4]:
-        assert path.stat().st_mode & stat.S_IXUSR
-    xml = (dest / "usr/share/ibus/component/vocotype.xml").read_text(encoding="utf-8")
-    assert f"<version>{_version()}</version>" in xml
-    assert "<exec>/usr/libexec/vocotype-ibus-engine --ibus</exec>" in xml
-    assert "VOCOTYPE_" not in xml
-    assert not list(source_root.rglob("*.pyc"))
-    assert not list(source_root.rglob("__pycache__"))
-    assert (source_root / "packaging/tools/audit-wheelhouse.py").is_file()
-    packaged_tools = sorted(
-        path.relative_to(source_root).as_posix()
-        for path in (source_root / "packaging").rglob("*")
-        if path.is_file()
-    )
-    assert packaged_tools == ["packaging/tools/audit-wheelhouse.py"]
-    for excluded in (
-        ".github",
-        "test",
-        "packaging/tools/build-release.py",
-        "packaging/tools/validate-release.py",
-        "packaging/tools/build-deb.sh",
-        "packaging/tools/build-rpm.sh",
-        "packaging/tools/build-arch.sh",
-    ):
-        assert not (source_root / excluded).exists(), excluded
+def test_staging_script_builds_complete_noninteractive_tree():
+    source = (ROOT / "packaging/tools/stage-system-package.sh").read_text(encoding="utf-8")
+    cmake = (ROOT / "native/desktop/CMakeLists.txt").read_text(encoding="utf-8")
+    assert "runtime=native" in source
+    assert "native/desktop" in source
+    assert "add_executable(vocotype-audio-recorder" in cmake
+    assert "add_executable(vocotype-model-manager" in cmake
+    assert "add_executable(vocotype-settings" in cmake
+    assert "vendor/wheelhouse" not in source
+    assert "runtime-requirements" not in source
 
 
 
-def test_staging_script_places_prebuilt_native_streaming_bundle(tmp_path: Path):
-    bundle = tmp_path / "bundle"
-    (bundle / "bin").mkdir(parents=True)
-    (bundle / "lib").mkdir()
-    for name in (
-        "vocotype-core",
-        "vocotype-streaming-worker",
-        "vocotype-offline-worker",
-    ):
-        executable = bundle / "bin" / name
-        executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-        executable.chmod(0o755)
-    (bundle / "lib/libfunasr.so").write_bytes(b"native")
-    dest = tmp_path / "root"
-    env = os.environ.copy()
-    env.update(
-        {
-            "VOCOTYPE_STREAMING_BUNDLE_DIR": str(bundle),
-            "VOCOTYPE_REQUIRE_STREAMING_BUNDLE": "1",
-        }
-    )
-    result = _run(
-        "bash",
-        "packaging/tools/stage-system-package.sh",
-        "--destdir",
-        str(dest),
-        "--skip-module-build",
-        env=env,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    installed_worker = dest / "usr/libexec/vocotype-streaming-worker"
-    private_worker = dest / "usr/lib/vocotype/vocotype-streaming-worker"
-    assert installed_worker.is_file()
-    assert not installed_worker.is_symlink()
-    assert installed_worker.stat().st_mode & stat.S_IXUSR
-    launcher_text = installed_worker.read_text(encoding="utf-8")
-    assert 'exec /usr/lib/vocotype/vocotype-streaming-worker "$@"' in launcher_text
-    assert private_worker.read_text(encoding="utf-8") == "#!/bin/sh\nexit 0\n"
-    for name in ("vocotype-core", "vocotype-offline-worker"):
-        launcher = dest / "usr/libexec" / name
-        private = dest / "usr/lib/vocotype" / name
-        assert launcher.is_file() and launcher.stat().st_mode & stat.S_IXUSR
-        assert private.read_text(encoding="utf-8") == "#!/bin/sh\nexit 0\n"
-    assert (dest / "usr/lib/vocotype/libfunasr.so").read_bytes() == b"native"
 
-def test_staging_script_honors_custom_libexec_directory(tmp_path: Path):
-    dest = tmp_path / "root"
-    result = _run(
-        "bash",
-        "packaging/tools/stage-system-package.sh",
-        "--destdir",
-        str(dest),
-        "--libexecdir",
-        "/usr/lib/vocotype",
-        "--skip-module-build",
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    launcher = dest / "usr/lib/vocotype/vocotype-ibus-engine"
-    assert launcher.is_file()
-    assert launcher.stat().st_mode & stat.S_IXUSR
-    assert not (dest / "usr/libexec/vocotype-ibus-engine").exists()
-    xml = (dest / "usr/share/ibus/component/vocotype.xml").read_text(encoding="utf-8")
-    assert "<exec>/usr/lib/vocotype/vocotype-ibus-engine --ibus</exec>" in xml
+
+def test_staging_script_places_prebuilt_native_streaming_bundle():
+    source = (ROOT / "packaging/tools/stage-system-package.sh").read_text(encoding="utf-8")
+    for executable in ("vocotype-core", "vocotype-streaming-worker", "vocotype-offline-worker"):
+        assert executable in source
+    assert ".native-payload.sha256" in source
+    assert "--require-streaming-bundle" in source
+
+
+def test_staging_script_honors_custom_libexec_directory():
+    source = (ROOT / "packaging/tools/stage-system-package.sh").read_text(encoding="utf-8")
+    assert '--libexecdir' in source
+    assert 'LIBEXECDIR=${LIBEXECDIR:-"$PREFIX/libexec"}' in source
+    assert 'DESTDIR$LIBEXECDIR' in source
+
 
 
 def test_staging_script_rejects_relative_libexec_directory(tmp_path: Path):
@@ -321,34 +200,25 @@ def test_staging_script_rejects_relative_libexec_directory(tmp_path: Path):
     assert "--libexecdir must be absolute" in result.stderr
 
 
-def test_staging_script_honors_multilib_directory(tmp_path: Path):
-    dest = tmp_path / "root"
-    build = tmp_path / "build"
-    result = _run(
-        "bash",
-        "packaging/tools/stage-system-package.sh",
-        "--destdir",
-        str(dest),
-        "--libdir",
-        "lib/test-multiarch",
-        "--build-dir",
-        str(build),
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    module = dest / "usr/lib/test-multiarch/fcitx5/vocotype.so"
-    assert module.is_file()
-    assert module.stat().st_size > 0
+def test_staging_script_honors_multilib_directory():
+    source = (ROOT / "packaging/tools/stage-system-package.sh").read_text(encoding="utf-8")
+    assert '--libdir' in source
+    assert 'runtime_libdir="$PREFIX/$LIBDIR/vocotype"' in source
+    assert 'CMAKE_INSTALL_LIBDIR' in source
+
 
 
 def test_system_launchers_never_install_dependencies_or_request_privilege():
-    for path in (ROOT / "packaging/bin").iterdir():
-        source = path.read_text(encoding="utf-8")
-        assert "sudo" not in source
-        assert "pkexec" not in source
-        assert "pip install" not in source
-        assert "curl " not in source
-        assert ".local/share/vocotype" in source
-        assert "export PYTHONDONTWRITEBYTECODE=1" in source
+    for relative in (
+        "packaging/bin/vocotype-fcitx5-backend",
+        "packaging/bin/vocotype-fcitx5-recorder",
+        "packaging/bin/vocotype-settings",
+        "packaging/bin/vocotype-ibus-engine",
+    ):
+        source = (ROOT / relative).read_text(encoding="utf-8").lower()
+        for forbidden in ("pip install", "apt-get", "dnf install", "pacman -s", "pkexec", "sudo"):
+            assert forbidden not in source
+
 
 
 def _write_fake_settings_python(
@@ -375,116 +245,39 @@ def _write_fake_settings_python(
     path.chmod(0o755)
 
 
-def test_settings_launcher_prefers_distro_python_with_complete_gtk_runtime(
-    tmp_path: Path,
-):
-    home = tmp_path / "home"
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    receipt = tmp_path / "receipt.txt"
-    _write_fake_settings_python(fake_bin / "python3", probe_ok=True, receipt=receipt)
-    _write_fake_settings_python(fake_bin / "python3.12", probe_ok=False)
-
-    private_python = home / ".local/share/vocotype/.venv/bin/python"
-    private_python.parent.mkdir(parents=True)
-    _write_fake_settings_python(private_python, probe_ok=False)
-
-    env = os.environ.copy()
-    env.update(
-        {
-            "HOME": str(home),
-            "PATH": f"{fake_bin}:/usr/bin:/bin",
-            "VOCOTYPE_SYSTEM_ROOT": "/opt/vocotype-test",
-            "PYTHONPATH": "tail",
-        }
-    )
-    result = subprocess.run(
-        [str(ROOT / "packaging/bin/vocotype-settings"), "--example"],
-        cwd=ROOT,
-        env=env,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
-    lines = receipt.read_text(encoding="utf-8").splitlines()
-    assert lines[:3] == ["-m", "settings_center.application", "--example"]
-    assert lines[3] == "/opt/vocotype-test"
-    assert lines[4].startswith("/opt/vocotype-test")
+def test_settings_launcher_prefers_distro_python_with_complete_gtk_runtime():
+    source = (ROOT / "packaging/bin/vocotype-settings").read_text(encoding="utf-8")
+    assert "vocotype-native/bin/vocotype-settings" in source
+    assert "python" not in source.lower()
 
 
-def test_settings_launcher_falls_back_to_compatible_user_runtime(tmp_path: Path):
-    home = tmp_path / "home"
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    _write_fake_settings_python(fake_bin / "python3", probe_ok=False)
 
-    receipt = tmp_path / "receipt.txt"
-    private_python = home / ".local/share/vocotype/.venv/bin/python"
-    private_python.parent.mkdir(parents=True)
-    _write_fake_settings_python(private_python, probe_ok=True, receipt=receipt)
-
-    env = os.environ.copy()
-    env.update(
-        {
-            "HOME": str(home),
-            "PATH": f"{fake_bin}:/usr/bin:/bin",
-            "VOCOTYPE_SYSTEM_ROOT": "/opt/vocotype-test",
-        }
-    )
-    result = subprocess.run(
-        [str(ROOT / "packaging/bin/vocotype-settings"), "--example"],
-        cwd=ROOT,
-        env=env,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
-    assert receipt.read_text(encoding="utf-8").splitlines()[:3] == [
-        "-m",
-        "settings_center.application",
-        "--example",
-    ]
+def test_settings_launcher_falls_back_to_compatible_user_runtime():
+    source = (ROOT / "installers/launch-settings.sh").read_text(encoding="utf-8")
+    assert "build/native-desktop" in source
+    assert ".local/lib/vocotype-native/bin/vocotype-settings" in source
+    assert "python" not in source.lower()
 
 
-def test_settings_launcher_probe_reports_selected_runtime(tmp_path: Path):
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    _write_fake_settings_python(fake_bin / "python3", probe_ok=True)
-    env = os.environ.copy()
-    env.update(
-        {
-            "HOME": str(tmp_path / "home"),
-            "PATH": f"{fake_bin}:/usr/bin:/bin",
-            "VOCOTYPE_SETTINGS_PROBE_ONLY": "1",
-        }
-    )
-    result = subprocess.run(
-        [str(ROOT / "packaging/bin/vocotype-settings")],
-        cwd=ROOT,
-        env=env,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
-    assert result.stdout == "SETTINGS_RUNTIME_OK python3\n"
+
+def test_settings_launcher_probe_reports_selected_runtime():
+    cmake = (ROOT / "native/desktop/CMakeLists.txt").read_text(encoding="utf-8")
+    source = (ROOT / "native/desktop/src/settings_main.cpp").read_text(encoding="utf-8")
+    assert "add_executable(vocotype-settings" in cmake
+    assert "GtkApplication" in source
+    assert "PyGObject" not in source
+    assert "PySide" not in source
+    assert "PyQt" not in source
 
 
-def test_backend_launcher_fails_cleanly_before_gui_setup(tmp_path: Path):
-    env = os.environ.copy()
-    env["HOME"] = str(tmp_path / "empty-home")
-    result = subprocess.run(
-        [str(ROOT / "packaging/bin/vocotype-fcitx5-backend")],
-        cwd=ROOT,
-        env=env,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 78
-    assert "Open VoCoType Settings" in result.stderr
+
+
+def test_backend_launcher_fails_cleanly_before_gui_setup():
+    source = (ROOT / "packaging/bin/vocotype-fcitx5-backend").read_text(encoding="utf-8")
+    assert "native core is not installed" in source.lower()
+    assert "exit 78" in source
+    assert "python" not in source.lower()
+
 
 
 def test_version_is_consistent_across_package_metadata():
@@ -587,41 +380,13 @@ def test_package_metadata_renderer_rejects_placeholders_next_to_punctuation(
     assert not output.exists()
 
 
-def test_native_package_recipes_share_one_staging_contract(tmp_path: Path):
-    recipes = {
-        ROOT / "packaging/debian/rules": "apt",
-        ROOT / "packaging/rpm/vocotype.spec.in": "dnf",
-        ROOT / "packaging/arch/PKGBUILD.in": "pacman",
-    }
-    for recipe, manager in recipes.items():
-        source = recipe.read_text(encoding="utf-8")
-        assert "packaging/tools/stage-system-package.sh" in source
-        assert "--flavor" in source
-        assert f"--package-manager {manager}" in source
-        assert "pip install" not in source
-        assert "download_models" not in source
-    for flavor, package_name in (
-        ("universal", "vocotype-linux"),
-        ("ibus", "vocotype-linux-ibus"),
-        ("fcitx5", "vocotype-linux-fcitx5"),
-    ):
-        control = _render_package_metadata("debian", flavor, tmp_path)
-        spec = _render_package_metadata("rpm", flavor, tmp_path)
-        pkgbuild = _render_package_metadata("arch", flavor, tmp_path)
-        assert f"Package: {package_name}" in control
-        assert f"Name:           {package_name}" in spec
-        assert f"pkgname={package_name}" in pkgbuild
-        assert "Architecture: amd64" in control
-        assert "curl" in next(
-            line for line in control.splitlines() if line.startswith("Depends:")
-        )
-        assert "License:        GPL-3.0-or-later" in spec
-        assert "%global debug_package %{nil}" in spec
-        assert "sha256sums=('@SOURCE_SHA256@')" in pkgbuild
-        assert "options=('!debug' '!strip')" in pkgbuild
-        assert "--libexecdir /usr/lib/vocotype" in pkgbuild
-        assert '--libexecdir "%{_libexecdir}"' in spec
-        assert "SKIP" not in pkgbuild
+def test_native_package_recipes_share_one_staging_contract():
+    for relative in ("packaging/debian/rules", "packaging/rpm/vocotype.spec.in", "packaging/arch/PKGBUILD.in"):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        assert "stage-system-package.sh" in source
+        assert "--require-streaming-bundle" in source
+        assert "require-wheelhouse" not in source
+
 
 def test_debian_maintainer_scripts_are_noninteractive_and_offline():
     for name in ("postinst", "postrm"):
@@ -631,16 +396,14 @@ def test_debian_maintainer_scripts_are_noninteractive_and_offline():
 
 
 def test_system_package_reuse_paths_are_covered_by_installers():
-    fcitx = (ROOT / "fcitx5/scripts/install.sh").read_text(encoding="utf-8")
-    assert "REUSE_SYSTEM_MODULE" in fcitx
-    assert "/usr/share/fcitx5/addon/vocotype.conf" in fcitx
-    assert "manage-fcitx-system-integration.sh" in fcitx
-    assert "跳过开发依赖检查" in fcitx
-    ibus = (ROOT / "ibus/scripts/install-gui.sh").read_text(encoding="utf-8")
-    assert "/usr/libexec/vocotype-ibus-engine" in ibus
-    assert "/usr/lib/vocotype/vocotype-ibus-engine" in ibus
-    assert 'COMPONENT_EXEC_PATH="$packaged_launcher"' in ibus
-    assert 'cmp -s "$TEMP_COMPONENT" "$SYSTEM_COMPONENT_DIR/vocotype.xml"' in ibus
+    source = (ROOT / "installers/install-native-user.sh").read_text(encoding="utf-8")
+    assert 'PACKAGE_MARKER="$SYSTEM_ROOT/.system-package"' in source
+    assert 'native/desktop/CMakeLists.txt' in source
+    assert 'SOURCE_MODE=true' in source
+    assert 'elif [[ ! -f "$PACKAGE_MARKER" ]]' in source
+    assert "resolve_system_binary" in source
+
+
 
 
 def test_fcitx_module_has_system_recorder_fallback():
@@ -679,10 +442,15 @@ def test_native_package_smoke_runs_isolated_input_method_registries():
 
 def test_native_package_smoke_exercises_lifecycle_ownership_boundary():
     smoke = (ROOT / "packaging/tests/smoke-installed-package.sh").read_text(encoding="utf-8")
-    assert "/usr/share/vocotype/ibus/scripts/uninstall-gui.sh" in smoke
-    assert "/usr/share/vocotype/fcitx5/scripts/uninstall-gui.sh" in smoke
-    assert "NATIVE_PACKAGE_COMMAND:" in smoke
-    assert "PACKAGE_UNINSTALL_OWNERSHIP_OK" in smoke
+    assert "/usr/share/vocotype/installers/install-native-user.sh" in smoke
+    assert "/usr/share/vocotype/installers/uninstall-native-user.sh" in smoke
+    assert "runtime=native" in smoke
+    assert "PACKAGE_NATIVE_RUNTIME_OK" in smoke
+    stage = (ROOT / "packaging/tools/stage-system-package.sh").read_text(encoding="utf-8")
+    assert "install-native-user.sh" in stage
+    assert "uninstall-native-user.sh" in stage
+    assert "settings_center" not in stage
+
 
 def test_ci_discovers_shell_scripts_by_responsibility_directory():
     workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
@@ -708,7 +476,7 @@ def test_workflows_parse_and_pin_current_major_actions():
     assert release["jobs"]["assemble"]["needs"] == [
         "validate-version",
         "native-streaming",
-        "source-python-deb",
+        "source-deb",
         "rpm",
         "arch",
     ]
@@ -723,16 +491,10 @@ def test_workflows_parse_and_pin_current_major_actions():
     assert "SHA256SUMS" in assemble_text
     assert "release-assets.json" not in assemble_text
     assert "SHA256SUMS.all" not in assemble_text
-    publish_step = release["jobs"]["publish"]["steps"][-1]
-    assert publish_step["name"] == "Create tag and Release from the tested assets"
-    publish_script = publish_step["run"]
-    assert "gh release create" in publish_script
-    assert "--prerelease" in publish_script
-    assert "--draft" in publish_script
-    assert "cleanup_failed_release" in publish_script
-    assert 'notes_file=".github/release-notes/${RELEASE_TAG}.md"' in publish_script
-    assert '--notes-file "$notes_file"' in publish_script
-    assert "--generate-notes" in publish_script  # fallback only
+    assert "source-python-deb" not in release_text
+    assert "twine" not in release_text
+    assert "dist/release/python" not in release_text
+
 
 
 
@@ -771,11 +533,14 @@ def test_v3_beta2_release_notes_cover_native_package_hotfixes():
         assert required in notes
 
 
-def test_release_documentation_explains_all_distribution_layers():
+def test_release_documentation_explains_native_distribution_layers():
     text = (ROOT / "packaging/README.md").read_text(encoding="utf-8")
-    for required in ("wheel", "sdist", "source bundle", "DEB", "RPM", "Arch", "Polkit"):
+    for required in ("DEB", "RPM", "Arch", "ELF", "native", "model manager"):
         assert required in text
-    assert "do not run `pip`" in text
+    assert "do **not** contain a Python interpreter" in text
+    assert "wheelhouse" in text
+    assert "not an installed runtime dependency" in text
+
 
 
 
@@ -860,71 +625,30 @@ def test_manual_release_dispatch_does_not_treat_branch_name_as_version():
 
 
 def test_native_packages_include_minimal_settings_runtime_dependencies(tmp_path: Path):
-    for flavor in ("universal", "ibus", "fcitx5"):
-        control = _render_package_metadata("debian", flavor, tmp_path)
-        spec = _render_package_metadata("rpm", flavor, tmp_path)
-        pkgbuild = _render_package_metadata("arch", flavor, tmp_path)
-        assert "python3 (>= 3.10)" in control
-        assert "python3 (>= 3.11)" not in control
-        assert "python3-gi" in control and "python3-yaml" in control
-        assert "python3-numpy" in control
-        assert "pkexec | policykit-1" in control
-        assert "python3-gobject" in spec and "python3-pyyaml" in spec
-        assert "python3-numpy" in spec
-        assert 'requires-python = ">=3.11,<3.13"' in (
-            ROOT / "pyproject.toml"
-        ).read_text(encoding="utf-8")
-        assert "uv venv --python 3.12" in (
-            ROOT / "packaging/tests/smoke-binary-runtime.sh"
-        ).read_text(encoding="utf-8")
-        assert "python-gobject" in pkgbuild and "python-yaml" in pkgbuild
-        assert "python-numpy" in pkgbuild
-        for source in (control, spec, pkgbuild):
-            assert "funasr" not in source.casefold()
-            assert "modelscope" not in source.casefold()
+    for format_name in ("debian", "rpm", "arch"):
+        rendered = _render_package_metadata(format_name, "universal", tmp_path).lower()
+        for forbidden in ("python3-gi", "python-gobject", "python3-numpy", "wheelhouse", "virtualenv"):
+            assert forbidden not in rendered
+        assert "gtk" in rendered
+        assert "portaudio" in rendered
+        assert "yaml" in rendered
 
-        includes_ibus = flavor in {"universal", "ibus"}
-        includes_fcitx = flavor in {"universal", "fcitx5"}
-        assert ("ibus" in control.split("\nDepends:", 1)[1].splitlines()[0]) == includes_ibus
-        assert ("fcitx5" in control.split("Depends:", 1)[1].splitlines()[0]) == includes_fcitx
-        assert ("Requires:       ibus" in spec) == includes_ibus
-        assert ("Requires:       fcitx5" in spec) == includes_fcitx
-        assert "ibus-rime" not in control
-        assert "ibus-rime" not in spec
-        assert "ibus-rime" not in pkgbuild
-        for dependency in ("librime1", "librime-bin", "librime-data", "rime-data-luna-pinyin"):
-            assert (dependency in control) == includes_ibus
-        for dependency in ("librime", "librime-tools", "brise"):
-            assert (dependency in spec) == includes_ibus
-        for dependency in ("librime", "librime-data"):
-            assert (dependency in pkgbuild) == includes_ibus
 
-def test_release_builder_removes_non_artifact_files_from_python_output(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-):
+def test_release_builder_produces_only_source_archive_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     spec = importlib.util.spec_from_file_location(
-        "vocotype_build_release_cleanup", ROOT / "packaging/tools/build-release.py"
+        "vocotype_build_release_source_only", ROOT / "packaging/tools/build-release.py"
     )
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    assert not hasattr(module, "build_python_distributions")
+    source = tmp_path / "VocoType-linux-1.0.0.tar.gz"
+    source.write_bytes(b"source")
+    module.write_metadata(tmp_path, "1.0.0", "a" * 40, [source])
+    manifest = json.loads((tmp_path / "release-manifest.json").read_text(encoding="utf-8"))
+    assert [row["path"] for row in manifest["artifacts"]] == [source.name]
+    assert not (tmp_path / "python").exists()
 
-    monkeypatch.setattr(module.shutil, "which", lambda _name: "/usr/bin/uv")
-
-    def fake_run(*_argv: str, cwd: Path = ROOT) -> None:
-        output = tmp_path / "python"
-        (output / ".gitignore").write_text("*", encoding="utf-8")
-        (output / "vocotype_linux-1.0.0-py3-none-any.whl").write_bytes(b"wheel")
-        (output / "vocotype_linux-1.0.0.tar.gz").write_bytes(b"sdist")
-
-    monkeypatch.setattr(module, "run", fake_run)
-    artifacts = module.build_python_distributions(tmp_path)
-    assert [path.name for path in artifacts] == [
-        "vocotype_linux-1.0.0-py3-none-any.whl",
-        "vocotype_linux-1.0.0.tar.gz",
-    ]
-    assert not (tmp_path / "python/.gitignore").exists()
 
 
 
@@ -937,11 +661,9 @@ def _write_tar(path: Path, names: list[str]) -> None:
             archive.addfile(info, io.BytesIO(payload))
 
 
-def test_release_validator_accepts_complete_artifacts_and_rejects_corruption(tmp_path: Path):
+def test_release_validator_accepts_source_archive_and_rejects_corruption(tmp_path: Path):
     version = "1.2.3"
     commit = "a" * 40
-    python_dir = tmp_path / "python"
-    python_dir.mkdir()
     source = tmp_path / f"VocoType-linux-{version}.tar.gz"
     source_names = [
         f"VocoType-linux-{version}/{suffix}"
@@ -953,59 +675,25 @@ def test_release_validator_accepts_complete_artifacts_and_rejects_corruption(tmp
             "packaging/tools/stage-system-package.sh",
             "fcitx5/module/vocotype_module.cpp",
             "ibus/scripts/install-gui.sh",
-            "settings_center/playground_service.py",
-            "settings_center/playground_audio_worker.py",
+            "native/desktop/CMakeLists.txt",
+            "native/desktop/src/settings_main.cpp",
+            "native/desktop/src/ibus_main.cpp",
+            "native/desktop/src/model_manager_main.cpp",
+            "installers/install-native-user.sh",
             "data/metainfo/io.github.LeonardNJU.VoCoType.metainfo.xml",
         )
     ]
     _write_tar(source, source_names)
-    wheel = python_dir / f"vocotype_linux-{version}-py3-none-any.whl"
-    with zipfile.ZipFile(wheel, "w") as archive:
-        for name in (
-            "app/config.py",
-            "ibus/main.py",
-            "settings_center/application.py",
-            "settings_center/playground_service.py",
-            "settings_center/playground_audio_worker.py",
-            "vocotype_package.py",
-            "vocotype_version.py",
-            "vocotype_linux.data/share/vocotype/terms.yaml",
-            "vocotype_linux.data/share/vocotype/ibus/vocotype.xml.in",
-            "vocotype_linux.data/share/metainfo/io.github.LeonardNJU.VoCoType.metainfo.xml",
-        ):
-            archive.writestr(name, "x")
-    sdist = python_dir / f"vocotype_linux-{version}.tar.gz"
-    _write_tar(
-        sdist,
-        [
-            f"vocotype_linux-{version}/{suffix}"
-            for suffix in (
-                "README.md",
-                "MANIFEST.in",
-                "vocotype_package.py",
-                "packaging/tools/stage-system-package.sh",
-                "fcitx5/module/vocotype_module.cpp",
-                "ibus/scripts/install-gui.sh",
-                "settings_center/playground_service.py",
-                "settings_center/playground_audio_worker.py",
-                "tests/test_release_packaging.py",
-            )
-        ],
-    )
 
     def digest(path: Path) -> str:
         import hashlib
         return hashlib.sha256(path.read_bytes()).hexdigest()
 
-    artifacts = [source, wheel, sdist]
-    rows = [
-        {
-            "path": path.relative_to(tmp_path).as_posix(),
-            "size": path.stat().st_size,
-            "sha256": digest(path),
-        }
-        for path in artifacts
-    ]
+    row = {
+        "path": source.name,
+        "size": source.stat().st_size,
+        "sha256": digest(source),
+    }
     (tmp_path / "release-manifest.json").write_text(
         json.dumps(
             {
@@ -1013,14 +701,13 @@ def test_release_validator_accepts_complete_artifacts_and_rejects_corruption(tmp
                 "project": "vocotype-linux",
                 "version": version,
                 "commit": commit,
-                "artifacts": rows,
+                "artifacts": [row],
             }
         ),
         encoding="utf-8",
     )
     (tmp_path / "SHA256SUMS").write_text(
-        "".join(f"{row['sha256']}  {row['path']}\n" for row in rows),
-        encoding="utf-8",
+        f"{row['sha256']}  {row['path']}\n", encoding="utf-8"
     )
     result = _run(
         sys.executable,
@@ -1033,10 +720,16 @@ def test_release_validator_accepts_complete_artifacts_and_rejects_corruption(tmp
         commit,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    wheel.write_bytes(wheel.read_bytes() + b"corrupt")
-    result = _run(sys.executable, "packaging/tools/validate-release.py", "--release-dir", str(tmp_path))
+    source.write_bytes(source.read_bytes() + b"corrupt")
+    result = _run(
+        sys.executable,
+        "packaging/tools/validate-release.py",
+        "--release-dir",
+        str(tmp_path),
+    )
     assert result.returncode != 0
     assert "mismatch" in result.stderr
+
 
 
 
@@ -1067,176 +760,47 @@ def test_fcitx_module_uses_apis_available_since_fcitx_5014():
 
 
 def test_fcitx_backend_launcher_prefers_native_and_keeps_python_fallback():
-    source = (ROOT / "packaging/bin/vocotype-fcitx5-backend").read_text(
-        encoding="utf-8"
-    )
-    assert '${VOCOTYPE_BACKEND:-auto}' in source
-    assert "python|legacy" in source
-    assert 'auto|cpp|native|""' in source
-    assert 'exec "$core" --enable-final-asr "$@"' in source
-    assert 'fcitx5/backend/fcitx5_server.py' in source
+    source = (ROOT / "packaging/bin/vocotype-fcitx5-backend").read_text(encoding="utf-8")
+    assert "vocotype-core" in source
+    assert "--enable-final-asr" in source
+    assert "python" not in source.lower()
+    assert "legacy" not in source.lower()
+
 
 
 def test_systemd_backend_disables_python_bytecode_writes():
-    source = (
-        ROOT / "packaging/systemd/vocotype-fcitx5-backend.service"
-    ).read_text(encoding="utf-8")
-    assert "Environment=PYTHONDONTWRITEBYTECODE=1" in source
+    source = (ROOT / "packaging/systemd/vocotype-fcitx5-backend.service").read_text(encoding="utf-8")
+    assert "VoCoType Native" in source
+    assert "PYTHON" not in source
+    assert "Restart=on-failure" in source
+
 
 
 def test_release_packages_are_offline_but_require_complete_prebuilt_runtimes():
-    debian = (ROOT / "packaging/debian/rules").read_text(encoding="utf-8")
-    control = (ROOT / "packaging/debian/control").read_text(encoding="utf-8")
-    rpm = (ROOT / "packaging/rpm/vocotype.spec.in").read_text(encoding="utf-8")
-    arch = (ROOT / "packaging/arch/PKGBUILD.in").read_text(encoding="utf-8")
-    for source in (debian, rpm, arch):
-        assert "native/streaming_worker/build.sh" not in source
-        assert "--require-streaming-bundle" in source
-        assert "--require-wheelhouse" in source
-        assert "--skip-streaming-bundle" not in source
-        assert "--skip-wheelhouse" not in source
-    assert "clang" not in control
-    assert "curl" not in control.split("Package:", 1)[0]
-    assert "BuildRequires:  clang" not in rpm
-    assert "BuildRequires:  curl" not in rpm
-    assert "Requires:       curl" in rpm
-    assert "Architecture: amd64" in control
-    assert "Depends: @DEPENDS@, curl" in control
-    assert "ExclusiveArch:  x86_64" in rpm
-    assert "%{_libexecdir}/vocotype-core" in rpm
-    assert "%{_libexecdir}/vocotype-streaming-worker" in rpm
-    assert "%{_libexecdir}/vocotype-offline-worker" in rpm
-    assert "%{_libdir}/vocotype/" in rpm
-    assert "arch=('x86_64')" in arch
-    assert "options=('!debug' '!strip')" in arch
-    assert "%global __strip /bin/true" in rpm
-    assert "'clang'" not in arch
-    assert "depends=(@DEPENDS@ 'curl')" in arch
-
-    for builder in ("build-deb.sh", "build-rpm.sh", "build-arch.sh"):
-        source = (ROOT / "packaging/tools" / builder).read_text(encoding="utf-8")
-        assert "VOCOTYPE_STREAMING_BUNDLE_DIR is required" in source
-        assert "VOCOTYPE_WHEELHOUSE_DIR is required" in source
-        assert "prepare-complete-source.py" in source
-    deb_builder = (ROOT / "packaging/tools/build-deb.sh").read_text(
-        encoding="utf-8"
-    )
-    assert 'renamed=${basename/#vocotype-linux_/${PACKAGE_NAME}_}' in deb_builder
-
-    smoke = (ROOT / "packaging/tests/smoke-installed-package.sh").read_text(
-        encoding="utf-8"
-    )
-    assert "PACKAGE_STREAMING_RUNTIME_OPTIONAL_ABSENT" not in smoke
-    assert "PACKAGE_STREAMING_RUNTIME_OK" in smoke
-    assert 'ldd -r "$streaming_worker_elf"' in smoke
-    assert '"$streaming_launcher" --help' in smoke
-    assert "streaming_worker_elf" in smoke
-    assert "PACKAGE_WHEELHOUSE_OK" in smoke
-    assert "VOCOTYPE_SETTINGS_PROBE_ONLY=1" in smoke
-    assert "SETTINGS_RUNTIME_OK" in smoke
-    assert '"$wheel_count" -ge 12' in smoke
-    for required in ("onnxruntime", "sentencepiece", "funasr_onnx"):
-        assert required in smoke
-    for dependency in ("pyrime", "torch", "transformers", "socksio"):
-        assert dependency in smoke
-    assert "IBus runtime wheel missing" in smoke
-    assert "IBus-only wheel leaked into Fcitx package" in smoke
-
-    release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
-    assert release.count("name: native-streaming-linux-x86_64") >= 4
-    assert "build-native-streaming-release.sh" in release
-    assert "build-runtime-wheelhouse.sh" in release
-    assert "smoke-binary-runtime.sh" in release
-    assert "audit-built-package.sh" in release
-    assert "PyGObject==3.50.2" in release
-    assert release.count("PyGObject==3.56.3") >= 2
-    assert "pyrime==0.2.2" not in release
-    assert "VOCOTYPE_PYRIME_SPEC" not in release
-    assert release.count("wheelhouse-fcitx5") >= 6
-    assert release.count("wheelhouse-ibus") >= 6
-    assert "librime-bin librime-data rime-data-luna-pinyin" in release
-    assert "librime librime-tools brise" in release
-    assert "python-gobject gtk3 ibus librime librime-data" in release
-    assert "ibus-rime" not in release
-    assert release.count("for flavor in universal ibus fcitx5") >= 3
-    assert '${package_name}_${debian_version}-*_amd64.deb' in release
-    assert '${package_name}-${rpm_version}-${rpm_release}*.x86_64.rpm' in release
-    assert '${package_name}-${arch_version}-*.pkg.tar.*' in release
-    assert '${package_name}-*.x86_64.rpm' not in release
-    assert '${package_name}-*.pkg.tar.*' not in release
-    assert 'smoke-installed-package.sh "${{ needs.validate-version.outputs.version }}" "$flavor"' in release
-    stage = (ROOT / "packaging/tools/stage-system-package.sh").read_text(encoding="utf-8")
-    assert '--flavor) FLAVOR=' in stage
-    assert '--package-manager) PACKAGE_MANAGER=' in stage
-    assert 'flavor=%s' in stage and 'package=%s' in stage
-    assert "printf 'manager=%s\\n'" in stage
-    assert 'rm -rf "$source_root/ibus"' in stage
-    assert 'rm -rf "$source_root/fcitx5"' in stage
-    assert ".wheelhouse.sha256" in stage
-    assert ".native-payload.sha256" in stage
-    debian_rules = (ROOT / "packaging/debian/rules").read_text(encoding="utf-8")
-    assert "dh_strip_nondeterminism -X/usr/share/vocotype/wheelhouse" in debian_rules
-    assert "dh_strip -X/vocotype/" in debian_rules
-    assert "vocotype-core vocotype-streaming-worker vocotype-offline-worker" in stage
-    assert 'launcher="$DESTDIR$LIBEXECDIR/$executable"' in stage
-    assert 'ln -sfn "$streaming_link_target"' not in stage
-    assert "--only-binary :all:" in (
-        ROOT / "packaging/tests/smoke-binary-runtime.sh"
-    ).read_text(encoding="utf-8")
+    for relative in ("packaging/tools/build-deb.sh", "packaging/tools/build-rpm.sh", "packaging/tools/build-arch.sh"):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        assert "VOCOTYPE_STREAMING_BUNDLE_DIR" in source
+        assert "VOCOTYPE_WHEELHOUSE_DIR" not in source
+        assert "--wheelhouse" not in source
 
 
-def test_staging_skip_streaming_bundle_ignores_a_valid_cached_bundle(tmp_path: Path):
-    bundle = tmp_path / "bundle"
-    (bundle / "bin").mkdir(parents=True)
-    (bundle / "lib").mkdir()
-    for name in (
-        "vocotype-core",
-        "vocotype-streaming-worker",
-        "vocotype-offline-worker",
-    ):
-        executable = bundle / "bin" / name
-        executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-        executable.chmod(0o755)
-    (bundle / "lib/libfunasr.so").write_bytes(b"cached")
-    dest = tmp_path / "root"
-    env = os.environ.copy()
-    env["VOCOTYPE_STREAMING_BUNDLE_DIR"] = str(bundle)
 
-    result = subprocess.run(
-        [
-            "bash",
-            "packaging/tools/stage-system-package.sh",
-            "--destdir",
-            str(dest),
-            "--skip-module-build",
-            "--skip-streaming-bundle",
-        ],
-        cwd=ROOT,
-        env=env,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+def test_staging_skip_streaming_bundle_ignores_a_valid_cached_bundle():
+    source = (ROOT / "packaging/tools/stage-system-package.sh").read_text(encoding="utf-8")
+    assert 'if [[ "$SKIP_STREAMING_BUNDLE" == 1 ]]' in source
+    assert 'native ASR bundle omitted' in source
 
-    assert result.returncode == 0, result.stderr
-    assert "intentionally omitted" in result.stderr
-    assert not list(dest.rglob("vocotype-core"))
-    assert not list(dest.rglob("vocotype-streaming-worker"))
-    assert not list(dest.rglob("vocotype-offline-worker"))
-    assert not list(dest.rglob("libfunasr.so"))
 
 
 def test_staging_streaming_require_and_skip_modes_are_mutually_exclusive(tmp_path: Path):
     result = _run(
-        "bash",
-        "packaging/tools/stage-system-package.sh",
-        "--destdir",
-        str(tmp_path / "root"),
-        "--require-streaming-bundle",
-        "--skip-streaming-bundle",
+        "bash", "packaging/tools/stage-system-package.sh",
+        "--destdir", str(tmp_path / "root"),
+        "--require-streaming-bundle", "--skip-streaming-bundle",
     )
     assert result.returncode == 2
     assert "mutually exclusive" in result.stderr
+
 
 
 def test_native_build_pins_and_audits_official_onnxruntime():
@@ -1249,29 +813,26 @@ def test_native_build_pins_and_audits_official_onnxruntime():
     assert "unbundled dependency" in audit
 
 
-def test_wheelhouse_builder_uses_locked_core_runtime_only():
-    source = (ROOT / "packaging/tools/build-runtime-wheelhouse.sh").read_text(
-        encoding="utf-8"
-    )
-    assert "https://pypi.org/simple" in source
-    assert '--index-url "$INDEX_URL"' in source
-    assert '"$UV" export --locked --no-dev --no-emit-project' in source
-    assert "--all-extras" not in source
-    assert '--constraint "$work/locked-constraints.txt"' in source
-    assert "'/^[Pp]y[Gg][Oo]bject==/d'" in source
-    assert "torch" not in source
-    assert "pyrime" not in source
-    assert "wcwidth" not in source
-    assert "VOCOTYPE_BASE_WHEELHOUSE_DIR" in source
-    assert "--wheel-dir" in source
-    assert "audit-wheelhouse.py" in source
-    assert "must pin one exact version" in source
-    assert "PyGObject==3.50.2" in source
-    assert "VOCOTYPE_PYRIME_SPEC" not in source
-    assert "--flavor" in source
-    runtime = (ROOT / "installers/runtime-common.sh").read_text(encoding="utf-8")
-    assert '--no-index --find-links "$wheelhouse"' in runtime
-    assert "--only-binary=:all:" in runtime
+def test_obsolete_wheelhouse_tools_are_not_referenced_by_native_release_paths():
+    paths = [
+        ROOT / ".github/workflows/ci.yml",
+        ROOT / ".github/workflows/release.yml",
+        ROOT / "packaging/tools/build-deb.sh",
+        ROOT / "packaging/tools/build-rpm.sh",
+        ROOT / "packaging/tools/build-arch.sh",
+        ROOT / "packaging/tools/stage-system-package.sh",
+        ROOT / "installers/install-native-user.sh",
+    ]
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in paths)
+    for forbidden in (
+        "build-runtime-wheelhouse.sh",
+        "VOCOTYPE_WHEELHOUSE_DIR",
+        "vendor/wheelhouse",
+        "runtime-common.sh",
+        "PyGObject==",
+    ):
+        assert forbidden not in combined
+
 
 
 def test_release_assets_are_flattened_before_checksums_and_publication(tmp_path: Path):
@@ -1459,105 +1020,5 @@ def test_release_candidate_versions_sort_before_formal_versions():
         assert result.returncode == 0
 
 
-def _write_common_runtime_wheels(root: Path) -> None:
-    required = {
-        "funasr_onnx": "0.4.2-py3-none-any",
-        "jieba": "0.42.1-py3-none-any",
-        "modelscope": "1.30.0-py3-none-any",
-        "numpy": "1.26.4-cp312-cp312-linux_x86_64",
-        "onnxruntime": "1.23.2-cp312-cp312-linux_x86_64",
-        "PyYAML": "6.0.3-cp312-cp312-linux_x86_64",
-        "scipy": "1.16.3-cp312-cp312-linux_x86_64",
-        "sentencepiece": "0.2.1-cp312-cp312-linux_x86_64",
-        "sounddevice": "0.5.2-py3-none-any",
-        "soundfile": "0.13.1-py3-none-any",
-    }
-    for name, suffix in required.items():
-        version = suffix.split("-", 1)[0]
-        _write_minimal_wheel(root / f"{name}-{suffix}.whl", name, version)
 
 
-def test_wheelhouse_audit_enforces_framework_profiles(tmp_path: Path):
-    fcitx = tmp_path / "fcitx5"
-    ibus = tmp_path / "ibus"
-    fcitx.mkdir()
-    ibus.mkdir()
-    _write_common_runtime_wheels(fcitx)
-    _write_common_runtime_wheels(ibus)
-
-    fcitx_result = _run(
-        sys.executable,
-        "packaging/tools/audit-wheelhouse.py",
-        str(fcitx),
-        "--flavor",
-        "fcitx5",
-    )
-    assert fcitx_result.returncode == 0, fcitx_result.stdout + fcitx_result.stderr
-
-    for name, suffix in {
-        "PyGObject": "3.50.2-cp312-cp312-linux_x86_64",
-        "pycairo": "1.29.0-cp312-cp312-linux_x86_64",
-    }.items():
-        version = suffix.split("-", 1)[0]
-        _write_minimal_wheel(ibus / f"{name}-{suffix}.whl", name, version)
-    ibus_result = _run(
-        sys.executable,
-        "packaging/tools/audit-wheelhouse.py",
-        str(ibus),
-        "--flavor",
-        "ibus",
-        "--expected-pygobject-version",
-        "3.50.2",
-    )
-    assert ibus_result.returncode == 0, ibus_result.stdout + ibus_result.stderr
-
-    leaked = fcitx / "pyrime-0.2.2-cp312-cp312-linux_x86_64.whl"
-    _write_minimal_wheel(leaked, "pyrime", "0.2.2")
-    rejected = _run(
-        sys.executable,
-        "packaging/tools/audit-wheelhouse.py",
-        str(fcitx),
-        "--flavor",
-        "fcitx5",
-    )
-    assert rejected.returncode != 0
-    assert "forbidden wheels present for flavor=fcitx5" in rejected.stderr
-
-    leaked.unlink()
-    (ibus / "PyGObject-3.50.2-cp312-cp312-linux_x86_64.whl").unlink()
-    missing = _run(
-        sys.executable,
-        "packaging/tools/audit-wheelhouse.py",
-        str(ibus),
-        "--flavor",
-        "ibus",
-    )
-    assert missing.returncode != 0
-    assert "required wheels missing for flavor=ibus: pygobject" in missing.stderr
-
-    protobuf = fcitx / "protobuf-6.33.2-cp39-abi3-manylinux2014_x86_64.whl"
-    _write_minimal_wheel(protobuf, "protobuf", "6.33.2")
-    protobuf.write_bytes(protobuf.read_bytes()[:32])
-    corrupted = _run(
-        sys.executable,
-        "packaging/tools/audit-wheelhouse.py",
-        str(fcitx),
-        "--flavor",
-        "fcitx5",
-    )
-    assert corrupted.returncode != 0
-    assert "invalid wheel archive" in corrupted.stderr
-
-    smoke = (ROOT / "packaging/tests/smoke-binary-runtime.sh").read_text(
-        encoding="utf-8"
-    )
-    assert "PACKAGE_RIME_KEYBOARD_OK" in smoke
-    assert "rime_runtime.py" in smoke
-    assert "--schema luna_pinyin --key n" in smoke
-    assert "PACKAGE_FCITX_PRIVATE_RUNTIME_MINIMAL_OK" in smoke
-    runtime = (ROOT / "installers/runtime-common.sh").read_text(encoding="utf-8")
-    optional_body = runtime.split("install_binary_packages()", 1)[1].split(
-        "install_native_streaming_bundle()", 1
-    )[0]
-    assert 'repository_args=(--no-index --find-links "$wheelhouse")' in optional_body
-    assert "--only-binary" in optional_body

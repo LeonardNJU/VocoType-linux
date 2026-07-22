@@ -1,41 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
-ROOT="${VOCOTYPE_SYSTEM_ROOT:-/usr/share/vocotype}"
-export VOCOTYPE_PROJECT_DIR="$ROOT"
-export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
-export PYTHONDONTWRITEBYTECODE=1
-
-backend=${VOCOTYPE_BACKEND:-auto}
-case "$backend" in
-  python|legacy)
-    ;;
-  auto|cpp|native|"")
-    for core in \
-      "$HOME/.local/lib/vocotype-streaming/bin/vocotype-core" \
-      /usr/libexec/vocotype-core \
-      /usr/lib/vocotype/vocotype-core \
-      /usr/lib64/vocotype/vocotype-core \
-      /usr/lib/*/vocotype/vocotype-core; do
-      [[ -x "$core" ]] || continue
-      exec "$core" --enable-final-asr "$@"
-    done
-    if [[ "$backend" == cpp || "$backend" == native ]]; then
-      echo "VoCoType native core is not installed." >&2
-      exit 78
-    fi
-    ;;
-  *)
-    echo "Unknown VOCOTYPE_BACKEND value: $backend" >&2
-    exit 64
-    ;;
-esac
-
-for python in \
-  "$HOME/.local/share/vocotype-fcitx5/.venv/bin/python" \
-  "$HOME/.local/share/vocotype/.venv/bin/python"; do
-  [[ -x "$python" ]] || continue
-  exec "$python" "$ROOT/fcitx5/backend/fcitx5_server.py" "$@"
+for core in \
+  "${VOCOTYPE_CORE:-}" \
+  "$HOME/.local/lib/vocotype-streaming/bin/vocotype-core" \
+  "$HOME/.local/lib/vocotype-native/bin/vocotype-core" \
+  /usr/libexec/vocotype-core \
+  /usr/lib/vocotype/vocotype-core \
+  /usr/lib64/vocotype/vocotype-core \
+  /usr/lib/*/vocotype/vocotype-core; do
+  [[ -n "$core" && -x "$core" ]] || continue
+  exec "$core" --enable-final-asr "$@"
 done
-
-echo "VoCoType user runtime is not configured. Open VoCoType Settings and run Fcitx 5 installation/repair." >&2
+echo "VoCoType native core is not installed." >&2
 exit 78

@@ -60,11 +60,11 @@ sudo pacman -U ./vocotype-linux-*.pkg.tar.zst
 安装软件包后：
 
 1. 从应用菜单打开 **VoCoType 设置**；
-2. 在“概览与安装”中选择 **Fcitx 5** 或 **IBus**；
-3. 点击安装 / 修复；
-4. 在 **Playground** 中选择麦克风，完成录音、回放和识别测试。
+2. 在“概览”中点击 **安装 / 修复 Fcitx 5** 或 **安装 / 修复 IBus**；
+3. 点击 **校验并下载模型**；
+4. 在 **Playground** 中选择麦克风，完成录音和识别测试。
 
-Release 提供三种完整安装包：通用版、IBus 专用版和 Fcitx 5 专用版。每款都包含默认启用的 native C++ core、两个 FunASR worker、私有 ONNX Runtime / FunASR 动态库，以及输入法壳和设置中心所需的锁定 Python 依赖；用户机器只创建 Python 3.12 环境并下载模型，不运行 CMake、GCC、Clang 或源码构建。AI 润色与语音编辑统一连接 OpenAI-compatible API；端点可位于本机、局域网或云端，VoCoType 不启动或管理模型进程。
+Release 提供通用版、IBus 专用版和 Fcitx 5 专用版。每款都包含编译后的 native C++ core、FunASR worker、原生录音器、模型管理器和 GTK 设置中心；相应输入法集成也为 ELF/C++。安装后不创建 Python 环境，不打包 wheelhouse，也不处理 `PYTHONPATH`。语音模型作为用户缓存，由原生模型管理器校验或下载。AI 润色与语音编辑统一连接 OpenAI-compatible API；端点可位于本机、局域网或云端，VoCoType 不启动或管理模型进程。
 
 ### 2. 从源码启动图形安装器
 
@@ -162,15 +162,15 @@ AI 功能默认关闭。`Shift+F9` 润色和 `Ctrl+F9` 语音编辑都调用用�
 
 ### Playground 与诊断
 
-图形设置中心提供：
+原生 GTK 设置中心提供：
 
-- 输入与输出设备选择；
-- 实时麦克风波形；
-- 录音和指定设备回放；
-- 使用真实后台测试 ASR；
-- 测试 AI 润色与编辑；
-- Doctor 环境检查；
-- 脱敏支持包和 GitHub 反馈入口。
+- 输入设备和采样率选择；
+- 真实 PortAudio 录音与 ASR 测试；
+- ITN 预览和术语 YAML 编辑；
+- OpenAI-compatible 润色测试；
+- Fcitx 5 / IBus 安装修复；
+- 模型校验与下载；
+- Doctor 环境检查和零 Python 运行时检查。
 
 ## 支持范围
 

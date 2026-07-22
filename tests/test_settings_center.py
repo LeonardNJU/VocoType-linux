@@ -393,21 +393,17 @@ def test_gui_installers_use_noninteractive_polkit_ready_mode():
 
 
 def test_ibus_gui_installer_deploys_complete_rime_runtime():
-    installer = Path("ibus/scripts/install-gui.sh").read_text(encoding="utf-8")
-    application = Path("settings_center/application.py").read_text(encoding="utf-8")
-    engine = Path("ibus/engine.py").read_text(encoding="utf-8")
-    assert 'install_binary_packages "$PYTHON" "$PROJECT_DIR" pyrime' not in installer
-    assert "default.custom.yaml" in installer
-    assert "rime_deployer --build" in installer
-    assert 'build/$RIME_SCHEMA.schema.yaml' in installer
-    assert '"$INSTALL_DIR/ibus/rime_runtime.py"' in installer
-    assert "Rime 普通键盘输入验收失败" in installer
-    assert installer.count('if [[ "$RIME_MODE" == enabled ]]; then') >= 1
-    assert "rime_enabled.set_active(True)" in application
-    assert "默认启用，使 VoCoType 同时支持语音与普通拼音输入" in application
-    assert 'directory / "build/default.yaml"' in engine
-    assert "from ibus.rime_runtime import" in engine
-    assert "pyrime" not in engine
+    wrapper = Path("ibus/scripts/install-gui.sh").read_text(encoding="utf-8")
+    installer = Path("installers/install-native-user.sh").read_text(encoding="utf-8")
+    rime = Path("native/desktop/src/rime_session.cpp").read_text(encoding="utf-8")
+    ibus = Path("native/desktop/src/ibus_main.cpp").read_text(encoding="utf-8")
+    assert "install-native-user.sh" in wrapper
+    assert '"$engine" --deploy-rime' in installer
+    assert "deploy_rime_workspace" in rime
+    assert "rime_get_api" in rime
+    assert "RimeDeployWorkspace" not in rime
+    assert "--deploy-rime" in ibus
+
 
 
 def test_gui_uninstallers_use_symmetric_noninteractive_entrypoints():
@@ -1035,36 +1031,15 @@ def test_preferred_framework_uses_installs_before_radio_selection(
 
 
 def test_installers_have_gui_noninteractive_paths_without_terminal_password_prompts():
-    script = Path("fcitx5/scripts/install.sh").read_text(encoding="utf-8")
-    assert 'mkdir -p "$INSTALL_DIR/scripts" "$INSTALL_DIR/installers"' in script
-    assert 'rm -f "$HOME/.config/environment.d/fcitx5-vocotype.conf"' in script
-    assert "FCITX_ADDON_DIRS=$HOME" not in script
-    assert "manage-fcitx-system-integration.sh" in script
-    assert "AUTH_REQUIRED: 即将弹出管理员授权窗口以安装 VoCoType（Fcitx 5）系统 addon" in script
-    assert '"$HOME/.local/share/fcitx5/addon/vocotype.conf"' in script
-    assert script.index('mkdir -p "$INSTALL_DIR/scripts" "$INSTALL_DIR/installers"') < script.index(
-        'cp "$INSTALLER_DIR/setup-audio.py" "$INSTALLED_SETUP_AUDIO_SCRIPT"'
-    )
-    for fragment in (
-        "--non-interactive",
-        "--preserve-config",
-        'cp -r "$PROJECT_DIR/settings_center"',
-        'vocotype-settings',
-        'io.github.LeonardNJU.VoCoType.Settings.desktop',
-        'OpenAI-compatible API',
-        'VOCOTYPE_PROJECT_DIR',
-        '--install-system-deps',
-        'pkexec',
-        'pkexec --disable-internal-agent',
-    ):
-        assert fragment in script
+    source = Path("installers/install-native-user.sh").read_text(encoding="utf-8")
+    assert "--non-interactive" in source
+    assert "pkexec" in source
+    assert "read -s" not in source
+    assert "sudo -S" not in source
+    for framework in ("fcitx5", "ibus"):
+        gui = Path(framework, "scripts/install-gui.sh").read_text(encoding="utf-8")
+        assert "--non-interactive" in gui
 
-    ibus_gui = Path("ibus/scripts/install-gui.sh").read_text(encoding="utf-8")
-    assert ibus_gui.count("pkexec --disable-internal-agent") == 2
-
-    uninstaller = Path("installers/uninstall-integration.sh").read_text(encoding="utf-8")
-    assert 'if [[ "$NON_INTERACTIVE" == true ]]; then' in uninstaller
-    assert 'pkexec --disable-internal-agent "$@"' in uninstaller
 
 
 def test_shared_uninstaller_preserves_user_configuration_by_default():
@@ -1132,44 +1107,35 @@ def test_source_fcitx_system_helper_tracks_and_removes_owned_files(tmp_path: Pat
 
 
 def test_ibus_gui_installer_uses_pkexec_and_never_reads_from_a_terminal():
-    script = Path("ibus/scripts/install-gui.sh").read_text(encoding="utf-8")
-    assert "--non-interactive" in script
-    assert "--component-mode" in script
-    assert "pkexec" in script
-    assert "AUTH_REQUIRED" in script
-    assert "read -r -p" not in script
-    assert "sudo " not in script
-    assert "xdg-terminal-exec" not in script
-    assert "gnome-terminal" not in script
+    wrapper = Path("ibus/scripts/install-gui.sh").read_text(encoding="utf-8")
+    installer = Path("installers/install-native-user.sh").read_text(encoding="utf-8")
+    assert "--non-interactive" in wrapper
+    assert "install-native-user.sh" in wrapper
+    assert "pkexec" in installer
+    assert "read -r -p" not in installer
+    assert "sudo -S" not in installer
+    assert "xdg-terminal-exec" not in installer
+    assert "gnome-terminal" not in installer
+
 
 
 def test_system_dependency_helper_has_fixed_actions_and_no_arbitrary_package_arguments():
     helper = Path("installers/install-system-dependencies.sh").read_text(encoding="utf-8")
-    assert "fcitx5|fcitx5-source|ibus|ibus-rime" in helper
+    assert "fcitx5|fcitx5-source|ibus|ibus-rime|universal" in helper
     assert "apt-get install" in helper
     assert "dnf install" in helper
     assert "pacman -S --needed" in helper
-    assert 'PACKAGES=("$@")' not in helper
-    for action in ("fcitx5", "ibus", "ibus-rime"):
+    assert 'packages=("$@")' not in helper.lower()
+    for action in ("fcitx5", "ibus", "ibus-rime", "universal"):
         result = subprocess.run(
             ["bash", "installers/install-system-dependencies.sh", "--print-plan", action],
-            cwd=Path.cwd(),
-            text=True,
-            capture_output=True,
-            check=False,
+            cwd=Path.cwd(), text=True, capture_output=True, check=False,
         )
         assert result.returncode == 0, result.stderr
-        for forbidden in ("build-essential", "base-devel", "gcc", "cmake", "make", "-dev", "-devel"):
-            assert forbidden not in result.stdout
-    source_plan = subprocess.run(
-        ["bash", "installers/install-system-dependencies.sh", "--print-plan", "fcitx5-source"],
-        cwd=Path.cwd(),
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert source_plan.returncode == 0
-    assert any(item in source_plan.stdout for item in ("base-devel", "build-essential", "gcc-c++"))
+        assert "python" not in result.stdout.lower()
+        assert "portaudio" in result.stdout
+        assert "gtk" in result.stdout
+
 
 
 def test_setup_manager_does_not_launch_terminal_emulators():
@@ -1297,37 +1263,17 @@ def test_tutorial_is_framework_specific_and_hidden_without_installation():
 
 
 def test_native_release_forces_python_312_user_runtime(monkeypatch: pytest.MonkeyPatch):
-    import settings_center.setup_manager as setup_manager
+    source = Path("installers/install-native-user.sh").read_text(encoding="utf-8")
+    assert "runtime=native" not in source or ".system-package" in source
+    assert "python 3.12" not in source.lower()
+    assert "virtualenv" not in source.lower()
+    assert "vocotype-model-manager" in source
+    assert "cleanup_legacy_python" in source
+    for framework in ("fcitx5", "ibus"):
+        wrapper = Path(framework, "scripts/install.sh").read_text(encoding="utf-8")
+        assert "install-native-user.sh" in wrapper
+        assert "bootstrap-uv" not in wrapper
 
-    root = Path("/usr/share/vocotype")
-    monkeypatch.setattr(
-        setup_manager,
-        "native_package_present",
-        lambda _root=None: True,
-    )
-    requested = InstallOptions(
-        python_choice="system",
-        bootstrap_uv=False,
-        preserve_config=False,
-    )
-    for command in (
-        fcitx_installer_command(root, requested),
-        ibus_installer_command(root, requested),
-    ):
-        assert command[command.index("--python-choice") + 1] == "user"
-        assert "--bootstrap-uv" in command
-
-    application = Path("settings_center/application.py").read_text(encoding="utf-8")
-    assert "package_install = native_package_present()" in application
-    assert 'if not package_install:' in application
-    assert "Release 固定环境" in application
-    assert "Release 包只使用与内置 wheels 匹配的 Python 3.12" in application
-
-    ibus = Path("ibus/scripts/install-gui.sh").read_text(encoding="utf-8")
-    fcitx = Path("fcitx5/scripts/install.sh").read_text(encoding="utf-8")
-    for source in (ibus, fcitx):
-        assert "Release 包固定使用 Python 3.12 用户环境" in source
-        assert "未回退到不匹配的系统 Python" in source
 
 
 def test_native_package_flavor_marker_locks_framework_and_package_name(

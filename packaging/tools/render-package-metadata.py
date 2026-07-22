@@ -19,21 +19,20 @@ _PLACEHOLDER = re.compile(r"@[A-Z][A-Z0-9_]*@")
 def debian_values(meta: dict[str, object]) -> dict[str, str]:
     includes_ibus = bool(meta["includes_ibus"])
     includes_fcitx = bool(meta["includes_fcitx5"])
-    build = ["debhelper-compat (= 13)", "python3"]
-    if includes_fcitx:
-        build += ["cmake", "g++", "pkg-config", "libfcitx5core-dev", "nlohmann-json3-dev"]
-    depends = [
-        "${shlibs:Depends}", "${misc:Depends}", "python3 (>= 3.10)",
-        "python3-gi", "python3-yaml", "python3-numpy", "gir1.2-gtk-3.0", "libportaudio2",
-        "pkexec | policykit-1",
+    build = [
+        "debhelper-compat (= 13)", "python3", "cmake", "g++", "pkg-config",
+        "libportaudio2-dev", "libgtk-3-dev", "libyaml-cpp-dev",
+        "libcurl4-openssl-dev", "libssl-dev", "nlohmann-json3-dev",
     ]
     if includes_ibus:
-        depends += [
-            "ibus", "librime1", "librime-bin", "librime-data",
-            "rime-data-luna-pinyin",
-        ]
+        build += ["libibus-1.0-dev", "librime-dev"]
     if includes_fcitx:
-        depends.append("fcitx5")
+        build += ["libfcitx5core-dev"]
+    depends = ["${shlibs:Depends}", "${misc:Depends}", "libgtk-3-0", "libportaudio2"]
+    if includes_ibus:
+        depends += ["ibus", "librime1", "librime-data", "rime-data-luna-pinyin"]
+    if includes_fcitx:
+        depends += ["fcitx5"]
     return {
         "@PACKAGE_NAME@": str(meta["package_name"]),
         "@BUILD_DEPENDS@": ", ".join(build),
@@ -47,33 +46,30 @@ def debian_values(meta: dict[str, object]) -> dict[str, str]:
 def rpm_values(meta: dict[str, object]) -> dict[str, str]:
     includes_ibus = bool(meta["includes_ibus"])
     includes_fcitx = bool(meta["includes_fcitx5"])
-    build = ["BuildRequires:  python3", "BuildRequires:  systemd-rpm-macros"]
-    if includes_fcitx:
-        build += [
-            "BuildRequires:  cmake", "BuildRequires:  gcc-c++",
-            "BuildRequires:  pkgconfig", "BuildRequires:  fcitx5-devel",
-            "BuildRequires:  nlohmann-json-devel",
-        ]
-    requires = [
-        "Requires:       python3 >= 3.11", "Requires:       python3-gobject",
-        "Requires:       python3-pyyaml", "Requires:       python3-numpy",
-        "Requires:       gtk3",
-        "Requires:       portaudio", "Requires:       polkit",
+    build = [
+        "BuildRequires:  python3", "BuildRequires:  cmake", "BuildRequires:  gcc-c++",
+        "BuildRequires:  pkgconfig", "BuildRequires:  systemd-rpm-macros",
+        "BuildRequires:  portaudio-devel", "BuildRequires:  gtk3-devel",
+        "BuildRequires:  yaml-cpp-devel", "BuildRequires:  libcurl-devel",
+        "BuildRequires:  openssl-devel", "BuildRequires:  nlohmann-json-devel",
     ]
-    files = []
     if includes_ibus:
-        requires += [
-            "Requires:       ibus",
-            "Requires:       librime",
-            "Requires:       librime-tools",
-            "Requires:       brise",
-        ]
+        build += ["BuildRequires:  ibus-devel", "BuildRequires:  librime-devel"]
+    if includes_fcitx:
+        build += ["BuildRequires:  fcitx5-devel"]
+    requires = ["Requires:       gtk3", "Requires:       portaudio", "Requires:       yaml-cpp"]
+    files = [
+        "%{_libexecdir}/vocotype-audio-recorder",
+        "%{_libexecdir}/vocotype-model-manager",
+    ]
+    if includes_ibus:
+        requires += ["Requires:       ibus", "Requires:       librime", "Requires:       brise"]
         files += [
             "%{_libexecdir}/vocotype-ibus-engine",
             "%{_datadir}/ibus/component/vocotype.xml",
         ]
     if includes_fcitx:
-        requires.append("Requires:       fcitx5")
+        requires += ["Requires:       fcitx5"]
         files += [
             "%{_bindir}/vocotype-fcitx5-backend",
             "%{_bindir}/vocotype-fcitx5-recorder",
@@ -97,16 +93,12 @@ def rpm_values(meta: dict[str, object]) -> dict[str, str]:
 def arch_values(meta: dict[str, object]) -> dict[str, str]:
     includes_ibus = bool(meta["includes_ibus"])
     includes_fcitx = bool(meta["includes_fcitx5"])
-    depends = [
-        "python>=3.11", "python-gobject", "python-yaml", "python-numpy",
-        "gtk3", "portaudio", "polkit",
-    ]
-    makedepends: list[str] = []
+    depends = ["gtk3", "portaudio", "yaml-cpp", "curl", "openssl"]
+    makedepends = ["python", "cmake", "gcc", "pkgconf", "nlohmann-json"]
     if includes_ibus:
         depends += ["ibus", "librime", "librime-data"]
     if includes_fcitx:
-        depends.append("fcitx5")
-        makedepends += ["cmake", "gcc", "pkgconf", "nlohmann-json"]
+        depends += ["fcitx5"]
     quote = lambda items: " ".join(repr(item) for item in items)
     return {
         "@PACKAGE_NAME@": str(meta["package_name"]),

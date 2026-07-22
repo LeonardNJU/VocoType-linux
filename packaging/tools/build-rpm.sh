@@ -9,7 +9,6 @@ VERSION=$(python3 "$ROOT/packaging/tools/versioning.py" "$(sed -n 's/^__version_
 RPM_VERSION=$(python3 "$ROOT/packaging/tools/versioning.py" "$VERSION" --field rpm_version)
 RPM_RELEASE=$(python3 "$ROOT/packaging/tools/versioning.py" "$VERSION" --field rpm_release)
 BUNDLE=${VOCOTYPE_STREAMING_BUNDLE_DIR:?VOCOTYPE_STREAMING_BUNDLE_DIR is required for complete packages}
-WHEELHOUSE=${VOCOTYPE_WHEELHOUSE_DIR:?VOCOTYPE_WHEELHOUSE_DIR is required for complete packages}
 command -v rpmbuild >/dev/null 2>&1 || { echo "rpmbuild is required" >&2; exit 127; }
 
 work=$(mktemp -d)
@@ -19,7 +18,7 @@ python3 "$ROOT/packaging/tools/build-release.py" --source-only --output "$work/r
 base="$work/release/VocoType-linux-$VERSION.tar.gz"
 complete="$work/rpmbuild/SOURCES/VocoType-linux-$VERSION.tar.gz"
 python3 "$ROOT/packaging/tools/prepare-complete-source.py" \
-  --source "$base" --native-bundle "$BUNDLE" --wheelhouse "$WHEELHOUSE" \
+  --source "$base" --native-bundle "$BUNDLE" \
   --flavor "$FLAVOR" --output "$complete"
 python3 "$ROOT/packaging/tools/render-package-metadata.py" \
   --format rpm --flavor "$FLAVOR" \

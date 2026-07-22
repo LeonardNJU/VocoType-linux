@@ -24,30 +24,31 @@
     sudo pacman -U ./vocotype-linux-*.pkg.tar.zst
     ```
 
-v3 Release 同时提供通用版、IBus 专用版和 Fcitx 5 专用版。三者都包含预编译 native C++ core、最终/实时两个 FunASR worker 和发行版兼容 Python wheelhouse；专用版只安装所选输入法 integration 及其系统依赖。包管理器事务不下载模型或修改用户配置，设置中心只创建 Python 3.12 用户环境并按需下载模型。AI 功能只调用用户配置的 OpenAI-compatible API，不在本机启动模型。
+v3 Release 同时提供通用版、IBus 专用版和 Fcitx 5 专用版。三者都包含预编译 native C++ core、最终/实时 FunASR worker、原生录音器、模型管理器和 GTK 设置中心；专用版只安装所选输入法 integration 及其系统依赖。软件包不包含 Python runtime、venv 或 wheelhouse。AI 功能只调用用户配置的 OpenAI-compatible API，不在本机启动模型。
 
 ## 在图形界面中完成初始化
 
 1. 从应用菜单打开 **VoCoType 设置**；
 2. 在“概览与安装”中选择 **Fcitx 5** 或 **IBus**；
 3. 点击安装 / 修复；
-4. 等待 Python 运行时和语音模型准备完成；
-5. 打开 **Playground**，选择麦克风并完成录音、回放和 ASR 测试；
+4. 点击“校验并下载模型”，等待原生模型管理器完成 SHA-256 校验；
+5. 打开 **Playground**，选择麦克风并完成录音和 ASR 测试；
 6. 回到任意输入框，按住 `F9` 说话，松开后提交文字。
 
 需要系统权限时，桌面会显示标准 Polkit 授权窗口。VoCoType 不读取或保存管理员密码。
 
-## 从源码启动图形安装器
+## 从源码构建并安装
 
 尚无原生软件包，或者需要测试最新代码时：
 
 ```bash
 git clone https://github.com/LeonardNJU/VocoType-linux.git
 cd VocoType-linux
-bash installers/launch-settings.sh
+bash fcitx5/scripts/install.sh --install-system-deps --download-models
+# 或：bash ibus/scripts/install.sh --install-system-deps --download-models
 ```
 
-后续步骤与发行包安装一致，均在 **VoCoType 设置** 中完成。
+源码安装会编译 C++ 组件。完成后可运行 `vocotype-settings`；安装后的日常运行不需要编译器或 Python。
 
 ## 无图形桌面或兼容旧版 CLI
 
@@ -66,7 +67,7 @@ CLI 是兼容入口，不再是普通桌面用户的首选安装方式。
 |---|---|
 | KDE、已经使用 Fcitx 5 / Rime / Mozc | [Fcitx 5](../integrations/fcitx5.md) |
 | GNOME、发行版默认使用 IBus | [IBus](../integrations/ibus.md) |
-| 希望使用当前稳定的语音编辑 | IBus |
+| 希望使用语音编辑 | 两者均支持 |
 | 确实需要在两套桌面环境间切换 | 可以同时安装；两者读取同一份 VoCoType 配置 |
 
 ## 安装后没有反应

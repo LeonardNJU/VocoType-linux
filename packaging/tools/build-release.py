@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build reproducible VoCoType source and Python release artifacts."""
+"""Build the reproducible VoCoType source release archive."""
 
 from __future__ import annotations
 
@@ -60,52 +60,17 @@ def build_source_archive(output_dir: Path, version: str, treeish: str) -> Path:
     return target
 
 
+
 def clean_generated_source_metadata() -> None:
-    """Remove build metadata that PEP 517 backends may leave in the checkout."""
-
+    """Remove generated checkout metadata before source release validation."""
     for path in ROOT.glob("*.egg-info"):
-        shutil.rmtree(path, ignore_errors=True)
-    for path in ROOT.rglob("__pycache__"):
-        if any(part in {".git", ".venv", "build", "dist"} for part in path.parts):
-            continue
-        shutil.rmtree(path, ignore_errors=True)
-    for pattern in ("*.pyc", "*.pyo"):
-        for path in ROOT.rglob(pattern):
-            if any(part in {".git", ".venv", "build", "dist"} for part in path.parts):
-                continue
-            path.unlink(missing_ok=True)
-
-
-def build_python_distributions(output_dir: Path) -> list[Path]:
-    python_dir = output_dir / "python"
-    shutil.rmtree(python_dir, ignore_errors=True)
-    python_dir.mkdir(parents=True)
-    uv = shutil.which("uv")
-    clean_generated_source_metadata()
-    try:
-        if uv:
-            run(uv, "build", "--out-dir", str(python_dir), str(ROOT))
+        if path.is_dir():
+            shutil.rmtree(path)
         else:
-            try:
-                import build  # noqa: F401
-            except ImportError as exc:
-                raise RuntimeError("install 'uv' or the Python 'build' package") from exc
-            run(sys.executable, "-m", "build", "--outdir", str(python_dir), str(ROOT))
-    finally:
-        clean_generated_source_metadata()
-    artifacts = sorted(
-        path
-        for path in python_dir.iterdir()
-        if path.is_file() and (path.suffix == ".whl" or path.name.endswith(".tar.gz"))
-    )
-    for path in python_dir.iterdir():
-        if path.is_file() and path not in artifacts:
-            path.unlink()
-    if not any(path.suffix == ".whl" for path in artifacts):
-        raise RuntimeError("wheel build produced no artifact")
-    if not any(path.name.endswith(".tar.gz") for path in artifacts):
-        raise RuntimeError("sdist build produced no artifact")
-    return artifacts
+            path.unlink(missing_ok=True)
+    for path in ROOT.rglob("__pycache__"):
+        if path.is_dir():
+            shutil.rmtree(path)
 
 
 def write_metadata(output_dir: Path, version: str, commit: str, artifacts: list[Path]) -> None:
@@ -139,7 +104,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, default=ROOT / "dist/release")
     parser.add_argument("--treeish", default="HEAD")
-    parser.add_argument("--source-only", action="store_true")
+    parser.add_argument("--source-only", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--expected-version")
     parser.add_argument("--keep-output", action="store_true")
     parser.add_argument("--allow-dirty", action="store_true")
@@ -172,10 +137,7 @@ def main() -> int:
 
     commit = git_output("rev-parse", args.treeish)
     source_archive = build_source_archive(output_dir, version, args.treeish)
-    artifacts = [source_archive]
-    if not args.source_only:
-        artifacts.extend(build_python_distributions(output_dir))
-    write_metadata(output_dir, version, commit, artifacts)
+    write_metadata(output_dir, version, commit, [source_archive])
     print(f"Built VoCoType {version} release artifacts in {output_dir}")
     return 0
 

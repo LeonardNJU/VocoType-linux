@@ -1,41 +1,48 @@
 # Packaging and distribution
 
-VoCoType has three supported distribution layers:
+VoCoType publishes three native Linux package flavors from one staging implementation:
+The same contract produces DEB, RPM, and Arch Linux packages.
 
-1. **Python wheel and sdist** for development, library use, and runtime tooling.
-2. **Complete source bundle** (`VocoType-linux-<version>.tar.gz`) containing the graphical installers, Fcitx module source, IBus engine, documentation, and locked dependencies.
-3. **Complete native Linux packages**: DEB for Debian/Ubuntu, RPM for Fedora/RHEL-family, and PKGBUILD packages for Arch Linux. Each distro publishes three flavors from one staging implementation: `vocotype-linux` (universal), `vocotype-linux-ibus`, and `vocotype-linux-fcitx5`. Every flavor includes the audited native 2-pass runtime and locked Python 3.12 runtime closure; specialized flavors omit the other input-framework integration and dependency.
 
-Native package-manager transactions do not run `pip`, download models, write user configuration, or start a user service. After installation, open **VoCoType Settings**. The graphical installer creates an isolated Python 3.12 environment from the package-local wheelhouse with `--no-index --only-binary`, then downloads only the selected models. AI features call an OpenAI-compatible API supplied by the user. VoCoType never installs, starts, warms, or stops an SLM process; source builds remain forbidden on the user machine. No compiler or source build is permitted on the user machine. System-level registration or repair uses the desktop Polkit agent; VoCoType never reads an administrator password.
+- `vocotype-linux`: Fcitx 5 + IBus
+- `vocotype-linux-fcitx5`: Fcitx 5 only
+- `vocotype-linux-ibus`: IBus only
 
-The settings center can remove either user-level integration without bypassing package ownership. Files under `/usr` remain managed by `apt`, `dnf`, or `pacman`; the GUI reads `.system-package` and reports the exact flavor-specific removal command.
+The installed runtime is native-only. Packages contain compiled ELF executables, the Fcitx module or IBus engine, the audited FunASR/ONNX runtime, desktop resources, and configuration/install scripts. They do **not** contain a Python interpreter, virtual environment, wheelhouse, `.py` runtime modules, NumPy, SoundDevice, PyGObject, or Python path launchers.
+
+Python remains usable on the build machine for tests, version rendering, and source-archive tooling. It is not an installed runtime dependency.
+
+## Runtime components
+
+A universal package installs:
+
+- `vocotype-core`
+- `vocotype-streaming-worker`
+- `vocotype-offline-worker`
+- `vocotype-audio-recorder`
+- `vocotype-model-manager` — native model manager
+- `vocotype-settings`
+- `vocotype-ibus-engine`
+- the Fcitx 5 global module
+
+The package transaction is offline and non-interactive. ASR models are user data and are validated or downloaded later by `vocotype-model-manager` through the settings center or native installer. Existing models under the ModelScope cache are reused after SHA-256 validation.
 
 ## Local commands
 
 ```bash
 make test
-make release                 # source archive + wheel + sdist + checksums
-make package-deb             # Debian/Ubuntu host or container
-make package-rpm             # Fedora/RPM host or container
-make package-arch            # Arch host or container
+make release
+make package-deb
+make package-rpm
+make package-arch
 ```
 
+The package jobs consume one audited portable native FunASR/ONNX bundle. Every produced package is extracted before installation and checked for:
+
+- zero `.py`, `.pyc`, and `.whl` runtime files;
+- expected ELF executables;
+- resolved shared-library dependencies;
+- native payload checksums;
+- correct flavor-specific IBus/Fcitx files.
+
 Artifacts are written below `dist/release/` and `dist/packages/`.
-
-## Release tags
-
-Release builds are started with `workflow_dispatch`. Every run builds and installs each package, then assembles GitHub-safe filenames, manifests, and checksums for the exact downloadable asset set. Only when `publish=true` and every validation and assembly job succeeds does it create the requested tag and GitHub Release from that assembled artifact. `v3.0.0-beta.2` maps to internal version `3.0.0b2`. Failed runs create neither a public tag nor a Release.
-
-Every Release build first creates one portable native streaming artifact. The DEB, RPM, and Arch jobs consume that same audited artifact, build a PyGObject-compatible wheelhouse for their own distro, install the resulting package, and verify a fresh Python 3.12 runtime using only package-local wheels. GitHub Release assets include the source archive, Python distributions, complete native packages, the standalone native bundle, machine-readable manifests, and SHA-256 checksums.
-
-## Package contract
-
-A native package must install:
-
-- `/usr/share/vocotype/`: complete setup/runtime source tree, distro-compatible wheelhouse, and a `.system-package` marker recording the package name, flavor, and owning package manager;
-- the Fcitx global module and addon metadata;
-- the IBus component and launcher (`/usr/libexec` on DEB/RPM, `/usr/lib/vocotype` on Arch);
-- `vocotype-settings`, backend, recorder, and precompiled native streaming launchers with private runtime libraries;
-- a systemd user service definition, desktop entry, icon, license, and documentation.
-
-Package maintainer scripts are non-interactive and never download network content. Missing native or wheelhouse inputs fail the build; incomplete packages are never published.

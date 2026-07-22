@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inject CI-built native and Python runtimes into a package source archive."""
+"""Inject the CI-built native runtime into a package source archive."""
 from __future__ import annotations
 
 import argparse
@@ -49,21 +49,6 @@ def _validate_bundle(bundle: Path) -> None:
             raise ValueError(f"native executable is not executable: {executable.name}")
 
 
-def _validate_wheelhouse(wheelhouse: Path, flavor: str) -> None:
-    import subprocess
-    import sys
-
-    audit = Path(__file__).resolve().with_name("audit-wheelhouse.py")
-    result = subprocess.run(
-        [sys.executable, str(audit), str(wheelhouse), "--flavor", flavor],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise ValueError(result.stderr.strip() or result.stdout.strip())
-
-
 def _write_reproducible_archive(source_root: Path, output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(suffix=".tar", delete=False) as raw:
@@ -95,25 +80,20 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--native-bundle", type=Path, required=True)
-    parser.add_argument("--wheelhouse", type=Path, required=True)
-    parser.add_argument("--flavor", required=True)
+    parser.add_argument("--flavor", required=False, default="universal")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
     source = args.source.resolve()
     bundle = args.native_bundle.resolve()
-    wheelhouse = args.wheelhouse.resolve()
     _validate_bundle(bundle)
-    _validate_wheelhouse(wheelhouse, args.flavor)
 
     with tempfile.TemporaryDirectory(prefix="vocotype-complete-source-") as value:
         root = _safe_extract(source, Path(value))
         bundle_target = root / "native/streaming_worker/build/bundle"
-        wheel_target = root / "vendor/wheelhouse"
         shutil.rmtree(bundle_target, ignore_errors=True)
-        shutil.rmtree(wheel_target, ignore_errors=True)
+        shutil.rmtree(root / "vendor/wheelhouse", ignore_errors=True)
         shutil.copytree(bundle, bundle_target, symlinks=True)
-        shutil.copytree(wheelhouse, wheel_target, symlinks=True)
         _write_reproducible_archive(root, args.output.resolve())
     print(args.output.resolve())
     return 0

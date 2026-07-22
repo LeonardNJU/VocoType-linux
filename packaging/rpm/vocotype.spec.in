@@ -14,19 +14,19 @@ Source0:        VocoType-linux-@SOURCE_VERSION@.tar.gz
 @REQUIRES@
 @CONFLICTS@
 Provides:       vocotype-linux-runtime
-Requires:       curl
 
 %description
 VoCoType provides push-to-talk offline speech input, terminology handling,
 inverse text normalization, and optional AI polishing through an
 OpenAI-compatible API. This flavor installs the @TITLE@ integration,
-the default native C++ core and native ASR runtime, and a distro-compatible Python wheelhouse.
+the native C++ core, compiled desktop integrations, and native ASR runtime.
+The installed runtime contains only compiled executables and shared resources.
 
 %prep
 %autosetup -n VocoType-linux-@SOURCE_VERSION@
 
 %build
-# Native streaming and Python wheels are injected by release CI.
+# The audited native FunASR/ONNX bundle is injected by release CI.
 
 %install
 ./packaging/tools/stage-system-package.sh \
@@ -37,14 +37,15 @@ the default native C++ core and native ASR runtime, and a distro-compatible Pyth
   --build-dir "%{_builddir}/vocotype-fcitx-build-@FLAVOR@" \
   --flavor "@FLAVOR@" \
   --package-manager dnf \
-  --require-streaming-bundle \
-  --require-wheelhouse
+  --require-streaming-bundle
 
 %files
 %license %{_datadir}/licenses/vocotype-linux/LICENSE
 %doc %{_datadir}/doc/vocotype-linux/README.md
 %doc %{_datadir}/doc/vocotype-linux/CHANGELOG.md
 %{_bindir}/vocotype-settings
+%{_libexecdir}/vocotype-audio-recorder
+%{_libexecdir}/vocotype-model-manager
 %{_libexecdir}/vocotype-core
 %{_libexecdir}/vocotype-streaming-worker
 %{_libexecdir}/vocotype-offline-worker
@@ -58,4 +59,4 @@ the default native C++ core and native ASR runtime, and a distro-compatible Pyth
 
 %changelog
 * Tue Jul 21 2026 Leonard Li <leo@lsamc.website> - @VERSION@-@RELEASE@
-- Ship complete @TITLE@ package with streaming runtime and binary wheelhouse
+- Ship native-only @TITLE@ package with compiled desktop and ASR runtimes

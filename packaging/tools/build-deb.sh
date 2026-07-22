@@ -8,7 +8,6 @@ PACKAGE_NAME=$(python3 "$ROOT/packaging/tools/package-flavor.py" "$FLAVOR" --fie
 VERSION=$(python3 "$ROOT/packaging/tools/versioning.py" "$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$ROOT/vocotype_version.py")" --field python)
 DEBIAN_VERSION=$(python3 "$ROOT/packaging/tools/versioning.py" "$VERSION" --field debian)
 BUNDLE=${VOCOTYPE_STREAMING_BUNDLE_DIR:?VOCOTYPE_STREAMING_BUNDLE_DIR is required for complete packages}
-WHEELHOUSE=${VOCOTYPE_WHEELHOUSE_DIR:?VOCOTYPE_WHEELHOUSE_DIR is required for complete packages}
 command -v dpkg-buildpackage >/dev/null 2>&1 || { echo "dpkg-buildpackage is required" >&2; exit 127; }
 
 work=$(mktemp -d)
@@ -18,7 +17,7 @@ python3 "$ROOT/packaging/tools/build-release.py" --source-only --output "$work/r
 base="$work/release/VocoType-linux-$VERSION.tar.gz"
 complete="$work/VocoType-linux-$VERSION.tar.gz"
 python3 "$ROOT/packaging/tools/prepare-complete-source.py" \
-  --source "$base" --native-bundle "$BUNDLE" --wheelhouse "$WHEELHOUSE" \
+  --source "$base" --native-bundle "$BUNDLE" \
   --flavor "$FLAVOR" --output "$complete"
 tar -xzf "$complete" -C "$work"
 src="$work/VocoType-linux-$VERSION"

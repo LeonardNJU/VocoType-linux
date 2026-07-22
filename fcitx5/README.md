@@ -1,137 +1,37 @@
 # VoCoType Fcitx 5 全局模块
 
-VoCoType 在 Fcitx 5 下以 **全局 Module** 运行，而不是一个独立输入法。
-安装后继续使用你原来的 Rime、拼音、Mozc、键盘布局或其他 Fcitx 5 输入法；
-VoCoType 只拦截配置的 PTT 热键并把语音识别结果直接提交到当前输入框。
+VoCoType 以 Fcitx 5 全局 Module 工作。用户继续使用现有的 Rime、拼音、Mozc 或键盘布局；模块只拦截语音热键。
 
-## 主要能力
+## 功能
 
-- `F9`：按住录音，松开执行本地 ASR 并提交。
-- `Shift+F9`：长句模式；远程 SLM 生成期间在输入面板实时显示可见预览。
-- `Ctrl+F9`：读取当前输入框上下文并执行替换、删除、插入、导航、撤销或 AI 编辑。
-- 在所有 Fcitx 5 输入法下生效，不再代理普通键盘事件。
-- 不依赖 `pyrime`，不创建独立 Rime session，不复制候选词或 preedit。
-- 按下热键时记录原始 `InputContext`；焦点变化后取消或丢弃结果，避免误输到其他窗口。
-- 当前输入法存在未提交的 preedit/candidate 时默认不启动录音，避免破坏正在进行的组合输入。
-
-## 架构
+- `F9`：原生 PortAudio 录音和本地 ASR
+- `Shift+F9`：SSE 流式润色
+- `Ctrl+F9`：surrounding-text 语音编辑
+- 实时 preedit 预览
+- 焦点变化、取消和任务生命周期保护
 
 ```text
-应用输入框
-    ↕
-当前原生输入法（fcitx5-rime / pinyin / mozc / keyboard / ...）
-    ↕
 Fcitx 5 event pipeline
-    └── VoCoType Module
-          ├── 监听 F9 / Shift+F9 / Ctrl+F9
-          ├── 启动录音进程
-          ├── 通过 Unix Socket 调用 Python backend
-          └── InputContext::commitString() 提交结果
+  └─ vocotype.so
+       ├─ vocotype-audio-recorder
+       └─ vocotype-core
 ```
 
-代码位置：
+模块、录音器、core 和 worker 均为编译后的本地程序。提交文本只使用 Fcitx 官方 `InputContext::commitString()` / surrounding-text API，不使用剪贴板注入。
 
-```text
-fcitx5/module/                 Fcitx 5 全局 C++ module
-fcitx5/backend/                Python ASR/SLM backend
-fcitx5/backend/audio_recorder.py
-fcitx5/data/vocotype.conf      Category=Module 的 addon 元数据
-```
+## 安装
 
-
-## 系统要求
-
-- Linux 与 Fcitx 5。
-- Python 3.11 或 3.12。
-- CMake、C++20 编译器、pkg-config。
-- `libfcitx5-dev` / `fcitx5-devel`。
-- `nlohmann-json3-dev` / `json-devel`。
-
-Fcitx 版本不需要 `pyrime`。用户需要 Rime 时直接安装和使用发行版提供的
-`fcitx5-rime`，VoCoType 会在它处于活动状态时照常工作。
-
-## 图形安装（推荐）
+发行包安装后，可在 **VoCoType 设置 → 概览** 点击“安装 / 修复 Fcitx 5”，或运行：
 
 ```bash
-git clone https://github.com/LeonardNJU/VocoType-linux.git
-cd VocoType-linux
-bash installers/launch-settings.sh
+bash fcitx5/scripts/install.sh --download-models
 ```
 
-在“概览与安装”点击 **安装 / 修复 VoCoType（Fcitx 5）** 或 **卸载 VoCoType（Fcitx 5）**。已安装用户可直接从应用菜单打开 **VoCoType 设置**。
+无需把 VoCoType 添加到输入法列表。可在 `fcitx5-configtool` 的附加组件页面确认 **VoCoType Voice Input** 已启用。
 
-## 命令行安装
+源码构建需要 CMake、C++20、Fcitx 5 开发包、GTK、PortAudio、yaml-cpp、libcurl、OpenSSL 和 nlohmann-json。安装后的运行环境不需要编译器或 Python。
 
-```bash
-bash fcitx5/scripts/install.sh
-systemctl --user enable --now vocotype-fcitx5-backend.service
-fcitx5 -r
-```
-
-设置中心中的 Fcitx 安装器会在窗口内执行；缺少系统包时通过 Polkit 授权自动安装。安装后端会：
-
-1. 编译并安装 `vocotype.so` 全局 module。
-2. 安装 addon 元数据到 `~/.local/share/fcitx5/addon/vocotype.conf`。
-3. 删除旧版 `~/.local/share/fcitx5/inputmethod/vocotype.conf` 输入法条目。
-4. 安装 Python 后端和录音启动器。
-5. 创建并启动 systemd 用户服务所需文件。
-6. 配置音频设备和可选 SLM。
-7. 安装 `vocotype-settings`、桌面入口和 Doctor。
-
-无需在“输入法列表”中添加 VoCoType。可在 `fcitx5-configtool` 的附加组件页面
-确认 **VoCoType Voice Input** 已启用。
-
-
-## 图形设置、Doctor 与支持包
-
-```bash
-vocotype-settings
-vocotype-doctor
-```
-
-设置中心可配置 AI endpoint/API Key、编辑术语、预览 ITN、安装/修复、重启服务并生成脱敏支持包。完整说明见 [`docs/guides/settings-center.md`](../docs/guides/settings-center.md)。
-
-## Module 配置
-
-打开 `fcitx5-configtool`，在附加组件中选择 VoCoType 进行配置。配置保存在：
-
-```text
-~/.config/fcitx5/conf/vocotype.conf
-```
-
-可用选项：
-
-- `PTTKey`：主热键，默认 `F9`。
-- `PTTHoldThresholdMs`：超过指定时长才开始录音；默认 `0`，即按下立即开始。
-- `MinRecordingMs`：最短有效录音时长；默认 `1000` 毫秒。更短的录音不会显示流式预览，也不会进入最终 ASR；设为 `0` 可关闭这一用户阈值（底层仍拒绝无法处理的极短音频）。
-- `LongModeModifier`：AI 润色修饰键，默认 `Shift`；按住该修饰键再按 F9 才会润色。
-- `PolishMinChars`：ASR 文本达到多少字符才调用 SLM，默认 `8`。
-- `PolishTimeoutMs`：流式输出空闲超时，默认 `20000` 毫秒。
-- `EnableThinking`：是否允许模型 reasoning；预览和最终提交仍会过滤 thinking。
-- `BlockWhenComposing`：当前输入法存在未提交组合时不启动录音，默认开启。
-- `StripTrailingPeriodOnCommit`：提交前移除末尾 `。` 或 `.`，默认关闭。
-- `PanelStyle`：F9 状态提示样式；`minimal` 为默认极简文案，`animated` 为绿黑录音动画。两种样式松开 F9 都会立即切换为 `⏳ 识别中`。
-
-`Fn` 通常不会作为普通 Fcitx key event 上报，因此一般不能直接作为 PTT 热键。
-
-## 手动构建 module
-
-```bash
-cmake -S fcitx5/module -B fcitx5/module/build \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_INSTALL_PREFIX="$HOME/.local"
-cmake --build fcitx5/module/build -j"$(nproc)"
-cmake --install fcitx5/module/build
-
-mkdir -p ~/.local/share/fcitx5/addon
-cp fcitx5/data/vocotype.conf ~/.local/share/fcitx5/addon/
-rm -f ~/.local/share/fcitx5/inputmethod/vocotype.conf
-fcitx5 -r
-```
-
-## Python backend
-
-Backend socket：
+## Socket
 
 ```text
 /tmp/vocotype-fcitx5.sock
@@ -143,101 +43,11 @@ Backend socket：
 echo '{"type":"ping"}' | nc -U /tmp/vocotype-fcitx5.sock
 ```
 
-查看日志：
+## 用户配置
 
-```bash
-journalctl --user -u vocotype-fcitx5-backend.service -f
-```
+- `~/.config/vocotype/fcitx5-backend.json`
+- `~/.config/vocotype/audio.conf`
+- `~/.config/vocotype/terms.yaml`
+- `~/.config/fcitx5/conf/vocotype.conf`
 
-Backend 只处理语音和 SLM，不再处理普通键盘事件或 Rime session。
-
-## 术语库与原生热词
-
-术语库属于统一的 VoCoType 配置：`~/.config/vocotype/terms.yaml`。默认 ASR 是官方
-Contextual Paraformer ONNX，术语可以同时进入原生 hotword 编码器和转录后的
-确定性标准化层。安装器只在没有新旧术语文件时创建模板。
-
-完整格式见 [`docs/guides/terms.md`](../docs/guides/terms.md)。
-
-## ITN 与数字格式
-
-设置中心可整体开关数字/ITN，并分别控制 `2026/05/11`、`15:20`、`320m` 与 `¥128` 等紧凑书写风格。详见 [`docs/guides/itn.md`](../docs/guides/itn.md)。
-
-## 语音编辑（Ctrl+F9）
-
-按住 `Ctrl+F9` 说出编辑指令。Module 会保存 surrounding text、光标和选区，再将上下文与 ASR 指令发送给已测活的 OpenAI-compatible API。模型负责所有自然语言理解与同音词消歧，并返回受限的 `replace`、`key_actions` 或 `no_op` JSON 计划；本地代码只复核快照并执行，不包含硬编码命令解析。
-
-因此替换、翻译、LaTeX、撤销、重做、词级导航等操作都要求 AI API 已启用。录音期间焦点或正文发生变化时，本次计划会被取消。
-
-## AI 润色与实时预览
-
-SLM 默认关闭，推荐在 `vocotype-settings` 中配置：
-
-```json
-{
-  "slm": {
-    "enabled": true,
-    "model": "qwen3",
-    "endpoint": "http://127.0.0.1:11434/v1/chat/completions",
-    "api_key": "",
-    "remote_stream": true,
-    "stream_idle_timeout_ms": 20000,
-    "remote_max_tokens": 0,
-    "min_chars": 8,
-    "enable_thinking": false,
-    "edit_enabled": true,
-    "edit_max_tokens": 1024
-  }
-}
-```
-
-端点可以是本机 Ollama、llama.cpp、vLLM，也可以是局域网或云端服务。VoCoType 对它们一视同仁，只调用 OpenAI-compatible API，不启动、预热或停止模型进程。无鉴权服务可留空 API Key。
-
-`Shift+F9` 使用异步任务轮询 `status / heartbeat / delta / final / error`，输入面板显示 SSE 可见增量和 ASR 原文；thinking/reasoning 不会进入预览或最终提交。按 `Escape`、输入其他按键或焦点变化都会取消任务。
-
-## 故障排查
-
-### Module 未加载
-
-```bash
-find /usr/lib /usr/lib64 -path '*/fcitx5/vocotype.so' -type f -print
-ls /usr/share/fcitx5/addon/vocotype.conf
-busctl --user --json=short call org.fcitx.Fcitx5 /controller \
-  org.fcitx.Fcitx.Controller1 GetAddons | grep -o 'vocotype'
-```
-
-文件存在只表示 addon 被发现；当前 Fcitx 实例的 `GetAddons` 返回中包含 `vocotype`，才表示 module 已实际创建成功。设置中心的 Doctor 会执行同一运行态检查。
-
-不要设置 `FCITX_ADDON_DIRS`。该变量会覆盖 Fcitx 的标准 addon 搜索路径，可能导致
-D-Bus、Rime 和界面 addon 无法加载。若旧版本曾写入该变量，先清理并重启：
-
-```bash
-rm -f ~/.config/environment.d/fcitx5-vocotype.conf
-env -u FCITX_ADDON_DIRS fcitx5 -r -d
-```
-
-### 按 F9 无响应
-
-```bash
-systemctl --user status vocotype-fcitx5-backend.service
-journalctl --user -u vocotype-fcitx5-backend.service -b --no-pager | tail -n 200
-```
-
-同时检查当前输入法是否仍有未提交 preedit；默认情况下这会阻止录音启动。
-
-### Rime 自身无法输入
-
-VoCoType module 不处理 Rime 普通按键。请直接按 `fcitx5-rime` 的方式排查和配置。
-停用 VoCoType module 后问题仍存在时，问题不在 VoCoType 的 Rime 兼容层，因为该兼容层已不存在。
-
-## 卸载
-
-图形设置中心提供 **卸载 VoCoType（Fcitx 5）**。源码安装时，它会停止用户服务、清理用户运行代码与 launcher，并通过 Polkit 删除源码安装器写入 `/usr` 的 module、addon 元数据和 ownership marker。命令行使用：
-
-```bash
-bash fcitx5/scripts/uninstall.sh
-```
-
-默认保留 `~/.local/share/vocotype-fcitx5/.venv`、共享 ModelScope 模型缓存和 `~/.config/vocotype/`。使用 `--purge-runtime` 删除 Fcitx 的虚拟环境与运行缓存；只有明确使用 `--remove-user-data` 时才会删除 VoCoType 的术语、hotword、音频和 AI 配置。使用 `--keep-system-integration` 才会显式保留源码安装器管理的系统 addon。
-
-若 module 来自 DEB、RPM 或 Arch 包，卸载脚本不会直接删除 `/usr/lib*/fcitx5/vocotype.so`；请按设置中心显示的命令卸载 `vocotype-linux` 软件包。
+打开 `vocotype-settings` 可配置设备、ITN、术语、SLM，并在 Playground 中做真实录音和识别测试。

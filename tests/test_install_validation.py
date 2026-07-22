@@ -140,23 +140,13 @@ def test_ibus_post_install_validator_runs_in_isolated_home(tmp_path: Path):
 
 
 def test_installers_require_models_and_post_install_validation():
-    fcitx = (ROOT / "fcitx5/scripts/install.sh").read_text(encoding="utf-8")
-    ibus_gui = (ROOT / "ibus/scripts/install-gui.sh").read_text(encoding="utf-8")
-    ibus_cli = (ROOT / "ibus/scripts/install.sh").read_text(encoding="utf-8")
-    for source in (fcitx, ibus_gui, ibus_cli):
-        assert "download_and_verify_asr_models" in source
-        assert "validate-installed-integration.py" in source
-    validator = (ROOT / "installers/validate-installed-integration.py").read_text(
-        encoding="utf-8"
-    )
-    assert 'required_addon="vocotype"' in validator
-    assert 'run([fcitx, "-r", "-d"]' not in validator
-    assert fcitx.index("validate-installed-integration.py") < fcitx.index(
-        "安装与运行验收完成"
-    )
-    assert ibus_gui.index("validate-installed-integration.py") < ibus_gui.index(
-        "安装/修复与结构验收完成"
-    )
+    source = (ROOT / "installers/install-native-user.sh").read_text(encoding="utf-8")
+    assert "verify_models" in source
+    assert '"$manager" --check --all' in source
+    assert '"$manager" --download --all' in source
+    for wrapper in (ROOT / "fcitx5/scripts/install.sh", ROOT / "ibus/scripts/install.sh"):
+        assert "install-native-user.sh" in wrapper.read_text(encoding="utf-8")
+
 
 
 def test_audio_installer_cannot_skip_success_and_records_verification():
@@ -168,11 +158,10 @@ def test_audio_installer_cannot_skip_success_and_records_verification():
 
 
 def test_ibus_cli_separates_install_success_from_playground_trials():
-    source = (ROOT / "ibus/scripts/install.sh").read_text(encoding="utf-8")
-    assert "安装与运行验收完成" in source
-    assert "Playground 独立完成" in source
-    assert "程序与结构已就绪；麦克风验收尚未完成" not in source
-    assert "录音 2 秒测试" not in source
+    source = (ROOT / "installers/install-native-user.sh").read_text(encoding="utf-8")
+    assert "Native-only runtime installed" in source
+    assert "Playground" not in source
+
 
 
 def test_make_clean_removes_python_build_metadata():
@@ -183,27 +172,9 @@ def test_make_clean_removes_python_build_metadata():
 
 
 def test_gui_installers_emit_determinate_progress_and_share_runtime_helpers():
-    fcitx = (ROOT / "fcitx5/scripts/install.sh").read_text(encoding="utf-8")
-    ibus = (ROOT / "ibus/scripts/install-gui.sh").read_text(encoding="utf-8")
-    common = (ROOT / "installers/runtime-common.sh").read_text(encoding="utf-8")
-    application = (ROOT / "settings_center/application.py").read_text(encoding="utf-8")
-
-    assert "emit_install_progress()" in common
-    assert 'source "$PROJECT_DIR/installers/runtime-common.sh"' in ibus
-    for source in (fcitx, ibus):
-        stages = [
-            int(line.split()[1])
-            for line in source.splitlines()
-            if line.strip().startswith("emit_install_progress ")
-        ]
-        assert stages == sorted(stages)
-        assert stages[0] <= 2
-        assert stages[-1] == 100
-        assert len(stages) >= 8
-
-    assert "progress_bar = Gtk.ProgressBar()" in application
-    assert "parse_install_progress(line.strip())" in application
-    assert 'progress_bar.set_text("❌ 安装失败")' in application
-    assert 'progress_bar.set_text("⚠️ 96%")' not in application
-    assert 'progress_bar.set_text("✅ 100%")' in application
-    assert "继续配置麦克风" not in application
+    for framework in ("fcitx5", "ibus"):
+        source = (ROOT / framework / "scripts/install-gui.sh").read_text(encoding="utf-8")
+        assert "install-native-user.sh" in source
+        assert "--non-interactive" in source
+        assert "runtime-common.sh" not in source
+        assert "python" not in source.lower()

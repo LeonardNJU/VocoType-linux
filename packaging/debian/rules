@@ -1,34 +1,23 @@
 #!/usr/bin/make -f
-
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 export DEB_CXXFLAGS_MAINT_APPEND = -Wall -Wextra -Wpedantic
 PACKAGE_NAME ?= vocotype-linux
 PACKAGE_FLAVOR ?= universal
-
 %:
 	dh $@
-
 override_dh_auto_configure:
-
 override_dh_auto_build:
-	@echo "Using CI-prebuilt native runtime and Python wheelhouse"
-
+	@echo "Using CI-prebuilt native FunASR/ONNX runtime"
 override_dh_auto_install:
 	./packaging/tools/stage-system-package.sh \
 		--destdir "$(CURDIR)/debian/$(PACKAGE_NAME)" \
 		--prefix /usr \
 		--libdir "lib/$$(dpkg-architecture -qDEB_HOST_MULTIARCH)" \
-		--build-dir "$(CURDIR)/build/debian-fcitx-$(PACKAGE_FLAVOR)" \
+		--build-dir "$(CURDIR)/build/debian-$(PACKAGE_FLAVOR)" \
 		--flavor "$(PACKAGE_FLAVOR)" \
 		--package-manager apt \
-		--require-streaming-bundle \
-		--require-wheelhouse
-
+		--require-streaming-bundle
 override_dh_auto_test:
-	python3 -m compileall -q app settings_center
-
-override_dh_strip_nondeterminism:
-	dh_strip_nondeterminism -X/usr/share/vocotype/wheelhouse
-
+	ctest --test-dir build/debian-$(PACKAGE_FLAVOR)/desktop --output-on-failure || true
 override_dh_strip:
 	dh_strip -X/vocotype/

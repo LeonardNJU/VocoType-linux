@@ -1,132 +1,47 @@
 #!/usr/bin/env bash
-# Install fixed dependency sets for graphical setup. Release actions contain
-# runtime libraries only; source-only Fcitx builds use an explicit source action.
+# Install native build/runtime dependencies for source installations.
 set -euo pipefail
-
-ACTION="${1:-}"
-if [[ "$ACTION" == "--print-plan" ]]; then
-    PRINT_PLAN=1
-    ACTION="${2:-}"
+ACTION=${1:-}
+if [[ "$ACTION" == --print-plan ]]; then PRINT_PLAN=1; ACTION=${2:-}; else PRINT_PLAN=0; fi
+case "$ACTION" in fcitx5|fcitx5-source|ibus|ibus-rime|universal) ;; *) echo "Usage: $0 [--print-plan] {fcitx5|fcitx5-source|ibus|ibus-rime|universal}" >&2; exit 2;; esac
+. /etc/os-release
+keys=" ${ID:-} ${ID_LIKE:-} "
+manager=""
+common_deb=(build-essential cmake pkg-config libportaudio2-dev libgtk-3-dev libyaml-cpp-dev libcurl4-openssl-dev libssl-dev nlohmann-json3-dev)
+common_rpm=(gcc-c++ make cmake pkgconf-pkg-config portaudio-devel gtk3-devel yaml-cpp-devel libcurl-devel openssl-devel nlohmann-json-devel)
+common_arch=(base-devel cmake pkgconf portaudio gtk3 yaml-cpp curl openssl nlohmann-json)
+packages=()
+if [[ "$keys" == *" debian "* || "$keys" == *" ubuntu "* ]]; then
+  manager=apt-get; packages=("${common_deb[@]}")
+  case "$ACTION" in
+    fcitx5|fcitx5-source) packages+=(fcitx5 fcitx5-config-qt libfcitx5core-dev) ;;
+    ibus) packages+=(ibus libibus-1.0-dev) ;;
+    ibus-rime) packages+=(ibus libibus-1.0-dev librime-dev librime-bin librime-data rime-data-luna-pinyin) ;;
+    universal) packages+=(fcitx5 fcitx5-config-qt libfcitx5core-dev ibus libibus-1.0-dev librime-dev librime-bin librime-data rime-data-luna-pinyin) ;;
+  esac
+elif [[ "$keys" == *" fedora "* || "$keys" == *" rhel "* || "$keys" == *" centos "* ]]; then
+  manager=dnf; packages=("${common_rpm[@]}")
+  case "$ACTION" in
+    fcitx5|fcitx5-source) packages+=(fcitx5 fcitx5-configtool fcitx5-devel) ;;
+    ibus) packages+=(ibus ibus-devel) ;;
+    ibus-rime) packages+=(ibus ibus-devel librime librime-devel librime-tools brise) ;;
+    universal) packages+=(fcitx5 fcitx5-configtool fcitx5-devel ibus ibus-devel librime librime-devel librime-tools brise) ;;
+  esac
+elif [[ "$keys" == *" arch "* || "$keys" == *" manjaro "* ]]; then
+  manager=pacman; packages=("${common_arch[@]}")
+  case "$ACTION" in
+    fcitx5|fcitx5-source) packages+=(fcitx5 fcitx5-configtool) ;;
+    ibus) packages+=(ibus) ;;
+    ibus-rime) packages+=(ibus librime librime-data) ;;
+    universal) packages+=(fcitx5 fcitx5-configtool ibus librime librime-data) ;;
+  esac
 else
-    PRINT_PLAN=0
+  echo "Unsupported distribution: ID=${ID:-unknown}" >&2; exit 4
 fi
-
-case "$ACTION" in
-    fcitx5|fcitx5-source|ibus|ibus-rime) ;;
-    *)
-        echo "Usage: $0 [--print-plan] {fcitx5|fcitx5-source|ibus|ibus-rime}" >&2
-        exit 2
-        ;;
-esac
-
-if [[ -r /etc/os-release ]]; then
-    # shellcheck disable=SC1091
-    . /etc/os-release
-else
-    echo "无法识别 Linux 发行版：缺少 /etc/os-release" >&2
-    exit 3
-fi
-
-DISTRO_KEYS=" ${ID:-} ${ID_LIKE:-} "
-MANAGER=""
-PACKAGES=()
-
-if [[ "$DISTRO_KEYS" == *" debian "* ]] || [[ "$DISTRO_KEYS" == *" ubuntu "* ]]; then
-    MANAGER="apt-get"
-    case "$ACTION" in
-        fcitx5)
-            PACKAGES=(fcitx5 fcitx5-config-qt libportaudio2)
-            ;;
-        fcitx5-source)
-            PACKAGES=(
-                fcitx5 fcitx5-config-qt build-essential cmake pkg-config
-                libfcitx5-dev nlohmann-json3-dev libportaudio2
-            )
-            ;;
-        ibus)
-            PACKAGES=(
-                ibus libportaudio2 python3-gi
-                gir1.2-ibus-1.0 gir1.2-gtk-3.0
-            )
-            ;;
-        ibus-rime)
-            PACKAGES=(
-                ibus libportaudio2 python3-gi
-                gir1.2-ibus-1.0 gir1.2-gtk-3.0
-                librime1 librime-bin librime-data rime-data-luna-pinyin
-            )
-            ;;
-    esac
-elif [[ "$DISTRO_KEYS" == *" fedora "* ]] || [[ "$DISTRO_KEYS" == *" rhel "* ]] || [[ "$DISTRO_KEYS" == *" centos "* ]]; then
-    MANAGER="dnf"
-    case "$ACTION" in
-        fcitx5)
-            PACKAGES=(fcitx5 fcitx5-configtool portaudio)
-            ;;
-        fcitx5-source)
-            PACKAGES=(
-                fcitx5 fcitx5-configtool gcc-c++ make cmake pkgconf-pkg-config
-                fcitx5-devel json-devel portaudio
-            )
-            ;;
-        ibus)
-            PACKAGES=(ibus python3-gobject gtk3 portaudio)
-            ;;
-        ibus-rime)
-            PACKAGES=(
-                ibus python3-gobject gtk3 portaudio
-                librime librime-tools brise
-            )
-            ;;
-    esac
-elif [[ "$DISTRO_KEYS" == *" arch "* ]] || [[ "$DISTRO_KEYS" == *" manjaro "* ]]; then
-    MANAGER="pacman"
-    case "$ACTION" in
-        fcitx5)
-            PACKAGES=(fcitx5 fcitx5-configtool portaudio)
-            ;;
-        fcitx5-source)
-            PACKAGES=(
-                base-devel fcitx5 fcitx5-configtool cmake pkgconf
-                nlohmann-json portaudio
-            )
-            ;;
-        ibus)
-            PACKAGES=(ibus python-gobject gtk3 python portaudio)
-            ;;
-        ibus-rime)
-            PACKAGES=(
-                ibus python-gobject gtk3 python portaudio
-                librime librime-data
-            )
-            ;;
-    esac
-else
-    echo "暂不支持自动安装该发行版的系统依赖：ID=${ID:-unknown}, ID_LIKE=${ID_LIKE:-unknown}" >&2
-    exit 4
-fi
-
-if [[ "$PRINT_PLAN" == "1" ]]; then
-    printf '%s\n' "$MANAGER"
-    printf '%s\n' "${PACKAGES[@]}"
-    exit 0
-fi
-
-if [[ "$EUID" -ne 0 ]]; then
-    echo "该辅助程序必须由 pkexec 以管理员权限运行。" >&2
-    exit 5
-fi
-
-case "$MANAGER" in
-    apt-get)
-        export DEBIAN_FRONTEND=noninteractive
-        apt-get update
-        apt-get install -y --no-install-recommends "${PACKAGES[@]}"
-        ;;
-    dnf)
-        dnf install -y "${PACKAGES[@]}"
-        ;;
-    pacman)
-        pacman -S --needed --noconfirm "${PACKAGES[@]}"
-        ;;
+if [[ $PRINT_PLAN == 1 ]]; then printf '%s\n' "$manager" "${packages[@]}"; exit 0; fi
+[[ $EUID -eq 0 ]] || { echo "Run through pkexec or sudo." >&2; exit 5; }
+case "$manager" in
+  apt-get) export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends "${packages[@]}" ;;
+  dnf) dnf install -y "${packages[@]}" ;;
+  pacman) pacman -S --needed --noconfirm "${packages[@]}" ;;
 esac

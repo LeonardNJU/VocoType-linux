@@ -37,13 +37,17 @@ def test_fcitx_backend_no_longer_embeds_rime():
 
 
 def test_installer_builds_module_and_removes_legacy_input_method():
-    installer = (
-        ROOT / "fcitx5" / "scripts" / "install.sh"
+    wrapper = (ROOT / "fcitx5/scripts/install.sh").read_text(encoding="utf-8")
+    installer = (ROOT / "installers/install-native-user.sh").read_text(encoding="utf-8")
+    assert "install-native-user.sh" in wrapper
+    assert 'cmake -S "$PROJECT_DIR/fcitx5/module"' in installer
+    assert 'build/fcitx-native-user' in installer
+    assert 'rm -f "$HOME/.local/share/fcitx5/addon/vocotype.conf"' in (
+        ROOT / "installers/uninstall-native-user.sh"
     ).read_text(encoding="utf-8")
-    assert '"$PROJECT_DIR/fcitx5/module/build"' in installer
-    assert 'rm -f "$HOME/.local/share/fcitx5/inputmethod/vocotype.conf"' in installer
-    assert "uv pip install pyrime" not in installer
-    assert '"$PYTHON" -m pip install pyrime' not in installer
+    assert "pip install" not in installer
+    assert "pyrime" not in installer
+
 
 def test_dead_fcitx_rime_handler_is_removed():
     source = (ROOT / "fcitx5" / "backend" / "fcitx5_server.py").read_text(encoding="utf-8")

@@ -101,13 +101,11 @@ def test_repository_integrity_manifest_is_current():
 
 
 def test_source_installers_copy_integrity_manifest():
-    for installer in (
-        Path("fcitx5/scripts/install.sh"),
-        Path("ibus/scripts/install.sh"),
-    ):
-        source = installer.read_text(encoding="utf-8")
-        assert 'data/install-integrity.json' in source
-        assert '$INSTALL_DIR/install-integrity.json' in source
+    source = Path("installers/install-native-user.sh").read_text(encoding="utf-8")
+    assert "verify_models" in source
+    assert "--check --all" in source
+    assert "native/streaming_worker/build/bundle" in source
+
 
 
 def test_integrity_probe_skips_files_excluded_by_ibus_package_flavor(tmp_path: Path):
