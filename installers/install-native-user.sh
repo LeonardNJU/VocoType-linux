@@ -32,7 +32,6 @@ while [[ $# -gt 0 ]]; do
     --sample-rate) SAMPLE_RATE="${2:?missing rate}"; shift 2 ;;
     --preserve-config|--skip-audio) shift ;;
     # Legacy Python flags are accepted and ignored during upgrades.
-    --python-choice) shift 2 ;;
     --bootstrap-uv) shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
@@ -134,6 +133,11 @@ build_source_runtime() {
   rm -rf "$STREAMING_HOME"
   mkdir -p "$STREAMING_HOME"
   cp -a "$PROJECT_DIR/native/streaming_worker/build/bundle/." "$STREAMING_HOME/"
+  (
+    cd "$STREAMING_HOME"
+    find bin lib -maxdepth 1 \( -type f -o -type l \) -print0 \
+      | sort -z | xargs -0 sha256sum > .native-payload.sha256
+  )
 
   local desktop_build="$PROJECT_DIR/build/native-user-$FRAMEWORK"
   local build_ibus=OFF build_rime=OFF
@@ -289,7 +293,7 @@ install_ibus() {
   mkdir -p "$USER_COMPONENT_DIR" "$USER_LIBEXEC"
   install -m755 "$engine" "$USER_LIBEXEC/ibus-engine-vocotype"
   local version=3
-  [[ -f "$PROJECT_DIR/vocotype_version.py" ]] && version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$PROJECT_DIR/vocotype_version.py")
+  [[ -f "$PROJECT_DIR/VERSION" ]] && version=$(tr -d '[:space:]' < "$PROJECT_DIR/VERSION")
   cat > "$USER_COMPONENT_DIR/vocotype.xml" <<EOF_COMPONENT
 <?xml version="1.0" encoding="utf-8"?>
 <component><name>org.vocotype.IBus.VoCoType</name><description>VoCoType Voice Input Method</description><exec>$USER_LIBEXEC/ibus-engine-vocotype --ibus</exec><version>$version</version><author>VoCoType</author><license>GPL</license><homepage>https://github.com/LeonardNJU/VocoType-linux</homepage><textdomain>vocotype</textdomain><engines><engine><name>vocotype</name><language>zh</language><license>GPL</license><author>VoCoType</author><layout>default</layout><longname>VoCoType Voice Input</longname><description>Push-to-Talk Voice Input (F9)</description><rank>50</rank><symbol>🎤</symbol></engine></engines></component>
@@ -313,7 +317,7 @@ verify_models() {
   fi
 }
 
-cleanup_legacy_python() {
+cleanup_legacy_runtime() {
   # Keep user configuration and models. Only remove the integration that was
   # successfully migrated in this invocation.
   case "$FRAMEWORK" in
@@ -346,5 +350,5 @@ case "$FRAMEWORK" in
   ibus) install_ibus ;;
   universal) install_fcitx; install_ibus ;;
 esac
-cleanup_legacy_python
+cleanup_legacy_runtime
 log "✓ Native-only runtime installed. Configuration and model caches were preserved."

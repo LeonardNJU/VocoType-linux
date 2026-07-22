@@ -19,7 +19,7 @@ install -m755 "$core_build/vocotype-core" "$bundle/bin/vocotype-core"
 if command -v strip >/dev/null 2>&1; then
   strip --strip-unneeded "$bundle/bin/vocotype-core" 2>/dev/null || true
 fi
-python3 "$ROOT/native/streaming_worker/audit_bundle.py" "$bundle"
+"$ROOT/native/streaming_worker/audit_bundle.sh" "$bundle"
 for required in \
   bin/vocotype-core \
   bin/vocotype-streaming-worker \

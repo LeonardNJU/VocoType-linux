@@ -68,17 +68,18 @@ case "$PACKAGE_MANAGER" in
 esac
 
 PROJECT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-FLAVOR=$(python3 "$PROJECT_DIR/packaging/tools/package-flavor.py" "$FLAVOR" --field flavor)
-PACKAGE_NAME=$(python3 "$PROJECT_DIR/packaging/tools/package-flavor.py" "$FLAVOR" --field package_name)
-INCLUDES_IBUS=$(python3 "$PROJECT_DIR/packaging/tools/package-flavor.py" "$FLAVOR" --field includes_ibus)
-INCLUDES_FCITX5=$(python3 "$PROJECT_DIR/packaging/tools/package-flavor.py" "$FLAVOR" --field includes_fcitx5)
-VERSION=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$PROJECT_DIR/vocotype_version.py")
-CMAKE_VERSION=$(python3 "$PROJECT_DIR/packaging/tools/versioning.py" "$VERSION" --field rpm_version)
+. "$PROJECT_DIR/packaging/tools/package-common.sh"
+FLAVOR=$(vocotype_flavor "$FLAVOR")
+PACKAGE_NAME=$(vocotype_flavor_field "$FLAVOR" package_name)
+INCLUDES_IBUS=$(vocotype_flavor_field "$FLAVOR" includes_ibus)
+INCLUDES_FCITX5=$(vocotype_flavor_field "$FLAVOR" includes_fcitx5)
+VERSION=$(vocotype_version "$PROJECT_DIR")
+CMAKE_VERSION=$(vocotype_version_field "$VERSION" rpm_version)
 BUILD_DIR=${BUILD_DIR:-"$PROJECT_DIR/build/package-$FLAVOR"}
 DESKTOP_BUILD="$BUILD_DIR/desktop"
 FCITX_BUILD="$BUILD_DIR/fcitx"
 
-# Minimal immutable package metadata. No Python modules, wheels, or venv tooling
+# Minimal immutable package metadata for the compiled runtime.
 # are installed into the runtime package.
 source_root="$DESTDIR$PREFIX/share/vocotype"
 mkdir -p "$source_root"
@@ -96,6 +97,7 @@ cmake -S "$PROJECT_DIR/native/desktop" -B "$DESKTOP_BUILD" \
   -DCMAKE_INSTALL_PREFIX="$PREFIX" \
   -DCMAKE_INSTALL_BINDIR=bin \
   -DCMAKE_INSTALL_LIBEXECDIR="$LIBEXECDIR" \
+  -DVOCOTYPE_VERSION="$VERSION" \
   -DVOCOTYPE_BUILD_SETTINGS=ON \
   -DVOCOTYPE_BUILD_IBUS="$INCLUDES_IBUS" \
   -DVOCOTYPE_BUILD_RIME="$INCLUDES_IBUS" \

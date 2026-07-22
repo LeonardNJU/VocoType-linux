@@ -16,6 +16,10 @@ int main() {
   assert(encoded == "YWJj");
   const auto path = create_secure_wav_path();
   write_pcm16_wav(path, source, 16000);
+  const auto decoded = read_pcm16_wav(path);
+  assert(decoded.sample_rate == 16000);
+  assert(decoded.channels == 1);
+  assert(decoded.samples == source);
   std::ifstream input(path, std::ios::binary);
   char header[4]{};
   input.read(header, 4);

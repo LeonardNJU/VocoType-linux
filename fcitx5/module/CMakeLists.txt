@@ -1,10 +1,9 @@
 cmake_minimum_required(VERSION 3.10)
 
 if(NOT DEFINED VOCOTYPE_VERSION)
-    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../../vocotype_version.py"
-         _vocotype_version_line REGEX "^__version__ =")
-    string(REGEX MATCH "[0-9]+\\.[0-9]+\\.[0-9]+"
-           VOCOTYPE_VERSION "${_vocotype_version_line}")
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../../VERSION" VOCOTYPE_VERSION)
+    string(STRIP "${VOCOTYPE_VERSION}" VOCOTYPE_VERSION)
+    string(REGEX MATCH "^[0-9]+\.[0-9]+\.[0-9]+" VOCOTYPE_VERSION "${VOCOTYPE_VERSION}")
 endif()
 if(NOT VOCOTYPE_VERSION)
     message(FATAL_ERROR "Unable to determine VoCoType version")

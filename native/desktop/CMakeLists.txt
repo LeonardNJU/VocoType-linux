@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 project(vocotype_desktop LANGUAGES C CXX)
+if(NOT DEFINED VOCOTYPE_VERSION)
+  file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../../VERSION" VOCOTYPE_VERSION)
+  string(STRIP "${VOCOTYPE_VERSION}" VOCOTYPE_VERSION)
+endif()
 
 option(VOCOTYPE_BUILD_SETTINGS "Build the GTK settings center" ON)
 option(VOCOTYPE_BUILD_IBUS "Build the IBus engine" ON)
@@ -49,7 +53,8 @@ target_link_libraries(vocotype-model-manager PRIVATE vocotype_desktop_common CUR
 
 if(VOCOTYPE_BUILD_SETTINGS)
   add_executable(vocotype-settings src/settings_main.cpp)
-  target_link_libraries(vocotype-settings PRIVATE vocotype_desktop_common PkgConfig::GTK3 ${VOCOTYPE_YAML_TARGET})
+  target_compile_definitions(vocotype-settings PRIVATE VOCOTYPE_VERSION="${VOCOTYPE_VERSION}")
+  target_link_libraries(vocotype-settings PRIVATE vocotype_desktop_common PkgConfig::GTK3 ${VOCOTYPE_YAML_TARGET} CURL::libcurl)
   if(VOCOTYPE_BUILD_RIME)
     target_sources(vocotype-settings PRIVATE src/rime_session.cpp)
     target_compile_definitions(vocotype-settings PRIVATE VOCOTYPE_HAVE_RIME=1)

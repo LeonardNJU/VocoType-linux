@@ -1,20 +1,23 @@
-.PHONY: test cpp-core cpp-core-test release package-deb package-rpm package-arch package-stage clean
-
-PYTHON ?= .venv/bin/python
+.PHONY: test cpp-core cpp-core-test desktop-test release package-deb package-rpm package-arch package-stage clean
 
 test:
-	$(PYTHON) -m pytest -q
+	tools/test-native.sh
 
 cpp-core:
-	cmake -S native/core -B build/native-core -DCMAKE_BUILD_TYPE=RelWithDebInfo
+	cmake -S native/core -B build/native-core -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON
 	cmake --build build/native-core -j
 
 cpp-core-test: cpp-core
 	ctest --test-dir build/native-core --output-on-failure
 
+desktop-test:
+	cmake -S native/desktop -B build/native-desktop -DCMAKE_BUILD_TYPE=RelWithDebInfo -DVOCOTYPE_BUILD_IBUS=OFF -DVOCOTYPE_BUILD_RIME=OFF -DBUILD_TESTING=ON
+	cmake --build build/native-desktop -j
+	ctest --test-dir build/native-desktop --output-on-failure
+
 release:
-	$(PYTHON) packaging/tools/build-release.py
-	$(PYTHON) packaging/tools/validate-release.py
+	packaging/tools/build-source-release.sh
+	packaging/tools/validate-source-release.sh
 
 package-stage:
 	rm -rf build/package-stage
@@ -30,6 +33,4 @@ package-arch:
 	packaging/tools/build-arch.sh
 
 clean:
-	rm -rf build dist *.egg-info vocotype_linux.egg-info vocotype_ibus.egg-info
-	find . -path './.git' -prune -o -path './.venv' -prune -o -type d -name __pycache__ -prune -exec rm -rf {} +
-	find . -type f \( -name '*.pyc' -o -name '*.pyo' \) ! -path './.git/*' ! -path './.venv/*' -delete
+	rm -rf build dist

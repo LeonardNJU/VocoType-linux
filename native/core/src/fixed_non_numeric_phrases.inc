@@ -1,4 +1,4 @@
-// Generated from app/text_normalizer_phrases.py.
+// Generated from the audited VoCoType fixed non-numeric phrase corpus.
     U"两个黄鹂鸣翠柳",
     U"一行白鹭上青天",
     U"一丁不识",

@@ -6,6 +6,7 @@
 #include "vocotype/desktop/rime_session.hpp"
 #endif
 
+#include <curl/curl.h>
 #include <gtk/gtk.h>
 #include <yaml-cpp/yaml.h>
 
@@ -21,6 +22,7 @@
 #include <functional>
 #include <iomanip>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <sys/stat.h>
@@ -30,6 +32,10 @@
 #include <vector>
 
 using vocotype::desktop::Json;
+
+#ifndef VOCOTYPE_VERSION
+#define VOCOTYPE_VERSION "development"
+#endif
 
 namespace {
 
@@ -60,9 +66,28 @@ struct SettingsWindow {
   GtkTextView *slm_result = nullptr;
   GtkLabel *slm_status = nullptr;
   GtkLabel *playground_status = nullptr;
+  GtkComboBoxText *audio_output = nullptr;
+  GtkDrawingArea *playground_waveform = nullptr;
   GtkTextView *playground_result = nullptr;
+  GtkTextView *playground_edit_source = nullptr;
+  GtkEntry *playground_edit_instruction = nullptr;
+  GtkTextView *playground_edit_result = nullptr;
+  GtkLabel *playground_edit_status = nullptr;
+  GtkLabel *version_status = nullptr;
+  GtkLabel *support_status = nullptr;
   GtkTextView *doctor_output = nullptr;
+  GtkTextView *feedback_view = nullptr;
+  GtkEntry *feedback_endpoint = nullptr;
+  GtkEntry *rime_schema = nullptr;
+  GtkCheckButton *feedback_include_doctor = nullptr;
+  GtkCheckButton *feedback_include_bundle = nullptr;
+  GtkLabel *feedback_status = nullptr;
+  GtkComboBoxText *fcitx_panel_style = nullptr;
+  GtkCheckButton *fcitx_block_composing = nullptr;
+  GtkCheckButton *fcitx_strip_period = nullptr;
   std::vector<vocotype::desktop::AudioDevice> devices;
+  std::vector<vocotype::desktop::AudioOutputDevice> output_devices;
+  std::vector<std::pair<double, double>> waveform;
   std::filesystem::path last_recording;
   Json config = Json::object();
 };
@@ -221,7 +246,10 @@ void save_config(SettingsWindow &window) {
 
 void refresh_devices(SettingsWindow &window) {
   gtk_combo_box_text_remove_all(window.audio_device);
+  if (window.audio_output)
+    gtk_combo_box_text_remove_all(window.audio_output);
   window.devices = vocotype::desktop::list_input_devices();
+  window.output_devices = vocotype::desktop::list_output_devices();
   const auto configured = vocotype::desktop::load_audio_config();
   int selected = -1;
   for (std::size_t index = 0; index < window.devices.size(); ++index) {
@@ -244,11 +272,25 @@ void refresh_devices(SettingsWindow &window) {
                    : static_cast<int>(found - window.devices.begin());
   }
   gtk_combo_box_set_active(GTK_COMBO_BOX(window.audio_device), selected);
+  if (window.audio_output) {
+    int selected_output = -1;
+    for (std::size_t index = 0; index < window.output_devices.size(); ++index) {
+      const auto &device = window.output_devices[index];
+      std::string display = device.name;
+      if (device.is_default)
+        display += "（默认）";
+      gtk_combo_box_text_append_text(window.audio_output, display.c_str());
+      if (device.is_default)
+        selected_output = static_cast<int>(index);
+    }
+    if (selected_output < 0 && !window.output_devices.empty())
+      selected_output = 0;
+    gtk_combo_box_set_active(GTK_COMBO_BOX(window.audio_output),
+                             selected_output);
+  }
   set_label(window.recognition_status,
-            window.devices.empty()
-                ? "未发现输入设备"
-                : "发现 " + std::to_string(window.devices.size()) +
-                      " 个输入设备");
+            "输入设备：" + std::to_string(window.devices.size()) +
+                "；输出设备：" + std::to_string(window.output_devices.size()));
 }
 
 bool terminate_owned_core() {
@@ -308,7 +350,9 @@ void refresh_overview(SettingsWindow &window) {
   set_label(window.overview_status, output.str());
 }
 
-Json capture_recording(int duration_ms) {
+Json capture_recording(
+    int duration_ms,
+    const std::function<void(double, double)> &waveform_callback = {}) {
   const auto config = vocotype::desktop::load_audio_config();
   const auto device = vocotype::desktop::resolve_input_device(config);
   const int rate =
@@ -321,6 +365,12 @@ Json capture_recording(int duration_ms) {
     try {
       capture.run(stop, [&](const auto &block) {
         samples.insert(samples.end(), block.begin(), block.end());
+        if (waveform_callback && !block.empty()) {
+          const auto [minimum, maximum] =
+              std::minmax_element(block.begin(), block.end());
+          waveform_callback(static_cast<double>(*minimum) / 32768.0,
+                            static_cast<double>(*maximum) / 32768.0);
+        }
       });
     } catch (const std::exception &exception) {
       error = exception.what();
@@ -341,6 +391,43 @@ Json capture_recording(int duration_ms) {
           {"sample_rate", rate},
           {"frames", samples.size()},
           {"device", device.name}};
+}
+
+Json play_recording(const std::filesystem::path &path, int output_id) {
+  const auto wav = vocotype::desktop::read_pcm16_wav(path);
+  const auto output = vocotype::desktop::resolve_output_device(output_id);
+  vocotype::desktop::play_pcm16(wav.samples, wav.sample_rate, output);
+  return {{"success", true},
+          {"device", output.name},
+          {"sample_rate", wav.sample_rate},
+          {"frames", wav.samples.size()}};
+}
+
+gboolean draw_waveform(GtkWidget *widget, cairo_t *context, gpointer data) {
+  auto *window = static_cast<SettingsWindow *>(data);
+  const double width = gtk_widget_get_allocated_width(widget);
+  const double height = gtk_widget_get_allocated_height(widget);
+  cairo_set_source_rgb(context, 0.12, 0.12, 0.12);
+  cairo_paint(context);
+  cairo_set_source_rgb(context, 0.72, 0.78, 0.86);
+  cairo_set_line_width(context, 1.0);
+  cairo_move_to(context, 0.0, height / 2.0);
+  cairo_line_to(context, width, height / 2.0);
+  cairo_stroke(context);
+  if (window->waveform.empty())
+    return FALSE;
+  cairo_set_source_rgb(context, 0.35, 0.68, 0.95);
+  const std::size_t count = window->waveform.size();
+  for (std::size_t index = 0; index < count; ++index) {
+    const double x = count <= 1 ? 0.0
+                                : width * static_cast<double>(index) /
+                                      static_cast<double>(count - 1);
+    const auto [minimum, maximum] = window->waveform[index];
+    cairo_move_to(context, x, height * (0.5 - 0.45 * maximum));
+    cairo_line_to(context, x, height * (0.5 - 0.45 * minimum));
+  }
+  cairo_stroke(context);
+  return FALSE;
 }
 
 std::filesystem::path project_root() {
@@ -398,6 +485,331 @@ Json run_command(const std::vector<std::string> &arguments) {
   return {{"success", success},
           {"output", output},
           {"error", success ? "" : output}};
+}
+
+std::string file_text(const std::filesystem::path &path);
+void write_text_atomic(const std::filesystem::path &path,
+                       const std::string &text);
+std::string doctor_report();
+
+std::size_t curl_write(void *contents, std::size_t size, std::size_t count,
+                       void *user_data) {
+  const std::size_t bytes = size * count;
+  static_cast<std::string *>(user_data)->append(
+      static_cast<const char *>(contents), bytes);
+  return bytes;
+}
+
+Json query_latest_release() {
+  CURL *curl = curl_easy_init();
+  if (!curl)
+    return {{"success", false}, {"error", "无法初始化 libcurl"}};
+  std::string response;
+  curl_easy_setopt(
+      curl, CURLOPT_URL,
+      "https://api.github.com/repos/LeonardNJU/VocoType-linux/releases/latest");
+  curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+  curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
+  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 20L);
+  curl_easy_setopt(curl, CURLOPT_USERAGENT,
+                   "VoCoType-native-settings/" VOCOTYPE_VERSION);
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+  const CURLcode result = curl_easy_perform(curl);
+  long status = 0;
+  curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+  curl_easy_cleanup(curl);
+  if (result != CURLE_OK)
+    return {{"success", false}, {"error", curl_easy_strerror(result)}};
+  try {
+    const Json value = Json::parse(response);
+    return {{"success", true},
+            {"current", VOCOTYPE_VERSION},
+            {"latest", value.value("tag_name", "unknown")},
+            {"url", value.value("html_url", "")},
+            {"published_at", value.value("published_at", "")},
+            {"http_status", status}};
+  } catch (const std::exception &error) {
+    return {{"success", false}, {"error", error.what()}};
+  }
+}
+
+bool open_uri(GtkWindow *parent, const std::string &uri, std::string &error) {
+  GError *gerror = nullptr;
+  const gboolean opened =
+      gtk_show_uri_on_window(parent, uri.c_str(), GDK_CURRENT_TIME, &gerror);
+  if (!opened) {
+    error = gerror && gerror->message ? gerror->message : "无法打开链接";
+    if (gerror)
+      g_error_free(gerror);
+    return false;
+  }
+  return true;
+}
+
+std::string uri_escape(const std::string &text) {
+  gchar *escaped = g_uri_escape_string(text.c_str(), nullptr, true);
+  std::string result = escaped ? escaped : "";
+  g_free(escaped);
+  return result;
+}
+
+Json uninstall_integration(const std::string &framework) {
+  const auto script = project_root() / "installers/uninstall-native-user.sh";
+  if (!std::filesystem::is_regular_file(script))
+    return {{"success", false},
+            {"error", "native uninstaller was not found: " + script.string()}};
+  return run_command(
+      {"bash", script.string(), "--framework", framework, "--non-interactive"});
+}
+
+std::filesystem::path support_directory() {
+  auto directory = vocotype::desktop::config_dir() / "support";
+  std::filesystem::create_directories(directory);
+  return directory;
+}
+
+std::string redact_config(Json config) {
+  if (config.contains("slm") && config["slm"].is_object()) {
+    for (const char *key : {"api_key", "token", "password"}) {
+      if (config["slm"].contains(key))
+        config["slm"][key] = "<redacted>";
+    }
+  }
+  return config.dump(2);
+}
+
+Json create_support_bundle(const std::string &doctor) {
+  const auto directory = support_directory();
+  const auto stamp =
+      std::to_string(std::chrono::duration_cast<std::chrono::seconds>(
+                         std::chrono::system_clock::now().time_since_epoch())
+                         .count());
+  const auto staging = directory / (".bundle-" + stamp);
+  const auto archive = directory / ("vocotype-support-" + stamp + ".tar.gz");
+  std::filesystem::create_directories(staging);
+  try {
+    write_text_atomic(staging / "doctor.txt", doctor);
+    write_text_atomic(staging / "version.txt",
+                      std::string("version=") + VOCOTYPE_VERSION + "\n");
+    write_text_atomic(staging / "runtime-config.redacted.json",
+                      redact_config(load_config()) + "\n");
+    const auto marker =
+        std::filesystem::path("/usr/share/vocotype/.system-package");
+    if (std::filesystem::is_regular_file(marker))
+      write_text_atomic(staging / "system-package.txt", file_text(marker));
+    const Json processes =
+        run_command({"sh", "-c",
+                     "ps -eo pid,ppid,lstart,comm,args | grep -E "
+                     "'[v]ocotype|[f]citx5|[i]bus'"});
+    write_text_atomic(staging / "processes.txt", processes.value("output", ""));
+    const Json logs =
+        run_command({"sh", "-c",
+                     "journalctl --user -b --no-pager -n 500 2>/dev/null | "
+                     "grep -i -E 'vocotype|fcitx|ibus' | tail -300"});
+    write_text_atomic(staging / "journal.txt", logs.value("output", ""));
+    const Json packed = run_command(
+        {"tar", "-czf", archive.string(), "-C", staging.string(), "."});
+    std::filesystem::remove_all(staging);
+    if (!packed.value("success", false))
+      return {{"success", false}, {"error", packed.value("error", "tar 失败")}};
+    return {{"success", true}, {"path", archive.string()}};
+  } catch (const std::exception &error) {
+    std::filesystem::remove_all(staging);
+    return {{"success", false}, {"error", error.what()}};
+  }
+}
+
+std::filesystem::path fcitx_config_path() {
+  return vocotype::desktop::home_path() / ".config/fcitx5/conf/vocotype.conf";
+}
+
+std::string config_value(const std::filesystem::path &path,
+                         const std::string &key, const std::string &fallback) {
+  std::istringstream input(file_text(path));
+  std::string line;
+  while (std::getline(input, line)) {
+    if (line.rfind(key + "=", 0) == 0)
+      return line.substr(key.size() + 1);
+  }
+  return fallback;
+}
+
+void update_fcitx_config(
+    const std::vector<std::pair<std::string, std::string>> &values) {
+  const auto path = fcitx_config_path();
+  std::vector<std::string> lines;
+  std::istringstream input(file_text(path));
+  std::string line;
+  while (std::getline(input, line))
+    lines.push_back(line);
+  for (const auto &[key, value] : values) {
+    bool replaced = false;
+    for (auto &existing : lines) {
+      if (existing.rfind(key + "=", 0) == 0) {
+        existing = key + "=" + value;
+        replaced = true;
+        break;
+      }
+    }
+    if (!replaced)
+      lines.push_back(key + "=" + value);
+  }
+  std::ostringstream output;
+  for (const auto &entry : lines)
+    output << entry << '\n';
+  write_text_atomic(path, output.str());
+}
+
+std::string yaml_scalar_value(const std::filesystem::path &path,
+                              const std::string &key,
+                              const std::string &fallback) {
+  std::istringstream input(file_text(path));
+  std::string line;
+  while (std::getline(input, line)) {
+    const std::string prefix = key + ":";
+    if (line.rfind(prefix, 0) != 0)
+      continue;
+    std::string value = line.substr(prefix.size());
+    const auto first = value.find_first_not_of(" \t'\"");
+    const auto last = value.find_last_not_of(" \t'\"");
+    if (first != std::string::npos && last != std::string::npos)
+      return value.substr(first, last - first + 1);
+  }
+  return fallback;
+}
+
+void update_rime_schema(const std::string &schema) {
+  const auto path = vocotype::desktop::config_dir() / "rime/user.yaml";
+  std::vector<std::string> lines;
+  std::istringstream input(file_text(path));
+  std::string line;
+  bool replaced = false;
+  while (std::getline(input, line)) {
+    if (line.rfind("previously_selected_schema:", 0) == 0) {
+      lines.push_back("previously_selected_schema: " + schema);
+      replaced = true;
+    } else {
+      lines.push_back(line);
+    }
+  }
+  if (!replaced)
+    lines.push_back("previously_selected_schema: " + schema);
+  std::ostringstream output;
+  for (const auto &entry : lines)
+    output << entry << '\n';
+  write_text_atomic(path, output.str());
+}
+
+std::string installation_id() {
+  const auto path = vocotype::desktop::config_dir() / "installation-id";
+  std::string value = file_text(path);
+  value.erase(std::remove(value.begin(), value.end(), '\n'), value.end());
+  if (!value.empty())
+    return value;
+  gchar *generated = g_uuid_string_random();
+  value = generated ? generated : "unknown";
+  g_free(generated);
+  write_text_atomic(path, value + "\n");
+  return value;
+}
+
+bool valid_feedback_endpoint(const std::string &endpoint) {
+  if (endpoint.rfind("https://", 0) == 0)
+    return true;
+  return endpoint.rfind("http://127.0.0.1", 0) == 0 ||
+         endpoint.rfind("http://localhost", 0) == 0 ||
+         endpoint.rfind("http://[::1]", 0) == 0;
+}
+
+Json submit_feedback(const std::string &endpoint, const std::string &message,
+                     const std::string &doctor,
+                     const std::filesystem::path &bundle) {
+  if (message.empty())
+    return {{"success", false}, {"error", "反馈内容不能为空"}};
+  if (message.size() > 10000U)
+    return {{"success", false}, {"error", "反馈内容不能超过 10000 字"}};
+  if (!valid_feedback_endpoint(endpoint))
+    return {{"success", false},
+            {"error", "反馈端点必须使用 HTTPS（localhost 调试除外）"}};
+  if (!bundle.empty() &&
+      (!std::filesystem::is_regular_file(bundle) ||
+       std::filesystem::file_size(bundle) > 5U * 1024U * 1024U))
+    return {{"success", false}, {"error", "支持包不存在或超过 5 MiB"}};
+
+  Json payload{{"schema_version", 1},
+               {"product", "VoCoType-linux"},
+               {"version", VOCOTYPE_VERSION},
+               {"category", "other"},
+               {"message", message},
+               {"installation_id", installation_id()},
+               {"doctor", doctor.empty()
+                              ? Json(nullptr)
+                              : Json::array({{{"check_id", "native_doctor"},
+                                              {"status", "info"},
+                                              {"title", "Native Doctor"},
+                                              {"details", doctor}}})},
+               {"contact", ""}};
+  const Json platform = run_command({"uname", "-a"});
+  payload["platform"] = platform.value("output", "Linux");
+
+  CURL *curl = curl_easy_init();
+  if (!curl)
+    return {{"success", false}, {"error", "无法初始化 libcurl"}};
+  curl_mime *mime = curl_mime_init(curl);
+  curl_mimepart *part = curl_mime_addpart(mime);
+  const std::string payload_text = payload.dump();
+  curl_mime_name(part, "payload");
+  curl_mime_type(part, "application/json; charset=utf-8");
+  curl_mime_data(part, payload_text.c_str(), payload_text.size());
+  if (!bundle.empty()) {
+    part = curl_mime_addpart(mime);
+    curl_mime_name(part, "bundle");
+    curl_mime_type(part, "application/gzip");
+    curl_mime_filedata(part, bundle.c_str());
+  }
+  std::string response;
+  curl_easy_setopt(curl, CURLOPT_URL, endpoint.c_str());
+  curl_easy_setopt(curl, CURLOPT_MIMEPOST, mime);
+  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+  curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
+  curl_easy_setopt(curl, CURLOPT_USERAGENT,
+                   "VoCoType-native-settings/" VOCOTYPE_VERSION);
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+  const CURLcode result = curl_easy_perform(curl);
+  long status = 0;
+  curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+  curl_mime_free(mime);
+  curl_easy_cleanup(curl);
+  if (result != CURLE_OK)
+    return {{"success", false},
+            {"error", std::string(curl_easy_strerror(result))},
+            {"http_status", status}};
+  return {{"success", true}, {"http_status", status}, {"response", response}};
+}
+
+std::filesystem::path native_payload_directory() {
+  const std::vector<std::filesystem::path> candidates = {
+      vocotype::desktop::home_path() / ".local/lib/vocotype-streaming",
+      "/usr/lib/vocotype", "/usr/lib64/vocotype"};
+  for (const auto &candidate : candidates) {
+    if (std::filesystem::is_regular_file(candidate / ".native-payload.sha256"))
+      return candidate;
+  }
+  return {};
+}
+
+Json verify_native_payload() {
+  const auto directory = native_payload_directory();
+  if (directory.empty())
+    return {{"success", false},
+            {"error", "未找到 native payload checksum 清单"}};
+  return run_command(
+      {"sh", "-c",
+       "cd " + directory.string() + " && sha256sum -c .native-payload.sha256"});
 }
 
 std::string native_model_manager() {
@@ -483,6 +895,28 @@ void populate_from_config(SettingsWindow &window) {
                                slm.value("enable_thinking", false));
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(window.edit_enabled),
                                slm.value("edit_enabled", true));
+  if (window.fcitx_panel_style) {
+    const std::string style =
+        config_value(fcitx_config_path(), "PanelStyle", "minimal");
+    gtk_combo_box_set_active(GTK_COMBO_BOX(window.fcitx_panel_style),
+                             style == "animated" ? 1 : 0);
+  }
+  if (window.fcitx_block_composing)
+    gtk_toggle_button_set_active(
+        GTK_TOGGLE_BUTTON(window.fcitx_block_composing),
+        config_value(fcitx_config_path(), "BlockWhenComposing", "True") !=
+            "False");
+  if (window.fcitx_strip_period)
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(window.fcitx_strip_period),
+                                 config_value(fcitx_config_path(),
+                                              "StripTrailingPeriodOnCommit",
+                                              "False") == "True");
+  if (window.rime_schema)
+    gtk_entry_set_text(
+        window.rime_schema,
+        yaml_scalar_value(vocotype::desktop::config_dir() / "rime/user.yaml",
+                          "previously_selected_schema", "luna_pinyin")
+            .c_str());
   refresh_devices(window);
   std::string terms = file_text(vocotype::desktop::terms_path());
   if (terms.empty())
@@ -510,9 +944,13 @@ GtkWidget *build_overview(SettingsWindow &window) {
   GtkWidget *lifecycle = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
   GtkWidget *install_fcitx = gtk_button_new_with_label("安装 / 修复 Fcitx 5");
   GtkWidget *install_ibus = gtk_button_new_with_label("安装 / 修复 IBus");
+  GtkWidget *uninstall_fcitx = gtk_button_new_with_label("卸载 Fcitx 5 集成");
+  GtkWidget *uninstall_ibus = gtk_button_new_with_label("卸载 IBus 集成");
   GtkWidget *models = gtk_button_new_with_label("校验并下载模型");
   gtk_box_pack_start(GTK_BOX(lifecycle), install_fcitx, false, false, 0);
   gtk_box_pack_start(GTK_BOX(lifecycle), install_ibus, false, false, 0);
+  gtk_box_pack_start(GTK_BOX(lifecycle), uninstall_fcitx, false, false, 0);
+  gtk_box_pack_start(GTK_BOX(lifecycle), uninstall_ibus, false, false, 0);
   gtk_box_pack_start(GTK_BOX(lifecycle), models, false, false, 0);
   gtk_box_pack_start(GTK_BOX(page), lifecycle, false, false, 0);
   g_signal_connect_swapped(
@@ -583,6 +1021,28 @@ GtkWidget *build_overview(SettingsWindow &window) {
                    &window);
   g_signal_connect(install_ibus, "clicked", G_CALLBACK(install_handler),
                    &window);
+  auto uninstall_handler = +[](GtkButton *button, gpointer data) {
+    auto *self = static_cast<SettingsWindow *>(data);
+    const std::string framework =
+        std::string(gtk_button_get_label(button)).find("IBus") !=
+                std::string::npos
+            ? "ibus"
+            : "fcitx5";
+    set_label(self->overview_status, "正在卸载 " + framework + " 集成…");
+    run_async([framework] { return uninstall_integration(framework); },
+              [self, framework](Json result) {
+                refresh_overview(*self);
+                set_label(self->overview_status,
+                          result.value("success", false)
+                              ? framework + " 集成已卸载；配置和模型已保留"
+                              : framework + " 卸载失败：\n" +
+                                    result.value("error", "unknown"));
+              });
+  };
+  g_signal_connect(uninstall_fcitx, "clicked", G_CALLBACK(uninstall_handler),
+                   &window);
+  g_signal_connect(uninstall_ibus, "clicked", G_CALLBACK(uninstall_handler),
+                   &window);
   g_signal_connect_swapped(
       models, "clicked", G_CALLBACK(+[](SettingsWindow *self) {
         set_label(self->overview_status, "正在校验并下载原生 ASR 模型…");
@@ -612,6 +1072,16 @@ GtkWidget *build_recognition(SettingsWindow &window) {
       gtk_check_button_new_with_label("启用实时 preedit 预览"));
   window.normalization_enabled = GTK_CHECK_BUTTON(
       gtk_check_button_new_with_label("启用 ITN / 文本规范化"));
+  window.fcitx_panel_style = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
+  gtk_combo_box_text_append_text(window.fcitx_panel_style, "minimal（简洁）");
+  gtk_combo_box_text_append_text(window.fcitx_panel_style, "animated（动画）");
+  window.fcitx_block_composing = GTK_CHECK_BUTTON(
+      gtk_check_button_new_with_label("Fcitx：存在未提交预编辑时禁止录音"));
+  window.fcitx_strip_period = GTK_CHECK_BUTTON(
+      gtk_check_button_new_with_label("Fcitx：提交时移除尾部句号"));
+  window.rime_schema = GTK_ENTRY(gtk_entry_new());
+  gtk_entry_set_placeholder_text(window.rime_schema,
+                                 "例如 luna_pinyin 或 rime_ice");
   gtk_box_pack_start(GTK_BOX(page),
                      row("输入设备", GTK_WIDGET(window.audio_device)), false,
                      false, 0);
@@ -625,6 +1095,17 @@ GtkWidget *build_recognition(SettingsWindow &window) {
   gtk_box_pack_start(GTK_BOX(page), GTK_WIDGET(window.streaming_enabled), false,
                      false, 0);
   gtk_box_pack_start(GTK_BOX(page), GTK_WIDGET(window.normalization_enabled),
+                     false, false, 0);
+  gtk_box_pack_start(
+      GTK_BOX(page),
+      row("Fcitx 状态样式", GTK_WIDGET(window.fcitx_panel_style)), false, false,
+      0);
+  gtk_box_pack_start(GTK_BOX(page), GTK_WIDGET(window.fcitx_block_composing),
+                     false, false, 0);
+  gtk_box_pack_start(GTK_BOX(page), GTK_WIDGET(window.fcitx_strip_period),
+                     false, false, 0);
+  gtk_box_pack_start(GTK_BOX(page),
+                     row("IBus Rime schema", GTK_WIDGET(window.rime_schema)),
                      false, false, 0);
   GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
   GtkWidget *refresh = gtk_button_new_with_label("刷新设备");
@@ -643,7 +1124,28 @@ GtkWidget *build_recognition(SettingsWindow &window) {
       save, "clicked", G_CALLBACK(+[](SettingsWindow *self) {
         try {
           save_config(*self);
-          set_label(self->recognition_status, "✓ 已保存；重启 Core 后生效");
+          const int style_index =
+              gtk_combo_box_get_active(GTK_COMBO_BOX(self->fcitx_panel_style));
+          update_fcitx_config({
+              {"PanelStyle", style_index == 1 ? "animated" : "minimal"},
+              {"BlockWhenComposing",
+               gtk_toggle_button_get_active(
+                   GTK_TOGGLE_BUTTON(self->fcitx_block_composing))
+                   ? "True"
+                   : "False"},
+              {"StripTrailingPeriodOnCommit",
+               gtk_toggle_button_get_active(
+                   GTK_TOGGLE_BUTTON(self->fcitx_strip_period))
+                   ? "True"
+                   : "False"},
+          });
+          std::string schema = gtk_entry_get_text(self->rime_schema);
+          if (schema.empty())
+            schema = "luna_pinyin";
+          update_rime_schema(schema);
+          (void)run_command({"fcitx5-remote", "-r"});
+          set_label(self->recognition_status,
+                    "✓ 已保存；Core 与 Fcitx 配置将在重载后生效");
         } catch (const std::exception &error) {
           set_label(self->recognition_status,
                     std::string("保存失败：") + error.what());
@@ -813,37 +1315,119 @@ GtkWidget *build_slm(SettingsWindow &window) {
 
 GtkWidget *build_playground(SettingsWindow &window) {
   GtkWidget *page = page_box(
-      "Playground", "使用原生 PortAudio 录制 3 秒，并调用 C++ FunASR 转录。");
+      "Playground", "原生 PortAudio 录音、实时波形、指定输出回放、ASR、AI "
+                    "润色和语音编辑测试。");
+
+  window.audio_output = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
+  gtk_box_pack_start(GTK_BOX(page),
+                     row("回放输出", GTK_WIDGET(window.audio_output)), false,
+                     false, 0);
+
   GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
   GtkWidget *record = gtk_button_new_with_label("录制 3 秒");
+  GtkWidget *play = gtk_button_new_with_label("回放上次录音");
   GtkWidget *transcribe = gtk_button_new_with_label("转录上次录音");
   gtk_box_pack_start(GTK_BOX(actions), record, false, false, 0);
+  gtk_box_pack_start(GTK_BOX(actions), play, false, false, 0);
   gtk_box_pack_start(GTK_BOX(actions), transcribe, false, false, 0);
   gtk_box_pack_start(GTK_BOX(page), actions, false, false, 0);
+
   window.playground_status = GTK_LABEL(label("尚未录音"));
   gtk_box_pack_start(GTK_BOX(page), GTK_WIDGET(window.playground_status), false,
                      false, 0);
+  window.playground_waveform = GTK_DRAWING_AREA(gtk_drawing_area_new());
+  gtk_widget_set_size_request(GTK_WIDGET(window.playground_waveform), -1, 110);
+  g_signal_connect(window.playground_waveform, "draw",
+                   G_CALLBACK(draw_waveform), &window);
+  gtk_box_pack_start(GTK_BOX(page), GTK_WIDGET(window.playground_waveform),
+                     false, true, 0);
+  gtk_box_pack_start(GTK_BOX(page), label("ASR 结果"), false, false, 0);
   gtk_box_pack_start(GTK_BOX(page),
-                     scrolled_text(&window.playground_result, 240), true, true,
+                     scrolled_text(&window.playground_result, 100), false, true,
                      0);
+
+  gtk_box_pack_start(GTK_BOX(page), label("语音编辑上下文"), false, false, 0);
+  gtk_box_pack_start(GTK_BOX(page),
+                     scrolled_text(&window.playground_edit_source, 100), false,
+                     true, 0);
+  set_text(window.playground_edit_source, "勾股定理是一项伟大的发明");
+  window.playground_edit_instruction = GTK_ENTRY(gtk_entry_new());
+  gtk_entry_set_text(window.playground_edit_instruction,
+                     "把勾股定理翻译为英文");
+  gtk_box_pack_start(
+      GTK_BOX(page),
+      row("请朗读编辑指令", GTK_WIDGET(window.playground_edit_instruction)),
+      false, false, 0);
+  GtkWidget *edit = gtk_button_new_with_label("录制 3 秒编辑指令并测试");
+  gtk_box_pack_start(GTK_BOX(page), edit, false, false, 0);
+  window.playground_edit_status = GTK_LABEL(label(""));
+  gtk_box_pack_start(GTK_BOX(page), GTK_WIDGET(window.playground_edit_status),
+                     false, false, 0);
+  gtk_box_pack_start(GTK_BOX(page), label("编辑计划 / 结果"), false, false, 0);
+  gtk_box_pack_start(GTK_BOX(page),
+                     scrolled_text(&window.playground_edit_result, 120), false,
+                     true, 0);
+
   g_signal_connect_swapped(
       record, "clicked", G_CALLBACK(+[](SettingsWindow *self) {
+        self->waveform.clear();
+        gtk_widget_queue_draw(GTK_WIDGET(self->playground_waveform));
         set_label(self->playground_status, "🎤 正在录制 3 秒…");
         run_async(
-            [] { return capture_recording(3000); },
+            [self] {
+              return capture_recording(3000, [self](double minimum,
+                                                    double maximum) {
+                post_idle([self, minimum, maximum] {
+                  self->waveform.emplace_back(minimum, maximum);
+                  if (self->waveform.size() > 240)
+                    self->waveform.erase(self->waveform.begin());
+                  gtk_widget_queue_draw(GTK_WIDGET(self->playground_waveform));
+                });
+              });
+            },
             [self](Json result) {
               if (result.value("success", false)) {
+                if (!self->last_recording.empty())
+                  std::filesystem::remove(self->last_recording);
                 self->last_recording = result.value("path", "");
                 set_label(self->playground_status,
                           "✓ 已录制：" + result.value("device", "") + "，" +
                               std::to_string(result.value("sample_rate", 0)) +
                               " Hz");
-              } else
+              } else {
                 set_label(self->playground_status,
                           "录音失败：" + result.value("error", "unknown"));
+              }
             });
       }),
       &window);
+
+  g_signal_connect_swapped(
+      play, "clicked", G_CALLBACK(+[](SettingsWindow *self) {
+        if (self->last_recording.empty()) {
+          set_label(self->playground_status, "请先录音");
+          return;
+        }
+        const int active =
+            gtk_combo_box_get_active(GTK_COMBO_BOX(self->audio_output));
+        const int output_id =
+            active >= 0 && static_cast<std::size_t>(active) <
+                               self->output_devices.size()
+                ? self->output_devices[static_cast<std::size_t>(active)].id
+                : -1;
+        const auto path = self->last_recording;
+        set_label(self->playground_status, "🔊 正在回放…");
+        run_async([path, output_id] { return play_recording(path, output_id); },
+                  [self](Json result) {
+                    set_label(self->playground_status,
+                              result.value("success", false)
+                                  ? "✓ 已回放到：" + result.value("device", "")
+                                  : "回放失败：" +
+                                        result.value("error", "unknown"));
+                  });
+      }),
+      &window);
+
   g_signal_connect_swapped(
       transcribe, "clicked", G_CALLBACK(+[](SettingsWindow *self) {
         if (self->last_recording.empty()) {
@@ -869,6 +1453,80 @@ GtkWidget *build_playground(SettingsWindow &window) {
               set_label(self->playground_status, result.value("success", false)
                                                      ? "✓ 识别完成"
                                                      : "识别失败");
+            });
+      }),
+      &window);
+
+  g_signal_connect_swapped(
+      edit, "clicked", G_CALLBACK(+[](SettingsWindow *self) {
+        const std::string source = text_view_text(self->playground_edit_source);
+        if (source.empty()) {
+          set_label(self->playground_edit_status, "请输入编辑上下文");
+          return;
+        }
+        const std::string spoken_hint =
+            gtk_entry_get_text(self->playground_edit_instruction);
+        self->waveform.clear();
+        gtk_widget_queue_draw(GTK_WIDGET(self->playground_waveform));
+        set_label(self->playground_edit_status,
+                  "🎤 请朗读：" + spoken_hint + "（录制 3 秒）");
+        run_async(
+            [self, source] {
+              Json recording = capture_recording(3000, [self](double minimum,
+                                                              double maximum) {
+                post_idle([self, minimum, maximum] {
+                  self->waveform.emplace_back(minimum, maximum);
+                  if (self->waveform.size() > 240)
+                    self->waveform.erase(self->waveform.begin());
+                  gtk_widget_queue_draw(GTK_WIDGET(self->playground_waveform));
+                });
+              });
+              if (!recording.value("success", false))
+                return recording;
+              const std::filesystem::path audio = recording.value("path", "");
+              try {
+                if (!vocotype::desktop::ensure_native_core())
+                  throw std::runtime_error("Core 未启动");
+                const int cursor =
+                    static_cast<int>(g_utf8_strlen(source.c_str(), -1));
+                Json result = vocotype::desktop::unix_json_request(
+                    vocotype::desktop::backend_socket_path(),
+                    {{"type", "edit_audio"},
+                     {"audio_path", audio.string()},
+                     {"context_id", "settings-playground"},
+                     {"replace_state", "supported"},
+                     {"supports_surrounding", true},
+                     {"snapshot",
+                      {{"text", source},
+                       {"cursor_pos", cursor},
+                       {"anchor_pos", cursor},
+                       {"selected_text", ""}}}},
+                    180000);
+                std::filesystem::remove(audio);
+                return result;
+              } catch (...) {
+                std::filesystem::remove(audio);
+                throw;
+              }
+            },
+            [self, source](Json result) {
+              if (!result.value("success", false)) {
+                set_text(self->playground_edit_result,
+                         result.value("error", "语音编辑失败"));
+                set_label(self->playground_edit_status, "❌ 语音编辑失败");
+                return;
+              }
+              const std::string mode = result.value("mode", "no_op");
+              std::string output;
+              if (mode == "replace")
+                output = result.value("new_text", source);
+              else if (mode == "commit_only")
+                output = source + result.value("new_text", "");
+              else
+                output = result.dump(2);
+              set_text(self->playground_edit_result, output);
+              set_label(self->playground_edit_status,
+                        "✓ 编辑计划已生成：" + mode);
             });
       }),
       &window);
@@ -912,6 +1570,11 @@ std::string doctor_report() {
   }
   check("native core socket", vocotype::desktop::native_core_ready(),
         vocotype::desktop::backend_socket_path());
+  const Json integrity = verify_native_payload();
+  check("native payload 完整性", integrity.value("success", false),
+        integrity.value("success", false)
+            ? "所有已安装 ELF/共享库 checksum 正确"
+            : integrity.value("error", integrity.value("output", "校验失败")));
   bool python_runtime = false;
   DIR *directory = opendir("/proc");
   if (directory) {
@@ -936,21 +1599,201 @@ std::string doctor_report() {
   return report.str();
 }
 
+GtkWidget *build_feedback(SettingsWindow &window) {
+  GtkWidget *page =
+      page_box("反馈", "可发送到 VoCoType 私有反馈服务，或在 GitHub 创建公开 "
+                       "Issue。诊断信息默认不附带。");
+  gtk_box_pack_start(GTK_BOX(page), label("反馈内容（最多 10000 字）"), false,
+                     false, 0);
+  gtk_box_pack_start(GTK_BOX(page), scrolled_text(&window.feedback_view, 220),
+                     true, true, 0);
+  window.feedback_include_doctor =
+      GTK_CHECK_BUTTON(gtk_check_button_new_with_label("附带 Doctor 结果"));
+  window.feedback_include_bundle = GTK_CHECK_BUTTON(
+      gtk_check_button_new_with_label("附带脱敏支持包（最大 5 MiB）"));
+  gtk_box_pack_start(GTK_BOX(page), GTK_WIDGET(window.feedback_include_doctor),
+                     false, false, 0);
+  gtk_box_pack_start(GTK_BOX(page), GTK_WIDGET(window.feedback_include_bundle),
+                     false, false, 0);
+  window.feedback_endpoint = GTK_ENTRY(gtk_entry_new());
+  gtk_entry_set_text(
+      window.feedback_endpoint,
+      "https://feedback.vocotype-linux.lsamc.website/v1/feedback");
+  gtk_box_pack_start(GTK_BOX(page),
+                     row("反馈端点", GTK_WIDGET(window.feedback_endpoint)),
+                     false, false, 0);
+  GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+  GtkWidget *send = gtk_button_new_with_label("发送给 VoCoType 维护者");
+  GtkWidget *github = gtk_button_new_with_label("在 GitHub 创建公开 Issue");
+  gtk_box_pack_start(GTK_BOX(actions), send, false, false, 0);
+  gtk_box_pack_start(GTK_BOX(actions), github, false, false, 0);
+  gtk_box_pack_start(GTK_BOX(page), actions, false, false, 0);
+  window.feedback_status = GTK_LABEL(label(""));
+  gtk_label_set_selectable(window.feedback_status, true);
+  gtk_box_pack_start(GTK_BOX(page), GTK_WIDGET(window.feedback_status), false,
+                     false, 0);
+
+  g_signal_connect_swapped(
+      send, "clicked", G_CALLBACK(+[](SettingsWindow *self) {
+        const std::string message = text_view_text(self->feedback_view);
+        const std::string endpoint =
+            gtk_entry_get_text(self->feedback_endpoint);
+        const bool include_doctor = gtk_toggle_button_get_active(
+            GTK_TOGGLE_BUTTON(self->feedback_include_doctor));
+        const bool include_bundle = gtk_toggle_button_get_active(
+            GTK_TOGGLE_BUTTON(self->feedback_include_bundle));
+        if (message.empty()) {
+          set_label(self->feedback_status, "反馈内容不能为空");
+          return;
+        }
+        set_label(self->feedback_status, "正在发送反馈…");
+        run_async(
+            [message, endpoint, include_doctor, include_bundle] {
+              const std::string report = include_doctor ? doctor_report() : "";
+              std::filesystem::path bundle;
+              if (include_bundle) {
+                const Json generated = create_support_bundle(doctor_report());
+                if (!generated.value("success", false))
+                  return generated;
+                bundle = generated.value("path", "");
+              }
+              Json result = submit_feedback(endpoint, message, report, bundle);
+              if (!bundle.empty())
+                result["bundle"] = bundle.string();
+              return result;
+            },
+            [self](Json result) {
+              set_label(
+                  self->feedback_status,
+                  result.value("success", false)
+                      ? "✓ 反馈已发送" + (result.value("bundle", "").empty()
+                                              ? ""
+                                              : "；支持包保留于 " +
+                                                    result.value("bundle", ""))
+                      : "反馈发送失败：" + result.value("error", "unknown"));
+            });
+      }),
+      &window);
+
+  g_signal_connect_swapped(
+      github, "clicked", G_CALLBACK(+[](SettingsWindow *self) {
+        const std::string message = text_view_text(self->feedback_view);
+        if (message.empty()) {
+          set_label(self->feedback_status, "反馈内容不能为空");
+          return;
+        }
+        std::string body = message;
+        if (gtk_toggle_button_get_active(
+                GTK_TOGGLE_BUTTON(self->feedback_include_doctor)))
+          body +=
+              "\n\n<details><summary>VoCoType Doctor</summary>\n\n```text\n" +
+              doctor_report() + "\n```\n</details>";
+        const std::string uri = "https://github.com/LeonardNJU/VocoType-linux/"
+                                "issues/new?labels=feedback&title=" +
+                                uri_escape("[Feedback] ") +
+                                "&body=" + uri_escape(body);
+        std::string error;
+        if (!open_uri(GTK_WINDOW(self->window), uri, error))
+          set_label(self->feedback_status, "打开 GitHub 失败：" + error);
+      }),
+      &window);
+  return page;
+}
+
 GtkWidget *build_doctor(SettingsWindow &window) {
   GtkWidget *page = page_box(
-      "Doctor",
-      "检查 ELF、音频、配置、core socket，以及是否仍有 VoCoType Python 进程。");
+      "Doctor 与支持",
+      "检查原生运行时、查询版本、生成脱敏支持包，并创建 GitHub 反馈。");
+  GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
   GtkWidget *run = gtk_button_new_with_label("运行检查");
-  gtk_box_pack_start(GTK_BOX(page), run, false, false, 0);
-  gtk_box_pack_start(GTK_BOX(page), scrolled_text(&window.doctor_output, 420),
+  GtkWidget *latest = gtk_button_new_with_label("查询最新版本");
+  GtkWidget *bundle = gtk_button_new_with_label("生成支持包");
+  GtkWidget *open_support = gtk_button_new_with_label("打开支持目录");
+  GtkWidget *github = gtk_button_new_with_label("在 GitHub 创建 Issue");
+  for (GtkWidget *button : {run, latest, bundle, open_support, github})
+    gtk_box_pack_start(GTK_BOX(actions), button, false, false, 0);
+  gtk_box_pack_start(GTK_BOX(page), actions, false, false, 0);
+
+  window.version_status =
+      GTK_LABEL(label((std::string("当前版本：") + VOCOTYPE_VERSION).c_str()));
+  gtk_box_pack_start(GTK_BOX(page), GTK_WIDGET(window.version_status), false,
+                     false, 0);
+  window.support_status = GTK_LABEL(label("尚未生成支持包"));
+  gtk_label_set_selectable(window.support_status, true);
+  gtk_box_pack_start(GTK_BOX(page), GTK_WIDGET(window.support_status), false,
+                     false, 0);
+  gtk_box_pack_start(GTK_BOX(page), scrolled_text(&window.doctor_output, 400),
                      true, true, 0);
   gtk_text_view_set_editable(window.doctor_output, false);
   gtk_text_view_set_monospace(window.doctor_output, true);
+
   g_signal_connect_swapped(run, "clicked",
                            G_CALLBACK(+[](SettingsWindow *self) {
                              set_text(self->doctor_output, doctor_report());
                            }),
                            &window);
+  g_signal_connect_swapped(
+      latest, "clicked", G_CALLBACK(+[](SettingsWindow *self) {
+        set_label(self->version_status, "正在查询 GitHub release…");
+        run_async(
+            [] { return query_latest_release(); },
+            [self](Json result) {
+              if (!result.value("success", false)) {
+                set_label(self->version_status,
+                          "版本查询失败：" + result.value("error", "unknown"));
+                return;
+              }
+              const std::string latest_tag = result.value("latest", "unknown");
+              set_label(self->version_status,
+                        "当前版本：" VOCOTYPE_VERSION "；最新 release：" +
+                            latest_tag +
+                            (result.value("published_at", "").empty()
+                                 ? ""
+                                 : "；发布时间：" +
+                                       result.value("published_at", "")));
+            });
+      }),
+      &window);
+  g_signal_connect_swapped(
+      bundle, "clicked", G_CALLBACK(+[](SettingsWindow *self) {
+        const std::string report = doctor_report();
+        set_text(self->doctor_output, report);
+        set_label(self->support_status, "正在生成脱敏支持包…");
+        run_async([report] { return create_support_bundle(report); },
+                  [self](Json result) {
+                    set_label(self->support_status,
+                              result.value("success", false)
+                                  ? "✓ 支持包：" + result.value("path", "")
+                                  : "支持包生成失败：" +
+                                        result.value("error", "unknown"));
+                  });
+      }),
+      &window);
+  g_signal_connect_swapped(
+      open_support, "clicked", G_CALLBACK(+[](SettingsWindow *self) {
+        std::string error;
+        const std::string uri =
+            std::string("file://") + support_directory().string();
+        if (!open_uri(GTK_WINDOW(self->window), uri, error))
+          set_label(self->support_status, "打开目录失败：" + error);
+      }),
+      &window);
+  g_signal_connect_swapped(
+      github, "clicked", G_CALLBACK(+[](SettingsWindow *self) {
+        const std::string report = doctor_report();
+        set_text(self->doctor_output, report);
+        const std::string title = "[Bug] VoCoType " VOCOTYPE_VERSION;
+        const std::string body =
+            "请描述问题、复现步骤和预期行为。\n\n```text\n" + report +
+            "\n```\n";
+        const std::string uri =
+            "https://github.com/LeonardNJU/VocoType-linux/issues/new?title=" +
+            uri_escape(title) + "&body=" + uri_escape(body);
+        std::string error;
+        if (!open_uri(GTK_WINDOW(self->window), uri, error))
+          set_label(self->support_status, "打开 GitHub 失败：" + error);
+      }),
+      &window);
   return page;
 }
 
@@ -970,6 +1813,7 @@ void activate(GtkApplication *application, gpointer user_data) {
       {"术语", build_terms(*window)},
       {"AI", build_slm(*window)},
       {"Playground", build_playground(*window)},
+      {"反馈", build_feedback(*window)},
       {"Doctor", build_doctor(*window)},
   };
   for (const auto &[name, page] : pages)

@@ -13,35 +13,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  python-tests:
+  native-tests:
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python-version }}
-          cache: pip
-      - name: Install system dependencies
+          fetch-depth: 0
+      - name: Install native test dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libportaudio2 portaudio19-dev libcairo2-dev \
-            libgirepository1.0-dev gir1.2-gtk-3.0 pkg-config \
-            cmake g++ libfcitx5core-dev nlohmann-json3-dev
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install \
-            --constraint packaging/constraints/ubuntu-ci.txt \
-            pytest -e .
-      - name: Run tests
-        run: python -m pytest -q
-      - name: Compile Python sources
-        run: python -m compileall -q app settings_center ibus fcitx5/backend installers packaging/tools tools tests
+            build-essential cmake pkg-config libfcitx5core-dev nlohmann-json3-dev \
+            libgtk-3-dev libyaml-cpp-dev libcurl4-openssl-dev libssl-dev \
+            libportaudio2 portaudio19-dev libsqlite3-dev libboost-dev
+      - name: Run native test suite
+        run: make test
 
   release-contract:
     runs-on: ubuntu-24.04
@@ -49,29 +35,29 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
       - name: Install package build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake g++ pkg-config libfcitx5core-dev nlohmann-json3-dev
-          python -m pip install pytest pyyaml
+          sudo apt-get install -y \
+            cmake g++ pkg-config libfcitx5core-dev nlohmann-json3-dev \
+            libgtk-3-dev libyaml-cpp-dev libcurl4-openssl-dev libssl-dev \
+            libportaudio2 portaudio19-dev
       - name: Validate scripts and metadata
         run: |
           find ibus/scripts fcitx5/scripts installers packaging/tools packaging/tests tools/diagnostics \
             -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
-          python -m pytest -q tests/test_release_packaging.py
+          tests/native-contracts.sh
       - name: Build source/development staged tree
         run: |
           packaging/tools/stage-system-package.sh \
             --destdir "$RUNNER_TEMP/vocotype-stage" \
             --build-dir "$RUNNER_TEMP/fcitx-build" \
+            --flavor fcitx5 \
             --skip-streaming-bundle
-      - name: Build Python and source distributions
-        run: python packaging/tools/build-release.py
+      - name: Build source release
+        run: packaging/tools/build-source-release.sh
       - name: Validate source release
-        run: python packaging/tools/validate-release.py
+        run: packaging/tools/validate-source-release.sh
       - uses: actions/upload-artifact@v7
         with:
           name: vocotype-release-preview
@@ -106,9 +92,6 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
       - uses: actions/download-artifact@v5
         with:
           name: ci-native-streaming-linux-x86_64
@@ -123,7 +106,6 @@ jobs:
             ibus fcitx5 librime-bin librime-data rime-data-luna-pinyin \
             libportaudio2 portaudio19-dev policykit-1 dbus-daemon \
             meson ninja-build
-          python -m pip install --upgrade pip
       - name: Unpack audited native runtime
         run: |
           archive=$(find "$RUNNER_TEMP/native-artifact" -name 'vocotype-native-streaming-*.tar.gz' -print -quit)
@@ -138,10 +120,11 @@ jobs:
           done
       - name: Install and validate every Debian flavor
         run: |
-          version=$(python3 packaging/tools/versioning.py "$(sed -n 's/^__version__ = "\(.*\)"/\1/p' vocotype_version.py)")
-          debian_version=$(python3 packaging/tools/versioning.py "$version" --field debian)
+          . packaging/tools/package-common.sh
+          version=$(vocotype_version "$PWD")
+          debian_version=$(vocotype_version_field "$version" debian)
           for flavor in universal ibus fcitx5; do
-            package_name=$(python3 packaging/tools/package-flavor.py "$flavor" --field package_name)
+            package_name=$(vocotype_flavor_field "$flavor" package_name)
             package=$(find dist/packages -maxdepth 1 -name "${package_name}_${debian_version}-*_amd64.deb" -print -quit)
             test -n "$package"
             packaging/tests/audit-built-package.sh "$package" "$version" "$flavor"
@@ -169,7 +152,7 @@ jobs:
       - name: Install native package build dependencies
         run: |
           dnf install -y \
-            git python3 python3-pip rpm-build cmake gcc gcc-c++ \
+            git rpm-build cmake gcc gcc-c++ \
             pkgconf-pkg-config fcitx5-devel nlohmann-json-devel ibus-devel librime-devel \
             systemd-rpm-macros gtk3 gtk3-devel ibus fcitx5 \
             librime librime-tools brise yaml-cpp yaml-cpp-devel \
@@ -198,11 +181,12 @@ jobs:
           done
       - name: Install and validate every RPM flavor
         run: |
-          version=$(python3 packaging/tools/versioning.py "$(sed -n 's/^__version__ = "\(.*\)"/\1/p' vocotype_version.py)")
-          rpm_version=$(python3 packaging/tools/versioning.py "$version" --field rpm_version)
-          rpm_release=$(python3 packaging/tools/versioning.py "$version" --field rpm_release)
+          . packaging/tools/package-common.sh
+          version=$(vocotype_version "$PWD")
+          rpm_version=$(vocotype_version_field "$version" rpm_version)
+          rpm_release=$(vocotype_version_field "$version" rpm_release)
           for flavor in universal ibus fcitx5; do
-            package_name=$(python3 packaging/tools/package-flavor.py "$flavor" --field package_name)
+            package_name=$(vocotype_flavor_field "$flavor" package_name)
             package=$(find dist/packages -maxdepth 1 -name "${package_name}-${rpm_version}-${rpm_release}*.x86_64.rpm" ! -name '*debug*' -print -quit)
             test -n "$package"
             packaging/tests/audit-built-package.sh "$package" "$version" "$flavor"
@@ -227,7 +211,7 @@ jobs:
       - name: Install native package build dependencies
         run: |
           pacman -Syu --noconfirm \
-            git python cmake gcc pkgconf fcitx5 nlohmann-json \
+            git cmake gcc pkgconf fcitx5 nlohmann-json \
             gtk3 ibus librime librime-data yaml-cpp curl openssl \
             portaudio polkit dbus meson ninja binutils
       - uses: actions/checkout@v6
@@ -253,10 +237,11 @@ jobs:
           done
       - name: Install and validate every Arch flavor
         run: |
-          version=$(python3 packaging/tools/versioning.py "$(sed -n 's/^__version__ = "\(.*\)"/\1/p' vocotype_version.py)")
-          arch_version=$(python3 packaging/tools/versioning.py "$version" --field arch)
+          . packaging/tools/package-common.sh
+          version=$(vocotype_version "$PWD")
+          arch_version=$(vocotype_version_field "$version" arch)
           for flavor in universal ibus fcitx5; do
-            package_name=$(python3 packaging/tools/package-flavor.py "$flavor" --field package_name)
+            package_name=$(vocotype_flavor_field "$flavor" package_name)
             package=$(find dist/packages -maxdepth 1 -name "${package_name}-${arch_version}-*.pkg.tar.*" ! -name '*debug*' -print -quit)
             test -n "$package"
             packaging/tests/audit-built-package.sh "$package" "$version" "$flavor"

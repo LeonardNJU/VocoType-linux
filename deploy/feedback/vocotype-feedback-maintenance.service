@@ -8,7 +8,7 @@ User=vocotype-feedback
 Group=vocotype-feedback
 WorkingDirectory=/opt/vocotype-feedback
 EnvironmentFile=/etc/vocotype-feedback.env
-ExecStart=/opt/vocotype-feedback/.venv/bin/python -m feedback_service.cli maintenance --attachment-days 30 --backup-dir /var/backups/vocotype-feedback --backup-days 14
+ExecStart=/opt/vocotype-feedback/bin/vocotype-feedback maintenance --attachment-days 30 --backup-dir /var/backups/vocotype-feedback --backup-days 14
 
 NoNewPrivileges=true
 PrivateTmp=true

@@ -188,7 +188,7 @@ if [[ "${STRIP_NATIVE_BUNDLE:-1}" == "1" ]]; then
         "$BUNDLE_DIR/bin/vocotype-offline-worker" \
         "$BUNDLE_DIR/lib/libfunasr.so" 2>/dev/null || true
 fi
-python "$SCRIPT_DIR/audit_bundle.py" "$BUNDLE_DIR"
+"$SCRIPT_DIR/audit_bundle.sh" "$BUNDLE_DIR"
 printf '%s\n' \
     "$BUNDLE_DIR/bin/vocotype-streaming-worker" \
     "$BUNDLE_DIR/bin/vocotype-offline-worker"

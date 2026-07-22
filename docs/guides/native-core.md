@@ -41,4 +41,4 @@ ASR 模型由独立 worker 持有。worker 空闲退出后，其 ONNX 内存由�
 
 运行时仍依赖发行版提供的系统动态库，例如 GTK、PortAudio、IBus、librime、libcurl 和 Fcitx 5；这些由 DEB/RPM/Arch 包管理器处理。它不依赖 Python。
 
-仓库中的历史 Python 实现可继续用于回归对照和开发测试，但不会进入 native package，也不会被任何已安装 launcher 调用。
+仓库中不再保留 Python 客户端或 fallback；core、输入法、设置中心、反馈服务、打包和文档构建均为 C++/CMake/shell。

@@ -186,7 +186,7 @@ AI 功能默认关闭。`Shift+F9` 润色和 `Ctrl+F9` 语音编辑都调用用�
 - Linux：Debian、Ubuntu、Fedora、Arch 等主流发行版；
 - Fcitx 5 或 IBus；
 - 最低 4 GB 内存，推荐 8 GB；
-- 从源码安装时需要 Python 3.11 或 3.12；
+- 从源码安装时需要 C++20、CMake 与相应系统开发库；
 - 无需 GPU。
 
 ## 文档与支持

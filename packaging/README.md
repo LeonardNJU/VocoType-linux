@@ -10,7 +10,7 @@ The same contract produces DEB, RPM, and Arch Linux packages.
 
 The installed runtime is native-only. Packages contain compiled ELF executables, the Fcitx module or IBus engine, the audited FunASR/ONNX runtime, desktop resources, and configuration/install scripts. They do **not** contain a Python interpreter, virtual environment, wheelhouse, `.py` runtime modules, NumPy, SoundDevice, PyGObject, or Python path launchers.
 
-Python remains usable on the build machine for tests, version rendering, and source-archive tooling. It is not an installed runtime dependency.
+The build, test, version, source-archive, and package-rendering paths use CMake, C++, and shell; no Python toolchain is required.
 
 ## Runtime components
 

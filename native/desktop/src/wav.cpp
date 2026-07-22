@@ -1,5 +1,7 @@
 #include "vocotype/desktop/wav.hpp"
+#include <array>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <stdexcept>
 #include <string>
@@ -8,6 +10,17 @@
 #include <unistd.h>
 namespace vocotype::desktop {
 namespace {
+template <typename T> T read_le(std::istream &input) {
+  using U = std::make_unsigned_t<T>;
+  U value = 0;
+  for (std::size_t index = 0; index < sizeof(T); ++index) {
+    const int byte = input.get();
+    if (byte == EOF)
+      throw std::runtime_error("truncated WAV file");
+    value |= static_cast<U>(static_cast<unsigned char>(byte)) << (8U * index);
+  }
+  return static_cast<T>(value);
+}
 template <typename T> void write_le(std::ofstream &out, T value) {
   using U = std::make_unsigned_t<T>;
   const U converted = static_cast<U>(value);
@@ -29,6 +42,73 @@ std::filesystem::path create_secure_wav_path() {
   (void)fchmod(fd, 0600);
   close(fd);
   return buffer.data();
+}
+Pcm16Wav read_pcm16_wav(const std::filesystem::path &path) {
+  std::ifstream input(path, std::ios::binary);
+  if (!input)
+    throw std::runtime_error("cannot read WAV file: " + path.string());
+  std::array<char, 4> tag{};
+  input.read(tag.data(), 4);
+  if (std::memcmp(tag.data(), "RIFF", 4) != 0)
+    throw std::runtime_error("not a RIFF WAV file");
+  (void)read_le<std::uint32_t>(input);
+  input.read(tag.data(), 4);
+  if (std::memcmp(tag.data(), "WAVE", 4) != 0)
+    throw std::runtime_error("not a WAVE file");
+  int sample_rate = 0;
+  int channels = 0;
+  int bits = 0;
+  std::vector<std::int16_t> samples;
+  while (input && !input.eof()) {
+    input.read(tag.data(), 4);
+    if (input.gcount() == 0)
+      break;
+    if (input.gcount() != 4)
+      throw std::runtime_error("truncated WAV chunk");
+    const std::uint32_t size = read_le<std::uint32_t>(input);
+    const std::string name(tag.data(), 4);
+    if (name == "fmt ") {
+      const auto format = read_le<std::uint16_t>(input);
+      channels = read_le<std::uint16_t>(input);
+      sample_rate = static_cast<int>(read_le<std::uint32_t>(input));
+      (void)read_le<std::uint32_t>(input);
+      (void)read_le<std::uint16_t>(input);
+      bits = read_le<std::uint16_t>(input);
+      if (size > 16)
+        input.seekg(static_cast<std::streamoff>(size - 16), std::ios::cur);
+      if (format != 1 || bits != 16)
+        throw std::runtime_error("only PCM16 WAV files are supported");
+    } else if (name == "data") {
+      if (size % sizeof(std::int16_t) != 0)
+        throw std::runtime_error("invalid PCM16 data size");
+      samples.resize(size / sizeof(std::int16_t));
+      input.read(reinterpret_cast<char *>(samples.data()),
+                 static_cast<std::streamsize>(size));
+      if (!input)
+        throw std::runtime_error("truncated PCM16 samples");
+    } else {
+      input.seekg(static_cast<std::streamoff>(size), std::ios::cur);
+    }
+    if (size % 2U != 0)
+      input.seekg(1, std::ios::cur);
+  }
+  if (sample_rate <= 0 || channels <= 0 || samples.empty())
+    throw std::runtime_error("WAV file is missing format or audio data");
+  if (channels > 1) {
+    std::vector<std::int16_t> mono;
+    mono.reserve(samples.size() / static_cast<std::size_t>(channels));
+    for (std::size_t frame = 0;
+         frame + static_cast<std::size_t>(channels) <= samples.size();
+         frame += static_cast<std::size_t>(channels)) {
+      long sum = 0;
+      for (int channel = 0; channel < channels; ++channel)
+        sum += samples[frame + static_cast<std::size_t>(channel)];
+      mono.push_back(static_cast<std::int16_t>(sum / channels));
+    }
+    samples = std::move(mono);
+    channels = 1;
+  }
+  return {std::move(samples), sample_rate, channels};
 }
 void write_pcm16_wav(const std::filesystem::path &path,
                      const std::vector<std::int16_t> &samples, int sample_rate,

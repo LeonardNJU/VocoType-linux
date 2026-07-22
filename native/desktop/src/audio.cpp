@@ -34,6 +34,24 @@ std::vector<AudioDevice> list_input_devices() {
   }
   return result;
 }
+std::vector<AudioOutputDevice> list_output_devices() {
+  PortAudioRuntime runtime;
+  const int count = Pa_GetDeviceCount();
+  if (count < 0)
+    check(count, "cannot enumerate audio devices");
+  const PaDeviceIndex default_id = Pa_GetDefaultOutputDevice();
+  std::vector<AudioOutputDevice> result;
+  for (int id = 0; id < count; ++id) {
+    const PaDeviceInfo *info = Pa_GetDeviceInfo(id);
+    if (!info || info->maxOutputChannels <= 0)
+      continue;
+    result.push_back({id, info->name ? info->name : "Unknown output",
+                      info->maxOutputChannels,
+                      static_cast<int>(std::lround(info->defaultSampleRate)),
+                      id == default_id});
+  }
+  return result;
+}
 AudioDevice resolve_input_device(const AudioConfig &config) {
   const auto devices = list_input_devices();
   if (!config.device_name.empty()) {
@@ -67,6 +85,25 @@ AudioDevice resolve_input_device(const AudioConfig &config) {
   if (!devices.empty())
     return devices.front();
   throw std::runtime_error("no audio input device is available");
+}
+AudioOutputDevice resolve_output_device(int preferred_id) {
+  const auto devices = list_output_devices();
+  if (preferred_id >= 0) {
+    auto found =
+        std::find_if(devices.begin(), devices.end(), [&](const auto &device) {
+          return device.id == preferred_id;
+        });
+    if (found != devices.end())
+      return *found;
+  }
+  auto preferred =
+      std::find_if(devices.begin(), devices.end(),
+                   [](const auto &device) { return device.is_default; });
+  if (preferred != devices.end())
+    return *preferred;
+  if (!devices.empty())
+    return devices.front();
+  throw std::runtime_error("no audio output device is available");
 }
 int resolve_sample_rate(const AudioDevice &device, int preferred_rate) {
   PortAudioRuntime runtime;
@@ -120,6 +157,50 @@ resample_linear(const std::vector<std::int16_t> &input, int input_rate,
         std::clamp<long double>(std::llround(sample), -32768.0L, 32767.0L));
   }
   return output;
+}
+void play_pcm16(const std::vector<std::int16_t> &samples, int sample_rate,
+                const AudioOutputDevice &device) {
+  if (samples.empty() || sample_rate <= 0)
+    throw std::invalid_argument("cannot play empty or invalid audio");
+  PortAudioRuntime runtime;
+  const PaDeviceInfo *info = Pa_GetDeviceInfo(device.id);
+  if (!info || info->maxOutputChannels <= 0)
+    throw std::runtime_error("selected audio output disappeared");
+  PaStreamParameters output{};
+  output.device = device.id;
+  output.channelCount = 1;
+  output.sampleFormat = paInt16;
+  output.suggestedLatency = info->defaultLowOutputLatency;
+  int output_rate = sample_rate;
+  if (Pa_IsFormatSupported(nullptr, &output, output_rate) !=
+      paFormatIsSupported) {
+    output_rate = device.default_sample_rate;
+    if (Pa_IsFormatSupported(nullptr, &output, output_rate) !=
+        paFormatIsSupported)
+      throw std::runtime_error(
+          "selected output does not support mono PCM16 playback");
+  }
+  const auto rendered =
+      output_rate == sample_rate
+          ? samples
+          : resample_linear(samples, sample_rate, output_rate);
+  PaStream *stream = nullptr;
+  check(Pa_OpenStream(&stream, nullptr, &output, output_rate,
+                      paFramesPerBufferUnspecified, paClipOff, nullptr,
+                      nullptr),
+        "cannot open audio output");
+  try {
+    check(Pa_StartStream(stream), "cannot start audio output");
+    check(Pa_WriteStream(stream, rendered.data(),
+                         static_cast<unsigned long>(rendered.size())),
+          "audio playback failed");
+    check(Pa_StopStream(stream), "cannot stop audio output");
+    check(Pa_CloseStream(stream), "cannot close audio output");
+  } catch (...) {
+    (void)Pa_AbortStream(stream);
+    (void)Pa_CloseStream(stream);
+    throw;
+  }
 }
 AudioCapture::AudioCapture(AudioDevice device, int sample_rate, int block_ms)
     : device_(std::move(device)), sample_rate_(sample_rate),

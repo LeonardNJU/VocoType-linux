@@ -6,8 +6,8 @@ on:
     paths:
       - "site/**"
       - "docs/**"
-      - "mkdocs.yml"
-      - "requirements-docs.txt"
+      - "tools/docs_builder.cpp"
+      - "tools/build-static-site.sh"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -28,23 +28,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: requirements-docs.txt
-      - name: Build documentation
-        run: |
-          python -m pip install -r requirements-docs.txt
-          mkdocs build --clean
+        uses: actions/checkout@v6
+      - name: Build static project site and documentation
+        run: tools/build-static-site.sh build/pages
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload static site
         uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          path: build/pages
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5

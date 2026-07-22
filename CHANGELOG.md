@@ -9,20 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added a compiled PortAudio recorder, checksum-pinned ModelScope model manager, native GTK settings center, and native IBus engine with direct librime integration.
-- Added native graphical install/repair, model validation/download, Playground, ITN, terminology, SLM, and zero-Python Doctor workflows.
+- Added a compiled PortAudio recorder/player, checksum-pinned ModelScope model manager, GTK settings center, native IBus/librime engine, and native Fcitx 5 module.
+- Added native settings coverage for install/repair/uninstall, input/output devices, waveform playback, ASR and voice-edit Playground, ITN, terminology, SLM, Rime schema, version checks, integrity checks, support bundles, private feedback, and GitHub issue creation.
+- Added a compiled Boost.Beast/SQLite feedback receiver with multipart/JSON uploads, HMAC rate limiting, deduplication, private attachments, retention, backups, and an operator CLI.
+- Added a compiled static documentation generator and repository-wide native architecture contracts.
 
 ### Changed
 
-- The installed runtime is now native-only: DEB, RPM, and Arch packages contain ELF executables, shared libraries, resources, and shell lifecycle scripts, with no Python interpreter, virtual environment, wheelhouse, or Python path launcher.
-- Fcitx 5 and IBus both use the same C++ core, C++ audio recorder, C++ normalization/terminology layer, and C++ OpenAI-compatible SSE client.
-- Fcitx text submission now uses only official input-method commit and surrounding-text APIs; clipboard injection fallbacks were removed.
-- Source and graphical install entrypoints now build or activate the native runtime and preserve existing configuration and model caches during upgrades.
+- The entire repository product path is now C++/CMake/shell: desktop clients, core and workers, settings UI, feedback service, installation, package/release tooling, tests, and documentation publishing no longer require Python.
+- DEB, RPM, and Arch packages contain only ELF executables, shared libraries, resources, and lifecycle scripts; source archives contain no Python source or dependency manifest.
+- Fcitx 5 and IBus share the same C++ core, audio recorder, normalization/terminology layer, OpenAI-compatible SSE client, and validated voice-edit planner.
+- Fcitx polishing now shows `正在润色... （等待模型输出 XXs/<timeout>s）` on the first line and the rough ASR text on the next row.
+- Source and graphical installers preserve existing configuration and model caches, create native payload checksums, and restart Fcitx through the graphical desktop session.
+
+### Fixed
+
+- Fixed Ctrl+F9 full-text replacement in gedit and other GTK clients: VoCoType now validates the surrounding snapshot before editing, then sends delete-surrounding and replacement commit in the same ordered input-method transaction instead of mistaking a stale surrounding-text cache for deletion failure.
+- Removed the destructive failure mode that could delete the source text, suppress the replacement, and report that the input box did not support replacement.
+- Removed clipboard injection fallbacks and internal `del=? sur=1` capability diagnostics from the user-facing Fcitx panel.
 
 ### Removed
 
-- Removed runtime dependencies on PyGObject, NumPy, SoundDevice, PyYAML, Python FunASR wrappers, private venvs, and package-local wheelhouses.
-- Removed the Python backend fallback from installed launchers.
+- Removed all Python client/server implementations, Python package metadata, virtual environments, wheelhouses, Python release assets, and Python fallback launchers.
+- Removed runtime and build dependencies on PyGObject, NumPy, SoundDevice, PyYAML, Python FunASR wrappers, FastAPI/Uvicorn, and MkDocs.
 
 ## [3.0.0-beta.2] - 2026-07-22
 

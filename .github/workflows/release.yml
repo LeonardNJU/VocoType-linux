@@ -37,16 +37,16 @@ jobs:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          raw=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' vocotype_version.py)
-          version=$(python3 packaging/tools/versioning.py "$raw" --field python)
-          tag=$(python3 packaging/tools/versioning.py "$raw" --field tag)
-          prerelease=$(python3 packaging/tools/versioning.py "$raw" --field prerelease)
+          . packaging/tools/package-common.sh
+          version=$(vocotype_version "$PWD")
+          tag=$(vocotype_version_field "$version" tag)
+          prerelease=$(vocotype_version_field "$version" prerelease)
           if [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" != "$tag" ]]; then
             echo "Tag $GITHUB_REF_NAME does not match repository version $tag" >&2
             exit 1
           fi
           if [[ -n "$INPUT_VERSION" ]]; then
-            expected=$(python3 packaging/tools/versioning.py "$INPUT_VERSION" --field python)
+            expected=${INPUT_VERSION#v}; expected=${expected/-beta./b}; expected=${expected/-rc./rc}
             [[ "$expected" == "$version" ]] || {
               echo "Requested version $expected does not match $version" >&2
               exit 1
@@ -85,9 +85,6 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
       - uses: actions/download-artifact@v5
         with:
           name: native-streaming-linux-x86_64
@@ -109,8 +106,9 @@ jobs:
           packaging/tools/unpack-native-streaming-release.sh "$archive" "$RUNNER_TEMP/native-bundle"
       - name: Build and validate source release metadata
         run: |
-          python packaging/tools/build-release.py --expected-version "${{ needs.validate-version.outputs.version }}"
-          python packaging/tools/validate-release.py \
+          packaging/tools/build-source-release.sh \
+            --expected-version "${{ needs.validate-version.outputs.version }}"
+          packaging/tools/validate-source-release.sh \
             --expected-version "${{ needs.validate-version.outputs.version }}" \
             --expected-commit "$GITHUB_SHA"
       - name: Build all complete Debian flavors
@@ -122,9 +120,10 @@ jobs:
           done
       - name: Install and validate every Debian flavor
         run: |
-          debian_version=$(python3 packaging/tools/versioning.py "${{ needs.validate-version.outputs.version }}" --field debian)
+          . packaging/tools/package-common.sh
+          debian_version=$(vocotype_version_field "${{ needs.validate-version.outputs.version }}" debian)
           for flavor in universal ibus fcitx5; do
-            package_name=$(python3 packaging/tools/package-flavor.py "$flavor" --field package_name)
+            package_name=$(vocotype_flavor_field "$flavor" package_name)
             package=$(find dist/packages -maxdepth 1 -name "${package_name}_${debian_version}-*_amd64.deb" -print -quit)
             test -n "$package"
             packaging/tests/audit-built-package.sh "$package" "${{ needs.validate-version.outputs.version }}" "$flavor"
@@ -153,7 +152,7 @@ jobs:
       - name: Install RPM native build and smoke-test tools
         run: |
           dnf install -y \
-            git python3 python3-pip rpm-build cmake gcc gcc-c++ \
+            git rpm-build cmake gcc gcc-c++ \
             pkgconf-pkg-config fcitx5-devel nlohmann-json-devel ibus-devel librime-devel \
             systemd-rpm-macros gtk3 gtk3-devel ibus fcitx5 \
             librime librime-tools brise yaml-cpp yaml-cpp-devel \
@@ -182,10 +181,11 @@ jobs:
           done
       - name: Install and validate every RPM flavor
         run: |
-          rpm_version=$(python3 packaging/tools/versioning.py "${{ needs.validate-version.outputs.version }}" --field rpm_version)
-          rpm_release=$(python3 packaging/tools/versioning.py "${{ needs.validate-version.outputs.version }}" --field rpm_release)
+          . packaging/tools/package-common.sh
+          rpm_version=$(vocotype_version_field "${{ needs.validate-version.outputs.version }}" rpm_version)
+          rpm_release=$(vocotype_version_field "${{ needs.validate-version.outputs.version }}" rpm_release)
           for flavor in universal ibus fcitx5; do
-            package_name=$(python3 packaging/tools/package-flavor.py "$flavor" --field package_name)
+            package_name=$(vocotype_flavor_field "$flavor" package_name)
             package=$(find dist/packages -maxdepth 1 -name "${package_name}-${rpm_version}-${rpm_release}*.x86_64.rpm" ! -name '*debug*' -print -quit)
             test -n "$package"
             packaging/tests/audit-built-package.sh "$package" "${{ needs.validate-version.outputs.version }}" "$flavor"
@@ -210,7 +210,7 @@ jobs:
       - name: Install Arch native build and smoke-test tools
         run: |
           pacman -Syu --noconfirm \
-            git python cmake gcc pkgconf fcitx5 nlohmann-json \
+            git cmake gcc pkgconf fcitx5 nlohmann-json \
             gtk3 ibus librime librime-data yaml-cpp curl openssl \
             portaudio polkit dbus meson ninja binutils
       - uses: actions/checkout@v6
@@ -236,9 +236,10 @@ jobs:
           done
       - name: Install and validate every Arch flavor
         run: |
-          arch_version=$(python3 packaging/tools/versioning.py "${{ needs.validate-version.outputs.version }}" --field arch)
+          . packaging/tools/package-common.sh
+          arch_version=$(vocotype_version_field "${{ needs.validate-version.outputs.version }}" arch)
           for flavor in universal ibus fcitx5; do
-            package_name=$(python3 packaging/tools/package-flavor.py "$flavor" --field package_name)
+            package_name=$(vocotype_flavor_field "$flavor" package_name)
             package=$(find dist/packages -maxdepth 1 -name "${package_name}-${arch_version}-*.pkg.tar.*" ! -name '*debug*' -print -quit)
             test -n "$package"
             packaging/tests/audit-built-package.sh "$package" "${{ needs.validate-version.outputs.version }}" "$flavor"
@@ -266,7 +267,7 @@ jobs:
           merge-multiple: true
       - name: Collect installer-only GitHub Release assets
         run: |
-          python packaging/tools/collect-release-assets.py \
+          packaging/tools/collect-release-assets.sh \
             assets final-assets --installers-only
       - name: Write installer checksums
         run: |
@@ -278,7 +279,7 @@ jobs:
           )
       - name: Validate the exact downloadable asset set
         run: |
-          python packaging/tools/validate-final-release-assets.py final-assets \
+          packaging/tools/validate-final-release-assets.sh final-assets \
             --version "${{ needs.validate-version.outputs.version }}"
       - uses: actions/upload-artifact@v7
         with:
@@ -299,7 +300,7 @@ jobs:
           path: final-assets
       - name: Revalidate the assembled downloadable assets
         run: |
-          python packaging/tools/validate-final-release-assets.py final-assets \
+          packaging/tools/validate-final-release-assets.sh final-assets \
             --version "${{ needs.validate-version.outputs.version }}"
       - name: Create tag and Release from the tested assets
         env:
