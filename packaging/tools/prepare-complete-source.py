@@ -30,7 +30,9 @@ def _safe_extract(archive: Path, destination: Path) -> Path:
 
 def _validate_bundle(bundle: Path) -> None:
     required = (
+        bundle / "bin/vocotype-core",
         bundle / "bin/vocotype-streaming-worker",
+        bundle / "bin/vocotype-offline-worker",
         bundle / "lib/libfunasr.so",
         bundle / "share/licenses/onnxruntime/LICENSE",
         bundle / "share/licenses/funasr/LICENSE",
@@ -38,8 +40,13 @@ def _validate_bundle(bundle: Path) -> None:
     missing = [str(path) for path in required if not path.exists()]
     if missing:
         raise ValueError("native bundle is incomplete: " + ", ".join(missing))
-    if not os.access(bundle / "bin/vocotype-streaming-worker", os.X_OK):
-        raise ValueError("native streaming worker is not executable")
+    for executable in (
+        bundle / "bin/vocotype-core",
+        bundle / "bin/vocotype-streaming-worker",
+        bundle / "bin/vocotype-offline-worker",
+    ):
+        if not os.access(executable, os.X_OK):
+            raise ValueError(f"native executable is not executable: {executable.name}")
 
 
 def _validate_wheelhouse(wheelhouse: Path, flavor: str) -> None:

@@ -160,7 +160,10 @@ fi
 streaming_bundle=${VOCOTYPE_STREAMING_BUNDLE_DIR:-"$PROJECT_DIR/native/streaming_worker/build/bundle"}
 if [[ "$SKIP_STREAMING_BUNDLE" == "1" ]]; then
   echo "Optional native streaming bundle intentionally omitted from this package" >&2
-elif [[ -x "$streaming_bundle/bin/vocotype-streaming-worker" && -d "$streaming_bundle/lib" ]]; then
+elif [[ -x "$streaming_bundle/bin/vocotype-core" && \
+        -x "$streaming_bundle/bin/vocotype-streaming-worker" && \
+        -x "$streaming_bundle/bin/vocotype-offline-worker" && \
+        -d "$streaming_bundle/lib" ]]; then
   if [[ "$LIBDIR" == /* ]]; then
     runtime_streaming_libdir="$LIBDIR/vocotype"
   else
@@ -168,26 +171,36 @@ elif [[ -x "$streaming_bundle/bin/vocotype-streaming-worker" && -d "$streaming_b
   fi
   streaming_libdir="$DESTDIR$runtime_streaming_libdir"
   mkdir -p "$streaming_libdir" "$DESTDIR$LIBEXECDIR"
-  install -m755 "$streaming_bundle/bin/vocotype-streaming-worker" \
-    "$streaming_libdir/vocotype-streaming-worker"
+  for executable in \
+    vocotype-core vocotype-streaming-worker vocotype-offline-worker; do
+    install -m755 "$streaming_bundle/bin/$executable" \
+      "$streaming_libdir/$executable"
+  done
   cp -a "$streaming_bundle/lib/." "$streaming_libdir/"
   (
     cd "$streaming_libdir"
-    find . -maxdepth 1 \( -type f -o -type l \)       ! -name .native-payload.sha256 -print0       | sort -z | xargs -0 sha256sum > .native-payload.sha256
+    find . -maxdepth 1 \( -type f -o -type l \) \
+      ! -name .native-payload.sha256 -print0 \
+      | sort -z | xargs -0 sha256sum > .native-payload.sha256
   )
   if [[ -d "$streaming_bundle/share/licenses" ]]; then
     mkdir -p "$DESTDIR$PREFIX/share/licenses/vocotype-linux/native-streaming"
     cp -a "$streaming_bundle/share/licenses/." \
       "$DESTDIR$PREFIX/share/licenses/vocotype-linux/native-streaming/"
   fi
-  if [[ "$LIBEXECDIR/vocotype-streaming-worker" != "$runtime_streaming_libdir/vocotype-streaming-worker" ]]; then
-    streaming_launcher="$DESTDIR$LIBEXECDIR/vocotype-streaming-worker"
-    printf -v streaming_worker_command '%q' \
-      "$runtime_streaming_libdir/vocotype-streaming-worker"
+  for executable in \
+    vocotype-core vocotype-streaming-worker vocotype-offline-worker; do
+    if [[ "$LIBEXECDIR/$executable" == \
+          "$runtime_streaming_libdir/$executable" ]]; then
+      continue
+    fi
+    launcher="$DESTDIR$LIBEXECDIR/$executable"
+    printf -v executable_command '%q' \
+      "$runtime_streaming_libdir/$executable"
     printf '#!/usr/bin/env bash\nset -euo pipefail\nexec %s "$@"\n' \
-      "$streaming_worker_command" > "$streaming_launcher"
-    chmod 0755 "$streaming_launcher"
-  fi
+      "$executable_command" > "$launcher"
+    chmod 0755 "$launcher"
+  done
 elif [[ "$REQUIRE_STREAMING_BUNDLE" == "1" ]]; then
   echo "Required native streaming bundle is missing: $streaming_bundle" >&2
   exit 1

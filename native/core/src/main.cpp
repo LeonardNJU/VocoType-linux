@@ -23,6 +23,7 @@ struct Options {
   std::filesystem::path config_path = "~/.config/vocotype/fcitx5-backend.json";
   std::string socket_path;
   bool require_config = false;
+  bool enable_final_asr = false;
 };
 
 Options parse_options(int argc, char **argv) {
@@ -40,9 +41,12 @@ Options parse_options(int argc, char **argv) {
       options.require_config = true;
     } else if (arg == "--socket-path") {
       options.socket_path = next("--socket-path");
+    } else if (arg == "--enable-final-asr") {
+      options.enable_final_asr = true;
     } else if (arg == "--help") {
       std::cout
-          << "Usage: vocotype-core [--config FILE] [--socket-path PATH]\n\n"
+          << "Usage: vocotype-core [--config FILE] [--socket-path PATH] "
+             "[--enable-final-asr]\n\n"
           << "Native VoCoType backend prototype with compatible Unix JSON "
              "IPC.\n";
       std::exit(0);
@@ -62,6 +66,9 @@ int main(int argc, char **argv) {
         options.config_path, !options.require_config);
     if (!options.socket_path.empty()) {
       config.server.socket_path = options.socket_path;
+    }
+    if (options.enable_final_asr) {
+      config.offline_asr.enabled = true;
     }
 
     vocotype::core::CoreDispatcher dispatcher(config);

@@ -324,7 +324,10 @@ install_native_streaming_bundle() {
             ;;
     esac
 
-    if [ ! -x "$source_dir/bin/vocotype-streaming-worker" ] || [ ! -d "$source_dir/lib" ]; then
+    if [ ! -x "$source_dir/bin/vocotype-core" ] || \
+       [ ! -x "$source_dir/bin/vocotype-streaming-worker" ] || \
+       [ ! -x "$source_dir/bin/vocotype-offline-worker" ] || \
+       [ ! -d "$source_dir/lib" ]; then
         if [ -f "$project_dir/.system-package" ] || [ -f /usr/share/vocotype/.system-package ]; then
             echo "错误: Release 包缺少 native streaming runtime，安装不完整。" >&2
             return 1
@@ -336,6 +339,9 @@ install_native_streaming_bundle() {
     rm -rf "$target_dir"
     mkdir -p "$target_dir"
     cp -a "$source_dir/." "$target_dir/"
-    chmod +x "$target_dir/bin/vocotype-streaming-worker"
-    echo "✓ 已安装可按需加载的 native streaming runtime"
+    chmod +x \
+        "$target_dir/bin/vocotype-core" \
+        "$target_dir/bin/vocotype-streaming-worker" \
+        "$target_dir/bin/vocotype-offline-worker"
+    echo "✓ 已安装可按需切换的 native core 与 ASR runtime"
 }

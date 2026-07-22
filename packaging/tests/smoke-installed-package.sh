@@ -157,6 +157,54 @@ rm -f "$streaming_ldd_log"
   sha256sum -c .native-payload.sha256
 )
 "$streaming_launcher" --help >/dev/null
+
+for executable in vocotype-core vocotype-offline-worker; do
+  launcher=""
+  private_elf=""
+  for candidate in \
+    "/usr/libexec/$executable" \
+    "/usr/lib/vocotype/$executable" \
+    "/usr/lib64/vocotype/$executable" \
+    /usr/lib/*/vocotype/"$executable"; do
+    if [[ -x "$candidate" ]]; then
+      launcher="$candidate"
+      break
+    fi
+  done
+  [[ -n "$launcher" ]] || {
+    echo "native executable missing: $executable" >&2
+    exit 1
+  }
+  for candidate in \
+    "/usr/lib/vocotype/$executable" \
+    "/usr/lib64/vocotype/$executable" \
+    /usr/lib/*/vocotype/"$executable" \
+    "$launcher"; do
+    [[ -x "$candidate" ]] || continue
+    if readelf -h "$candidate" >/dev/null 2>&1; then
+      private_elf="$candidate"
+      break
+    fi
+  done
+  [[ -n "$private_elf" ]] || {
+    echo "native ELF missing: $executable" >&2
+    exit 1
+  }
+  runtime_log=$(mktemp)
+  if ! ldd -r "$private_elf" >"$runtime_log" 2>&1; then
+    cat "$runtime_log" >&2
+    rm -f "$runtime_log"
+    exit 1
+  fi
+  if grep -Eqi 'not found|undefined symbol|version `[^`]+. not found' "$runtime_log"; then
+    cat "$runtime_log" >&2
+    rm -f "$runtime_log"
+    exit 1
+  fi
+  rm -f "$runtime_log"
+  "$launcher" --help >/dev/null
+done
+
 check_path /usr/share/licenses/vocotype-linux/native-streaming/onnxruntime/LICENSE
 check_path /usr/share/licenses/vocotype-linux/native-streaming/funasr/LICENSE
 echo "PACKAGE_STREAMING_RUNTIME_OK launcher=$streaming_launcher elf=$streaming_worker_elf"

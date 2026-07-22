@@ -14,13 +14,13 @@ Source0:        VocoType-linux-@SOURCE_VERSION@.tar.gz
 @REQUIRES@
 @CONFLICTS@
 Provides:       vocotype-linux-runtime
-Recommends:     curl
+Requires:       curl
 
 %description
 VoCoType provides push-to-talk offline speech input, terminology handling,
 inverse text normalization, and optional AI polishing through an
 OpenAI-compatible API. This flavor installs the @TITLE@ integration,
-native streaming runtime, and a distro-compatible Python wheelhouse.
+an opt-in native C++ core, native ASR runtime, and a distro-compatible Python wheelhouse.
 
 %prep
 %autosetup -n VocoType-linux-@SOURCE_VERSION@
@@ -45,7 +45,9 @@ native streaming runtime, and a distro-compatible Python wheelhouse.
 %doc %{_datadir}/doc/vocotype-linux/README.md
 %doc %{_datadir}/doc/vocotype-linux/CHANGELOG.md
 %{_bindir}/vocotype-settings
+%{_libexecdir}/vocotype-core
 %{_libexecdir}/vocotype-streaming-worker
+%{_libexecdir}/vocotype-offline-worker
 %{_libdir}/vocotype/
 %{_datadir}/applications/io.github.LeonardNJU.VoCoType.Settings.desktop
 %{_datadir}/metainfo/io.github.LeonardNJU.VoCoType.metainfo.xml

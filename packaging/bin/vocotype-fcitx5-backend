@@ -5,6 +5,22 @@ export VOCOTYPE_PROJECT_DIR="$ROOT"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONDONTWRITEBYTECODE=1
 
+case "${VOCOTYPE_BACKEND:-python}" in
+  cpp|native)
+    for core in \
+      "$HOME/.local/lib/vocotype-streaming/bin/vocotype-core" \
+      /usr/libexec/vocotype-core \
+      /usr/lib/vocotype/vocotype-core \
+      /usr/lib64/vocotype/vocotype-core \
+      /usr/lib/*/vocotype/vocotype-core; do
+      [[ -x "$core" ]] || continue
+      exec "$core" --enable-final-asr "$@"
+    done
+    echo "VoCoType native core is not installed." >&2
+    exit 78
+    ;;
+esac
+
 for python in \
   "$HOME/.local/share/vocotype-fcitx5/.venv/bin/python" \
   "$HOME/.local/share/vocotype/.venv/bin/python"; do

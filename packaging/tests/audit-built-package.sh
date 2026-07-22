@@ -70,11 +70,12 @@ native_dir=$(find "${native_roots[@]}" \
 test -n "$native_dir"
 (cd "$native_dir" && sha256sum -c .native-payload.sha256)
 
-libexec_launcher="$work/root/usr/libexec/vocotype-streaming-worker"
-if [[ -e "$libexec_launcher" ]]; then
+for executable in \
+  vocotype-core vocotype-streaming-worker vocotype-offline-worker; do
+  libexec_launcher="$work/root/usr/libexec/$executable"
   test -f "$libexec_launcher"
   test ! -L "$libexec_launcher"
   grep -Fq 'exec /usr/' "$libexec_launcher"
-fi
+done
 
 echo "BUILT_PACKAGE_AUDIT_OK $(basename "$package") flavor=$expected_flavor manager=$expected_manager"

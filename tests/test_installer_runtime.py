@@ -226,9 +226,14 @@ def test_native_streaming_bundle_helper_is_shared_and_installs_private_runtime(t
     bundle = tmp_path / "bundle"
     (bundle / "bin").mkdir(parents=True)
     (bundle / "lib").mkdir()
-    worker = bundle / "bin/vocotype-streaming-worker"
-    worker.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    worker.chmod(0o755)
+    for name in (
+        "vocotype-core",
+        "vocotype-streaming-worker",
+        "vocotype-offline-worker",
+    ):
+        executable = bundle / "bin" / name
+        executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        executable.chmod(0o755)
     (bundle / "lib/libfunasr.so").write_bytes(b"local-runtime")
     home = tmp_path / "home"
     env = os.environ.copy()
@@ -252,5 +257,10 @@ def test_native_streaming_bundle_helper_is_shared_and_installs_private_runtime(t
     )
     assert result.returncode == 0, result.stderr
     installed = home / ".local/lib/vocotype-streaming"
-    assert (installed / "bin/vocotype-streaming-worker").stat().st_mode & 0o100
+    for name in (
+        "vocotype-core",
+        "vocotype-streaming-worker",
+        "vocotype-offline-worker",
+    ):
+        assert (installed / "bin" / name).stat().st_mode & 0o100
     assert (installed / "lib/libfunasr.so").read_bytes() == b"local-runtime"

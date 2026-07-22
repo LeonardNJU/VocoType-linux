@@ -107,7 +107,9 @@ fi
 
 RUNTIME_SOURCE="$FUNASR_SOURCE_DIR/runtime/onnxruntime"
 OVERLAY="$BUILD_DIR/vocotype-worker-overlay.cmake"
-sed "s#@VOCOTYPE_WORKER_SOURCE@#$SCRIPT_DIR/worker.cpp#g" \
+sed \
+    -e "s#@VOCOTYPE_STREAMING_WORKER_SOURCE@#$SCRIPT_DIR/worker.cpp#g" \
+    -e "s#@VOCOTYPE_OFFLINE_WORKER_SOURCE@#$SCRIPT_DIR/offline_worker.cpp#g" \
     "$SCRIPT_DIR/funasr-bin-overlay.cmake" > "$OVERLAY"
 
 # Work in a copy so an upstream checkout is never modified.  Appending one
@@ -146,12 +148,15 @@ cmake -S "$SOURCE_COPY" -B "$BUILD_DIR/cmake" \
     -DHAVE_PDT=OFF \
     -DHAVE_MPDT=OFF \
     -DHAVE_NGRAM=OFF
-cmake --build "$BUILD_DIR/cmake" --target vocotype-streaming-worker -j"${JOBS:-2}"
+cmake --build "$BUILD_DIR/cmake" \
+    --target vocotype-streaming-worker vocotype-offline-worker \
+    -j"${JOBS:-2}"
 
 BUNDLE_DIR="$BUILD_DIR/bundle"
 rm -rf "$BUNDLE_DIR"
 mkdir -p "$BUNDLE_DIR/bin" "$BUNDLE_DIR/lib"
 cp "$BUILD_DIR/cmake/bin/vocotype-streaming-worker" "$BUNDLE_DIR/bin/"
+cp "$BUILD_DIR/cmake/bin/vocotype-offline-worker" "$BUNDLE_DIR/bin/"
 cp "$BUILD_DIR/cmake/src/libfunasr.so" "$BUNDLE_DIR/lib/"
 cp -a "$BUILD_DIR/cmake/third_party/yaml-cpp"/libyaml-cpp.so* "$BUNDLE_DIR/lib/"
 cp -a "$BUILD_DIR/cmake/third_party/openfst/src/lib"/libfst.so* "$BUNDLE_DIR/lib/"
@@ -178,8 +183,12 @@ else
 fi
 
 if [[ "${STRIP_NATIVE_BUNDLE:-1}" == "1" ]]; then
-    strip --strip-unneeded "$BUNDLE_DIR/bin/vocotype-streaming-worker" \
+    strip --strip-unneeded \
+        "$BUNDLE_DIR/bin/vocotype-streaming-worker" \
+        "$BUNDLE_DIR/bin/vocotype-offline-worker" \
         "$BUNDLE_DIR/lib/libfunasr.so" 2>/dev/null || true
 fi
 python "$SCRIPT_DIR/audit_bundle.py" "$BUNDLE_DIR"
-printf '%s\n' "$BUNDLE_DIR/bin/vocotype-streaming-worker"
+printf '%s\n' \
+    "$BUNDLE_DIR/bin/vocotype-streaming-worker" \
+    "$BUNDLE_DIR/bin/vocotype-offline-worker"

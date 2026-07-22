@@ -41,17 +41,58 @@ Json default_config_json() {
            {"max_request_bytes", 1024 * 1024},
            {"request_timeout_ms", 2000},
        }},
+      {"asr",
+       {
+           {"native_enabled", false},
+           {"worker_path", ""},
+           {"model", "iic/"
+                     "speech_paraformer-large-contextual_asr_nat-zh-cn-16k-"
+                     "common-vocab8404-onnx"},
+           {"model_dir", ""},
+           {"use_vad", false},
+           {"vad_model", "iic/speech_fsmn_vad_zh-cn-16k-common-onnx"},
+           {"vad_model_dir", ""},
+           {"use_punc", true},
+           {"punc_model",
+            "iic/punc_ct-transformer_zh-cn-common-vocab272727-onnx"},
+           {"punc_model_dir", ""},
+           {"hotword", ""},
+           {"itn", true},
+           {"intra_op_num_threads", 2},
+           {"idle_timeout_s", 60},
+           {"startup_timeout_s", 30},
+           {"request_timeout_s", 120},
+       }},
+      {"asr_streaming",
+       {
+           {"enabled", false},
+           {"model", "iic/"
+                     "speech_paraformer-large_asr_nat-zh-cn-16k-common-"
+                     "vocab8404-online-onnx"},
+           {"model_dir", ""},
+           {"worker_path", ""},
+           {"intra_op_num_threads", 1},
+           {"chunk_size", Json::array({5, 10, 5})},
+           {"idle_timeout_s", 30},
+           {"session_idle_timeout_s", 15},
+           {"startup_timeout_s", 180},
+           {"request_timeout_s", 2},
+           {"max_preview_chunk_bytes", 128 * 1024},
+       }},
       {"slm",
        {
            {"enabled", false},
            {"endpoint", "http://127.0.0.1:18080/v1/chat/completions"},
            {"model", "Qwen/Qwen3.5-0.8B"},
            {"timeout_ms", 20000},
+           {"min_chars", 8},
            {"max_tokens", 128},
            {"temperature", 0.0},
            {"top_p", 0.9},
            {"top_k", 20},
            {"enable_thinking", false},
+           {"edit_enabled", true},
+           {"edit_max_tokens", 1024},
            {"api_key", ""},
            {"api_key_env", ""},
            {"extra_headers", Json::object()},
@@ -103,6 +144,78 @@ AppConfig parse_config(const Json &value) {
       std::max(100, value_or<int>(core, "request_timeout_ms",
                                   config.server.request_timeout_ms));
 
+  const Json streaming = merged.value("asr_streaming", Json::object());
+  config.streaming_asr.enabled =
+      value_or<bool>(streaming, "enabled", config.streaming_asr.enabled);
+  config.streaming_asr.model =
+      value_or<std::string>(streaming, "model", config.streaming_asr.model);
+  config.streaming_asr.model_dir =
+      value_or<std::string>(streaming, "model_dir", "");
+  config.streaming_asr.worker_path =
+      value_or<std::string>(streaming, "worker_path", "");
+  config.streaming_asr.threads =
+      std::clamp(value_or<int>(streaming, "intra_op_num_threads", 1), 1, 4);
+  const Json chunk_size = streaming.value("chunk_size", Json::array());
+  if (chunk_size.is_array() && chunk_size.size() == 3) {
+    try {
+      const std::array<int, 3> parsed{chunk_size[0].get<int>(),
+                                      chunk_size[1].get<int>(),
+                                      chunk_size[2].get<int>()};
+      if (parsed[0] >= 0 && parsed[1] > 0 && parsed[2] >= 0) {
+        config.streaming_asr.chunk_size = parsed;
+      }
+    } catch (const Json::exception &) {
+    }
+  }
+  const auto seconds_to_ms = [](double seconds, int fallback) {
+    if (seconds <= 0.0) {
+      return fallback;
+    }
+    return static_cast<int>(std::clamp(seconds * 1000.0, 1.0, 3600000.0));
+  };
+  config.streaming_asr.idle_timeout_ms =
+      seconds_to_ms(value_or<double>(streaming, "idle_timeout_s", 30.0), 30000);
+  config.streaming_asr.session_idle_timeout_ms = seconds_to_ms(
+      value_or<double>(streaming, "session_idle_timeout_s", 15.0), 15000);
+  config.streaming_asr.startup_timeout_ms = seconds_to_ms(
+      value_or<double>(streaming, "startup_timeout_s", 180.0), 180000);
+  config.streaming_asr.request_timeout_ms = seconds_to_ms(
+      value_or<double>(streaming, "request_timeout_s", 2.0), 2000);
+  config.streaming_asr.max_preview_chunk_bytes =
+      positive_size(streaming, "max_preview_chunk_bytes",
+                    config.streaming_asr.max_preview_chunk_bytes);
+
+  const Json asr = merged.value("asr", Json::object());
+  config.offline_asr.enabled =
+      value_or<bool>(asr, "native_enabled", config.offline_asr.enabled);
+  config.offline_asr.worker_path =
+      value_or<std::string>(asr, "worker_path", "");
+  config.offline_asr.model =
+      value_or<std::string>(asr, "model", config.offline_asr.model);
+  config.offline_asr.model_dir = value_or<std::string>(asr, "model_dir", "");
+  config.offline_asr.use_vad =
+      value_or<bool>(asr, "use_vad", config.offline_asr.use_vad);
+  config.offline_asr.vad_model =
+      value_or<std::string>(asr, "vad_model", config.offline_asr.vad_model);
+  config.offline_asr.vad_model_dir =
+      value_or<std::string>(asr, "vad_model_dir", "");
+  config.offline_asr.use_punc =
+      value_or<bool>(asr, "use_punc", config.offline_asr.use_punc);
+  config.offline_asr.punc_model =
+      value_or<std::string>(asr, "punc_model", config.offline_asr.punc_model);
+  config.offline_asr.punc_model_dir =
+      value_or<std::string>(asr, "punc_model_dir", "");
+  config.offline_asr.hotword = value_or<std::string>(asr, "hotword", "");
+  config.offline_asr.itn = value_or<bool>(asr, "itn", config.offline_asr.itn);
+  config.offline_asr.threads =
+      std::clamp(value_or<int>(asr, "intra_op_num_threads", 2), 1, 8);
+  config.offline_asr.idle_timeout_ms =
+      seconds_to_ms(value_or<double>(asr, "idle_timeout_s", 60.0), 60000);
+  config.offline_asr.startup_timeout_ms =
+      seconds_to_ms(value_or<double>(asr, "startup_timeout_s", 30.0), 30000);
+  config.offline_asr.request_timeout_ms =
+      seconds_to_ms(value_or<double>(asr, "request_timeout_s", 120.0), 120000);
+
   const Json slm = merged.value("slm", Json::object());
   config.slm.enabled = value_or<bool>(slm, "enabled", config.slm.enabled);
   config.slm.endpoint =
@@ -110,6 +223,8 @@ AppConfig parse_config(const Json &value) {
   config.slm.model = value_or<std::string>(slm, "model", config.slm.model);
   config.slm.timeout_ms =
       std::max(100, value_or<int>(slm, "timeout_ms", config.slm.timeout_ms));
+  config.slm.min_chars =
+      std::max(0, value_or<int>(slm, "min_chars", config.slm.min_chars));
   config.slm.max_tokens =
       std::max(1, value_or<int>(slm, "max_tokens", config.slm.max_tokens));
   config.slm.temperature =
@@ -118,6 +233,10 @@ AppConfig parse_config(const Json &value) {
   config.slm.top_k = value_or<int>(slm, "top_k", config.slm.top_k);
   config.slm.enable_thinking =
       value_or<bool>(slm, "enable_thinking", config.slm.enable_thinking);
+  config.slm.edit_enabled =
+      value_or<bool>(slm, "edit_enabled", config.slm.edit_enabled);
+  config.slm.edit_max_tokens = std::max(
+      1, value_or<int>(slm, "edit_max_tokens", config.slm.edit_max_tokens));
   config.slm.api_key = value_or<std::string>(slm, "api_key", "");
   config.slm.api_key_env = value_or<std::string>(slm, "api_key_env", "");
   config.slm.extra_headers = slm.value("extra_headers", Json::object());

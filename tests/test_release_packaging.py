@@ -246,9 +246,14 @@ def test_staging_script_places_prebuilt_native_streaming_bundle(tmp_path: Path):
     bundle = tmp_path / "bundle"
     (bundle / "bin").mkdir(parents=True)
     (bundle / "lib").mkdir()
-    worker = bundle / "bin/vocotype-streaming-worker"
-    worker.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    worker.chmod(0o755)
+    for name in (
+        "vocotype-core",
+        "vocotype-streaming-worker",
+        "vocotype-offline-worker",
+    ):
+        executable = bundle / "bin" / name
+        executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        executable.chmod(0o755)
     (bundle / "lib/libfunasr.so").write_bytes(b"native")
     dest = tmp_path / "root"
     env = os.environ.copy()
@@ -275,6 +280,11 @@ def test_staging_script_places_prebuilt_native_streaming_bundle(tmp_path: Path):
     launcher_text = installed_worker.read_text(encoding="utf-8")
     assert 'exec /usr/lib/vocotype/vocotype-streaming-worker "$@"' in launcher_text
     assert private_worker.read_text(encoding="utf-8") == "#!/bin/sh\nexit 0\n"
+    for name in ("vocotype-core", "vocotype-offline-worker"):
+        launcher = dest / "usr/libexec" / name
+        private = dest / "usr/lib/vocotype" / name
+        assert launcher.is_file() and launcher.stat().st_mode & stat.S_IXUSR
+        assert private.read_text(encoding="utf-8") == "#!/bin/sh\nexit 0\n"
     assert (dest / "usr/lib/vocotype/libfunasr.so").read_bytes() == b"native"
 
 def test_staging_script_honors_custom_libexec_directory(tmp_path: Path):
@@ -602,6 +612,9 @@ def test_native_package_recipes_share_one_staging_contract(tmp_path: Path):
         assert f"Name:           {package_name}" in spec
         assert f"pkgname={package_name}" in pkgbuild
         assert "Architecture: amd64" in control
+        assert "curl" in next(
+            line for line in control.splitlines() if line.startswith("Depends:")
+        )
         assert "License:        GPL-3.0-or-later" in spec
         assert "%global debug_package %{nil}" in spec
         assert "sha256sums=('@SOURCE_SHA256@')" in pkgbuild
@@ -1053,6 +1066,16 @@ def test_fcitx_module_uses_apis_available_since_fcitx_5014():
 
 
 
+def test_fcitx_backend_launcher_keeps_python_default_and_exposes_native_opt_in():
+    source = (ROOT / "packaging/bin/vocotype-fcitx5-backend").read_text(
+        encoding="utf-8"
+    )
+    assert '${VOCOTYPE_BACKEND:-python}' in source
+    assert "cpp|native" in source
+    assert 'exec "$core" --enable-final-asr "$@"' in source
+    assert 'fcitx5/backend/fcitx5_server.py' in source
+
+
 def test_systemd_backend_disables_python_bytecode_writes():
     source = (
         ROOT / "packaging/systemd/vocotype-fcitx5-backend.service"
@@ -1075,15 +1098,19 @@ def test_release_packages_are_offline_but_require_complete_prebuilt_runtimes():
     assert "curl" not in control.split("Package:", 1)[0]
     assert "BuildRequires:  clang" not in rpm
     assert "BuildRequires:  curl" not in rpm
+    assert "Requires:       curl" in rpm
     assert "Architecture: amd64" in control
+    assert "Depends: @DEPENDS@, curl" in control
     assert "ExclusiveArch:  x86_64" in rpm
+    assert "%{_libexecdir}/vocotype-core" in rpm
     assert "%{_libexecdir}/vocotype-streaming-worker" in rpm
+    assert "%{_libexecdir}/vocotype-offline-worker" in rpm
     assert "%{_libdir}/vocotype/" in rpm
     assert "arch=('x86_64')" in arch
     assert "options=('!debug' '!strip')" in arch
     assert "%global __strip /bin/true" in rpm
     assert "'clang'" not in arch
-    assert "'curl'" not in arch.split("optdepends", 1)[0]
+    assert "depends=(@DEPENDS@ 'curl')" in arch
 
     for builder in ("build-deb.sh", "build-rpm.sh", "build-arch.sh"):
         source = (ROOT / "packaging/tools" / builder).read_text(encoding="utf-8")
@@ -1149,7 +1176,8 @@ def test_release_packages_are_offline_but_require_complete_prebuilt_runtimes():
     debian_rules = (ROOT / "packaging/debian/rules").read_text(encoding="utf-8")
     assert "dh_strip_nondeterminism -X/usr/share/vocotype/wheelhouse" in debian_rules
     assert "dh_strip -X/vocotype/" in debian_rules
-    assert 'streaming_launcher="$DESTDIR$LIBEXECDIR/vocotype-streaming-worker"' in stage
+    assert "vocotype-core vocotype-streaming-worker vocotype-offline-worker" in stage
+    assert 'launcher="$DESTDIR$LIBEXECDIR/$executable"' in stage
     assert 'ln -sfn "$streaming_link_target"' not in stage
     assert "--only-binary :all:" in (
         ROOT / "packaging/tests/smoke-binary-runtime.sh"
@@ -1160,9 +1188,14 @@ def test_staging_skip_streaming_bundle_ignores_a_valid_cached_bundle(tmp_path: P
     bundle = tmp_path / "bundle"
     (bundle / "bin").mkdir(parents=True)
     (bundle / "lib").mkdir()
-    worker = bundle / "bin/vocotype-streaming-worker"
-    worker.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    worker.chmod(0o755)
+    for name in (
+        "vocotype-core",
+        "vocotype-streaming-worker",
+        "vocotype-offline-worker",
+    ):
+        executable = bundle / "bin" / name
+        executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        executable.chmod(0o755)
     (bundle / "lib/libfunasr.so").write_bytes(b"cached")
     dest = tmp_path / "root"
     env = os.environ.copy()
@@ -1186,7 +1219,9 @@ def test_staging_skip_streaming_bundle_ignores_a_valid_cached_bundle(tmp_path: P
 
     assert result.returncode == 0, result.stderr
     assert "intentionally omitted" in result.stderr
+    assert not list(dest.rglob("vocotype-core"))
     assert not list(dest.rglob("vocotype-streaming-worker"))
+    assert not list(dest.rglob("vocotype-offline-worker"))
     assert not list(dest.rglob("libfunasr.so"))
 
 
