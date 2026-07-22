@@ -1004,6 +1004,9 @@ def test_settings_application_exposes_both_install_paths():
     assert "waveform_callback=lambda envelope" in source
     assert "自动增益 +{result.gain_db:.1f} dB" in source
     assert "list_output_devices" in source
+    assert "settings_center.playground_audio_worker" in (
+        Path("settings_center/playground_service.py")
+    ).read_text(encoding="utf-8")
     assert "回放输出已切换到" in source
     assert "Fcitx：F9 默认润色" not in source
     assert "PolishByDefault" not in source

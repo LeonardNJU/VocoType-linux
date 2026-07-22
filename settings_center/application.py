@@ -1756,11 +1756,17 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
         self._rendering_audio_devices = False
         self._playground_audio_busy = False
-        parts = [f"检测到 {len(devices)} 个输入设备", f"{len(outputs)} 个输出设备"]
-        if error:
-            parts.append(f"⚠️ {error}")
+        if error and not devices:
+            parts = [f"❌ {error}", f"检测到 {len(outputs)} 个输出设备"]
+        else:
+            parts = [
+                f"检测到 {len(devices)} 个输入设备",
+                f"{len(outputs)} 个输出设备",
+            ]
+            if error:
+                parts.append(f"⚠️ {error}")
         if not devices:
-            parts.append("无法录音")
+            parts.append("录音功能尚不可用")
         if not outputs:
             parts.append("无法回放")
         if devices and outputs:

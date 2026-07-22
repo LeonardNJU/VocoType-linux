@@ -72,7 +72,187 @@ def last_recording_path(*, home: Path | None = None) -> Path:
     return playground_cache_dir(home=home) / "last-recording.wav"
 
 
-def list_input_devices() -> list[InputDevice]:
+class AudioRuntimeUnavailable(RuntimeError):
+    """The settings process cannot find a complete private audio runtime."""
+
+
+def _audio_project_root() -> Path:
+    configured = os.environ.get("VOCOTYPE_PROJECT_DIR", "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return Path(__file__).resolve().parents[1]
+
+
+def _audio_worker_environment(project_root: Path) -> dict[str, str]:
+    environment = os.environ.copy()
+    existing = environment.get("PYTHONPATH", "")
+    environment["PYTHONPATH"] = (
+        f"{project_root}{os.pathsep}{existing}" if existing else str(project_root)
+    )
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    return environment
+
+
+def _audio_runtime_candidates(
+    *,
+    home: Path | None = None,
+    project_root: Path | None = None,
+) -> tuple[str, ...]:
+    user_home = Path.home() if home is None else Path(home)
+    root = _audio_project_root() if project_root is None else Path(project_root)
+    configured = os.environ.get("VOCOTYPE_AUDIO_RUNTIME_PYTHON", "").strip()
+    values = [
+        configured,
+        str(user_home / ".local/share/vocotype-fcitx5/.venv/bin/python"),
+        str(user_home / ".local/share/vocotype/.venv/bin/python"),
+        str(root / ".venv/bin/python"),
+    ]
+    return tuple(dict.fromkeys(value for value in values if value))
+
+
+def _decode_worker_event(line: str) -> dict[str, Any]:
+    try:
+        value = json.loads(line)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"音频 worker 返回了无效 JSON：{line[:160]}") from exc
+    if not isinstance(value, dict):
+        raise RuntimeError("音频 worker 返回格式无效")
+    return value
+
+
+def find_audio_runtime_python(
+    *,
+    home: Path | None = None,
+    project_root: Path | None = None,
+) -> str:
+    root = _audio_project_root() if project_root is None else Path(project_root)
+    environment = _audio_worker_environment(root)
+    failures: list[str] = []
+    found_candidate = False
+    for value in _audio_runtime_candidates(home=home, project_root=root):
+        candidate = str(Path(value).expanduser())
+        if not os.access(candidate, os.X_OK):
+            continue
+        found_candidate = True
+        try:
+            result = subprocess.run(
+                [candidate, "-m", "settings_center.playground_audio_worker", "probe"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=12,
+                env=environment,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            failures.append(f"{candidate}: {exc}")
+            continue
+        lines = [line for line in result.stdout.splitlines() if line.strip()]
+        event = _decode_worker_event(lines[-1]) if lines else {}
+        if result.returncode == 0 and event.get("event") == "result":
+            return candidate
+        reason = str(event.get("error") or result.stderr.strip() or "probe failed")
+        failures.append(f"{candidate}: {reason}")
+
+    if not found_candidate:
+        raise AudioRuntimeUnavailable(
+            "Playground 音频运行环境尚未安装；请先在“概览与安装”中"
+            "安装 / 修复 VoCoType，然后刷新设备。"
+        )
+    details = failures[0] if failures else "缺少 sounddevice 或 soundfile"
+    raise AudioRuntimeUnavailable(
+        "Playground 私有音频运行环境不完整；请在“概览与安装”中执行"
+        f"安装 / 修复。（{details}）"
+    )
+
+
+def audio_runtime_python(*, home: Path | None = None) -> Path:
+    return Path(find_audio_runtime_python(home=home))
+
+
+def _run_audio_worker(
+    command: str,
+    payload: Mapping[str, Any] | None = None,
+    *,
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    project_root = _audio_project_root()
+    python = find_audio_runtime_python(project_root=project_root)
+    result = subprocess.run(
+        [python, "-m", "settings_center.playground_audio_worker", command],
+        input=json.dumps(dict(payload or {}), ensure_ascii=False),
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=_audio_worker_environment(project_root),
+    )
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    event = _decode_worker_event(lines[-1]) if lines else {}
+    if result.returncode != 0 or event.get("event") == "error":
+        reason = str(
+            event.get("error") or result.stderr.strip() or "音频 worker 执行失败"
+        )
+        raise RuntimeError(reason)
+    if event.get("event") != "result":
+        raise RuntimeError("音频 worker 未返回结果")
+    return event
+
+
+def _stream_audio_worker(
+    command: str,
+    payload: Mapping[str, Any],
+    *,
+    waveform_callback: Callable[[tuple[tuple[float, float], ...]], None] | None,
+    timeout: float,
+) -> dict[str, Any]:
+    project_root = _audio_project_root()
+    python = find_audio_runtime_python(project_root=project_root)
+    process = subprocess.Popen(
+        [python, "-m", "settings_center.playground_audio_worker", command],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+        env=_audio_worker_environment(project_root),
+    )
+    assert process.stdin is not None
+    assert process.stdout is not None
+    assert process.stderr is not None
+    process.stdin.write(json.dumps(dict(payload), ensure_ascii=False))
+    process.stdin.close()
+    result_event: dict[str, Any] | None = None
+    error = ""
+    try:
+        for line in process.stdout:
+            if not line.strip():
+                continue
+            event = _decode_worker_event(line)
+            if event.get("event") == "waveform":
+                if waveform_callback is not None:
+                    envelope = tuple(
+                        (float(item[0]), float(item[1]))
+                        for item in event.get("envelope", ())
+                    )
+                    waveform_callback(envelope)
+            elif event.get("event") == "result":
+                result_event = event
+            elif event.get("event") == "error":
+                error = str(event.get("error") or "录音 worker 执行失败")
+        returncode = process.wait(timeout=timeout)
+    except BaseException:
+        process.kill()
+        process.wait()
+        raise
+    stderr = process.stderr.read().strip()
+    if returncode != 0 or error:
+        raise RuntimeError(error or stderr or "录音 worker 执行失败")
+    if result_event is None:
+        raise RuntimeError(stderr or "录音 worker 未返回结果")
+    return result_event
+
+
+def _list_input_devices_direct() -> list[InputDevice]:
     import sounddevice as sd
 
     result: list[InputDevice] = []
@@ -92,6 +272,23 @@ def list_input_devices() -> list[InputDevice]:
             )
         )
     return result
+
+
+def list_input_devices() -> list[InputDevice]:
+    event = _run_audio_worker("list-inputs", timeout=20)
+    devices = event.get("devices", [])
+    if not isinstance(devices, list):
+        raise RuntimeError("音频 worker 输入设备列表格式无效")
+    return [
+        InputDevice(
+            device_id=int(item["device_id"]),
+            name=str(item["name"]),
+            sample_rate=int(item["sample_rate"]),
+            channels=int(item["channels"]),
+        )
+        for item in devices
+        if isinstance(item, dict)
+    ]
 
 
 def list_output_devices() -> list[OutputDevice]:
@@ -132,6 +329,23 @@ def list_output_devices() -> list[OutputDevice]:
         except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
             pass
 
+    event = _run_audio_worker("list-outputs", timeout=20)
+    devices = event.get("devices", [])
+    if not isinstance(devices, list):
+        raise RuntimeError("音频 worker 输出设备列表格式无效")
+    return [
+        OutputDevice(
+            device_id=str(item["device_id"]),
+            name=str(item["name"]),
+            backend=str(item.get("backend", "portaudio")),
+            is_default=bool(item.get("is_default", False)),
+        )
+        for item in devices
+        if isinstance(item, dict)
+    ]
+
+
+def _list_portaudio_outputs_direct() -> list[OutputDevice]:
     import sounddevice as sd
 
     default_output = None
@@ -177,7 +391,7 @@ def waveform_envelope(
     return tuple(result)
 
 
-def record_audio(
+def _record_audio_direct(
     *,
     device_id: int,
     device_name: str,
@@ -225,8 +439,7 @@ def record_audio(
             f"录音帧数异常：期望 {frame_count}，实际 {samples.size}"
         )
 
-    target = output_path or last_recording_path()
-    target = Path(target).expanduser()
+    target = Path(output_path or last_recording_path()).expanduser()
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_name(f".{target.name}.tmp.wav")
     try:
@@ -253,13 +466,55 @@ def record_audio(
     )
 
 
+def record_audio(
+    *,
+    device_id: int,
+    device_name: str,
+    sample_rate: int,
+    duration_seconds: float = RECORDING_DURATION_SECONDS,
+    output_path: Path | None = None,
+    waveform_callback: Callable[[tuple[tuple[float, float], ...]], None] | None = None,
+) -> PlaygroundRecording:
+    """Record through the installed private Python 3.12 audio runtime."""
+
+    duration_seconds = float(duration_seconds)
+    if duration_seconds <= 0:
+        raise ValueError("录音时长必须大于 0 秒")
+    target = Path(output_path or last_recording_path()).expanduser()
+    event = _stream_audio_worker(
+        "record",
+        {
+            "device_id": int(device_id),
+            "device_name": str(device_name),
+            "sample_rate": max(8000, int(sample_rate)),
+            "duration_seconds": duration_seconds,
+            "output_path": str(target),
+        },
+        waveform_callback=waveform_callback,
+        timeout=max(30.0, duration_seconds + 20.0),
+    )
+    value = event.get("recording")
+    if not isinstance(value, dict):
+        raise RuntimeError("音频 worker 录音结果格式无效")
+    return PlaygroundRecording(
+        path=Path(str(value["path"])),
+        device_id=int(value["device_id"]),
+        device_name=str(value["device_name"]),
+        sample_rate=int(value["sample_rate"]),
+        frame_count=int(value["frame_count"]),
+        duration_seconds=float(value["duration_seconds"]),
+        peak=float(value["peak"]),
+        rms=float(value["rms"]),
+    )
+
+
 def prepare_playback_waveform(
     samples: np.ndarray,
     *,
     target_peak: float = PLAYBACK_TARGET_PEAK,
     max_gain: float = PLAYBACK_MAX_GAIN,
 ) -> tuple[np.ndarray, float]:
-    """Apply bounded auto gain for audible preview without changing the source WAV."""
+    """Apply bounded auto gain without modifying the source WAV."""
 
     waveform = np.asarray(samples, dtype=np.float32)
     if waveform.size == 0:
@@ -274,12 +529,12 @@ def prepare_playback_waveform(
     return amplified, gain
 
 
-def play_recording(
+def _play_recording_direct(
     path: Path,
     *,
     output_device: OutputDevice | None = None,
 ) -> PlaybackResult:
-    """Play a WAV through an explicit desktop sink with bounded auto gain."""
+    """Play a WAV through an explicit sink with bounded auto gain."""
 
     import soundfile as sf
 
@@ -292,7 +547,7 @@ def play_recording(
     gain_db = 20.0 * math.log10(gain)
     selected = output_device
     if selected is None:
-        outputs = list_output_devices()
+        outputs = _list_portaudio_outputs_direct()
         selected = next((item for item in outputs if item.is_default), None)
         if selected is None and outputs:
             selected = outputs[0]
@@ -323,18 +578,14 @@ def play_recording(
                     check=True,
                     timeout=max(10.0, duration + 5.0),
                 )
-                return PlaybackResult(
-                    duration, "PipeWire", selected.name, gain_db
-                )
+                return PlaybackResult(duration, "PipeWire", selected.name, gain_db)
             if paplay:
                 subprocess.run(
                     [paplay, f"--device={selected.device_id}", str(playback_source)],
                     check=True,
                     timeout=max(10.0, duration + 5.0),
                 )
-                return PlaybackResult(
-                    duration, "PulseAudio", selected.name, gain_db
-                )
+                return PlaybackResult(duration, "PulseAudio", selected.name, gain_db)
 
         import sounddevice as sd
 
@@ -352,6 +603,40 @@ def play_recording(
                 temporary_path.unlink()
             except FileNotFoundError:
                 pass
+
+
+def play_recording(
+    path: Path,
+    *,
+    output_device: OutputDevice | None = None,
+) -> PlaybackResult:
+    """Play through the installed private Python 3.12 audio runtime."""
+
+    source = Path(path).expanduser()
+    if not source.is_file():
+        raise FileNotFoundError(f"录音文件不存在：{source}")
+    selected = None
+    if output_device is not None:
+        selected = {
+            "device_id": output_device.device_id,
+            "name": output_device.name,
+            "backend": output_device.backend,
+            "is_default": output_device.is_default,
+        }
+    event = _run_audio_worker(
+        "play",
+        {"path": str(source), "output_device": selected},
+        timeout=180,
+    )
+    value = event.get("playback")
+    if not isinstance(value, dict):
+        raise RuntimeError("音频 worker 回放结果格式无效")
+    return PlaybackResult(
+        duration_seconds=float(value["duration_seconds"]),
+        backend=str(value["backend"]),
+        output_name=str(value["output_name"]),
+        gain_db=float(value.get("gain_db", 0.0)),
+    )
 
 
 def transcribe_recording(

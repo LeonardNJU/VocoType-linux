@@ -23,6 +23,13 @@ uv pip install --python "$work/venv/bin/python" \
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$project_root" \
   "$work/venv/bin/python" "$project_root/installers/check-python-runtime.py"
 
+audio_probe=$(
+  PYTHONPATH="$project_root" PYTHONDONTWRITEBYTECODE=1 \
+    "$work/venv/bin/python" -m settings_center.playground_audio_worker probe
+)
+printf '%s\n' "$audio_probe" | grep -F '"runtime": "ready"' >/dev/null
+echo "PACKAGE_AUDIO_WORKER_OK"
+
 if [[ "$includes_ibus" == true ]]; then
   "$work/venv/bin/python" - <<'PY'
 import importlib.util

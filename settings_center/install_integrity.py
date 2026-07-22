@@ -24,6 +24,7 @@ KEY_FILES = (
     "fcitx5/backend/audio_recorder.py",
     "ibus/engine.py",
     "settings_center/application.py",
+    "settings_center/playground_audio_worker.py",
     "settings_center/config_service.py",
     "settings_center/doctor.py",
     "settings_center/playground_service.py",

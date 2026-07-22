@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import socket
 import sys
 import threading
@@ -52,7 +54,7 @@ def test_record_audio_is_fixed_to_three_seconds_streams_waveform_and_writes_priv
 
     monkeypatch.setattr(soundfile, "write", fake_write)
     output = tmp_path / "last.wav"
-    recording = playground_service.record_audio(
+    recording = playground_service._record_audio_direct(
         device_id=7,
         device_name="USB microphone",
         sample_rate=16_000,
@@ -105,7 +107,7 @@ def test_play_recording_uses_selected_portaudio_output(
         backend="portaudio",
     )
 
-    result = playground_service.play_recording(source, output_device=output)
+    result = playground_service._play_recording_direct(source, output_device=output)
 
     assert result.duration_seconds == pytest.approx(2.5)
     assert result.backend == "PortAudio"
@@ -152,7 +154,7 @@ def test_play_recording_targets_selected_pipewire_sink(
         backend="pipewire",
     )
 
-    result = playground_service.play_recording(source, output_device=output)
+    result = playground_service._play_recording_direct(source, output_device=output)
 
     assert len(calls) == 1
     assert calls[0][:3] == [
@@ -417,3 +419,189 @@ def test_voice_edit_recording_uses_real_backend_edit_audio_protocol(tmp_path: Pa
         "anchor_pos": len("A 是旧版本标记。"),
         "selected_text": "",
     }
+
+
+
+
+
+def test_audio_runtime_candidates_prefer_fcitx_user_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.delenv("VOCOTYPE_AUDIO_RUNTIME_PYTHON", raising=False)
+    candidates = playground_service._audio_runtime_candidates(
+        home=tmp_path,
+        project_root=tmp_path / "project",
+    )
+    assert candidates[0] == str(
+        tmp_path / ".local/share/vocotype-fcitx5/.venv/bin/python"
+    )
+    assert candidates[1] == str(
+        tmp_path / ".local/share/vocotype/.venv/bin/python"
+    )
+
+
+def test_audio_runtime_explains_install_repair_when_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.delenv("VOCOTYPE_AUDIO_RUNTIME_PYTHON", raising=False)
+    with pytest.raises(
+        playground_service.AudioRuntimeUnavailable,
+        match="概览与安装.*安装 / 修复",
+    ):
+        playground_service.find_audio_runtime_python(
+            home=tmp_path,
+            project_root=tmp_path / "missing-project",
+        )
+
+
+def test_list_input_devices_delegates_to_private_audio_worker(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    captured: dict[str, object] = {}
+
+    def fake_worker(command, payload=None, *, timeout=0):
+        captured.update(command=command, payload=payload, timeout=timeout)
+        return {
+            "event": "result",
+            "devices": [
+                {
+                    "device_id": 12,
+                    "name": "USB microphone",
+                    "sample_rate": 48_000,
+                    "channels": 1,
+                }
+            ],
+        }
+
+    monkeypatch.setattr(playground_service, "_run_audio_worker", fake_worker)
+    devices = playground_service.list_input_devices()
+
+    assert captured == {"command": "list-inputs", "payload": None, "timeout": 20}
+    assert devices == [
+        playground_service.InputDevice(12, "USB microphone", 48_000, 1)
+    ]
+
+
+def test_record_audio_delegates_to_private_worker_and_preserves_waveform(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    updates: list[tuple[tuple[float, float], ...]] = []
+    output = tmp_path / "recording.wav"
+
+    def fake_worker(
+        command,
+        payload,
+        *,
+        waveform_callback=None,
+        timeout=0,
+    ):
+        assert command == "record"
+        assert payload == {
+            "device_id": 7,
+            "device_name": "USB microphone",
+            "sample_rate": 16_000,
+            "duration_seconds": 3.0,
+            "output_path": str(output),
+        }
+        assert timeout >= 23
+        assert waveform_callback is not None
+        waveform_callback(((-0.3, 0.4),))
+        return {
+            "event": "result",
+            "recording": {
+                "path": str(output),
+                "device_id": 7,
+                "device_name": "USB microphone",
+                "sample_rate": 16_000,
+                "frame_count": 48_000,
+                "duration_seconds": 3.0,
+                "peak": 0.4,
+                "rms": 0.1,
+            },
+        }
+
+    monkeypatch.setattr(playground_service, "_stream_audio_worker", fake_worker)
+    recording = playground_service.record_audio(
+        device_id=7,
+        device_name="USB microphone",
+        sample_rate=16_000,
+        output_path=output,
+        waveform_callback=updates.append,
+    )
+
+    assert updates == [((-0.3, 0.4),)]
+    assert recording.path == output
+    assert recording.frame_count == 48_000
+    assert recording.peak == pytest.approx(0.4)
+
+
+def test_play_recording_delegates_to_private_audio_worker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    source = tmp_path / "recording.wav"
+    source.write_bytes(b"wav")
+    output = playground_service.OutputDevice(
+        device_id="sink.usb",
+        name="USB speakers",
+        backend="pipewire",
+        is_default=True,
+    )
+
+    def fake_worker(command, payload=None, *, timeout=0):
+        assert command == "play"
+        assert payload == {
+            "path": str(source),
+            "output_device": {
+                "device_id": "sink.usb",
+                "name": "USB speakers",
+                "backend": "pipewire",
+                "is_default": True,
+            },
+        }
+        assert timeout == 180
+        return {
+            "event": "result",
+            "playback": {
+                "duration_seconds": 2.5,
+                "backend": "PipeWire",
+                "output_name": "USB speakers",
+                "gain_db": 3.0,
+            },
+        }
+
+    monkeypatch.setattr(playground_service, "_run_audio_worker", fake_worker)
+    result = playground_service.play_recording(source, output_device=output)
+
+    assert result == playground_service.PlaybackResult(
+        duration_seconds=2.5,
+        backend="PipeWire",
+        output_name="USB speakers",
+        gain_db=3.0,
+    )
+
+
+def test_audio_worker_probe_protocol_uses_audio_capable_runtime():
+    root = Path(__file__).resolve().parents[1]
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(root)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "settings_center.playground_audio_worker",
+            "probe",
+        ],
+        capture_output=True,
+        text=True,
+        env=environment,
+        timeout=10,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr + result.stdout
+    payload = json.loads(result.stdout.strip())
+    assert payload == {"event": "result", "runtime": "ready"}

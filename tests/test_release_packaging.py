@@ -941,6 +941,7 @@ def test_release_validator_accepts_complete_artifacts_and_rejects_corruption(tmp
             "fcitx5/module/vocotype_module.cpp",
             "ibus/scripts/install-gui.sh",
             "settings_center/playground_service.py",
+            "settings_center/playground_audio_worker.py",
             "data/metainfo/io.github.LeonardNJU.VoCoType.metainfo.xml",
         )
     ]
@@ -952,6 +953,7 @@ def test_release_validator_accepts_complete_artifacts_and_rejects_corruption(tmp
             "ibus/main.py",
             "settings_center/application.py",
             "settings_center/playground_service.py",
+            "settings_center/playground_audio_worker.py",
             "vocotype_package.py",
             "vocotype_version.py",
             "vocotype_linux.data/share/vocotype/terms.yaml",
@@ -972,6 +974,7 @@ def test_release_validator_accepts_complete_artifacts_and_rejects_corruption(tmp
                 "fcitx5/module/vocotype_module.cpp",
                 "ibus/scripts/install-gui.sh",
                 "settings_center/playground_service.py",
+                "settings_center/playground_audio_worker.py",
                 "tests/test_release_packaging.py",
             )
         ],

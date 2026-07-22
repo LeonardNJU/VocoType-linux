@@ -23,6 +23,7 @@ from .config_service import (
 )
 from app.download_models import inspect_required_models
 from .install_integrity import local_reference_manifest, probe_installation_integrity
+from .playground_service import list_input_devices
 from .setup_manager import find_project_root, installation_paths, native_package_flavor
 from vocotype_version import __version__
 
@@ -619,17 +620,19 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
 
     def microphone_check() -> DoctorCheck:
         try:
-            import sounddevice as sd
-
-            devices = list(sd.query_devices())
             inputs = [
-                (index, str(item.get("name", "")))
-                for index, item in enumerate(devices)
-                if int(item.get("max_input_channels", 0)) > 0
+                (item.device_id, item.name)
+                for item in list_input_devices()
             ]
             configured = load_audio_config()
         except Exception as exc:  # noqa: BLE001
-            return _fail("microphone", "麦克风", "无法枚举录音设备", str(exc))
+            return _fail(
+                "microphone",
+                "麦克风",
+                "无法枚举录音设备",
+                str(exc),
+                "先在“概览与安装”完成当前框架的安装/修复，再到 Playground 刷新设备。",
+            )
         if not inputs:
             return _fail("microphone", "麦克风", "没有可用的输入设备")
 
