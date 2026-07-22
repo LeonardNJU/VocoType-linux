@@ -16,6 +16,16 @@ def test_pygobject_is_built_in_ci_for_each_supported_distro():
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     dependencies = project["project"]["dependencies"]
     assert "PyGObject>=3.46" in dependencies
+
+    ubuntu_constraint = (
+        ROOT / "packaging/constraints/ubuntu-ci.txt"
+    ).read_text(encoding="utf-8")
+    assert "PyGObject==3.50.2" in ubuntu_constraint
+
+    ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    assert "--constraint packaging/constraints/ubuntu-ci.txt" in ci
+    assert "python -m pip install -e ." not in ci
+
     release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
     assert "PyGObject==3.50.2" in release
     assert release.count("PyGObject==3.56.3") >= 2
