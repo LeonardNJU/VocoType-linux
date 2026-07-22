@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import os
 import shutil
@@ -23,7 +22,7 @@ from .config_service import (
 )
 from app.download_models import inspect_required_models
 from .install_integrity import local_reference_manifest, probe_installation_integrity
-from .playground_service import list_input_devices
+from .playground_service import find_audio_runtime_python, list_input_devices
 from .setup_manager import find_project_root, installation_paths, native_package_flavor
 from vocotype_version import __version__
 
@@ -40,6 +39,89 @@ class DoctorCheck:
     @property
     def ok(self) -> bool:
         return self.status in {"pass", "info"}
+
+
+@dataclass(frozen=True)
+class PrivateRuntimeProbe:
+    python: str
+    version: str
+    version_supported: bool
+    dependencies_ok: bool
+    dependency_details: str = ""
+
+
+def _probe_private_runtime(
+    *,
+    project_root: Path | None = None,
+    runtime_finder=None,
+    runner=None,
+) -> PrivateRuntimeProbe:
+    """Probe the package-local Python 3.12 runtime, never the GTK interpreter."""
+
+    root = (
+        Path(project_root).resolve()
+        if project_root is not None
+        else (find_project_root() or Path(__file__).resolve().parents[1])
+    )
+    finder = runtime_finder or find_audio_runtime_python
+    run = runner or subprocess.run
+    python = str(finder(project_root=root))
+    environment = os.environ.copy()
+    existing = environment.get("PYTHONPATH", "")
+    environment["PYTHONPATH"] = (
+        f"{root}{os.pathsep}{existing}" if existing else str(root)
+    )
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+
+    version_result = run(
+        [
+            python,
+            "-c",
+            (
+                "import json,sys; "
+                "print(json.dumps({"
+                "'version': '.'.join(map(str, sys.version_info[:3])), "
+                "'supported': sys.version_info[:2] == (3, 12)"
+                "}))"
+            ),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+        env=environment,
+    )
+    if version_result.returncode != 0:
+        detail = version_result.stderr.strip() or version_result.stdout.strip()
+        raise RuntimeError(f"无法查询私有 Python 版本：{detail or version_result.returncode}")
+    try:
+        version_payload = json.loads(version_result.stdout)
+        version = str(version_payload["version"])
+        supported = bool(version_payload["supported"])
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError(
+            f"私有 Python 版本响应无效：{version_result.stdout[:300]}"
+        ) from exc
+
+    checker = root / "installers/check-python-runtime.py"
+    if not checker.is_file():
+        raise RuntimeError(f"运行时检查器不存在：{checker}")
+    dependency_result = run(
+        [python, str(checker)],
+        capture_output=True,
+        text=True,
+        timeout=90,
+        check=False,
+        env=environment,
+    )
+    details = (dependency_result.stderr + dependency_result.stdout).strip()
+    return PrivateRuntimeProbe(
+        python=python,
+        version=version,
+        version_supported=supported,
+        dependencies_ok=dependency_result.returncode == 0,
+        dependency_details=details,
+    )
 
 
 def _check(check_id: str, title: str, fn: Callable[[], DoctorCheck]) -> DoctorCheck:
@@ -69,13 +151,6 @@ def _pass(check_id: str, title: str, summary: str, details: str = "") -> DoctorC
 
 def _info(check_id: str, title: str, summary: str, details: str = "") -> DoctorCheck:
     return DoctorCheck(check_id, title, "info", summary, details)
-
-
-def _module_available(name: str) -> bool:
-    try:
-        return importlib.util.find_spec(name) is not None
-    except (ImportError, ModuleNotFoundError, ValueError):
-        return False
 
 
 def _warn(
@@ -122,20 +197,62 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
         or ibus_vocotype_installed
     )
 
+    private_runtime_probe: PrivateRuntimeProbe | None = None
+    private_runtime_error = ""
+
+    def get_private_runtime_probe() -> PrivateRuntimeProbe:
+        nonlocal private_runtime_probe, private_runtime_error
+        if private_runtime_probe is not None:
+            return private_runtime_probe
+        if private_runtime_error:
+            raise RuntimeError(private_runtime_error)
+        try:
+            private_runtime_probe = _probe_private_runtime()
+        except Exception as exc:  # noqa: BLE001
+            private_runtime_error = str(exc)
+            raise
+        return private_runtime_probe
+
     def python_check() -> DoctorCheck:
         version = sys.version_info
         summary = f"Python {version.major}.{version.minor}.{version.micro}"
-        if version.major == 3 and 11 <= version.minor <= 12:
-            return _pass("python", "Python 运行时", summary, sys.executable)
+        details = (
+            f"{sys.executable}\n"
+            "该解释器仅负责 GTK 设置中心；ASR 与音频使用下方私有 Python 3.12。"
+        )
+        if version.major == 3 and version.minor >= 10:
+            return _pass("python", "设置中心 Python", summary, details)
         return _fail(
             "python",
-            "Python 运行时",
-            f"{summary} 不在支持范围 3.11–3.12",
-            sys.executable,
-            "使用安装器的用户级 Python 3.12 虚拟环境。",
+            "设置中心 Python",
+            f"{summary} 过旧，无法启动当前设置中心",
+            details,
+            "安装发行版提供的 Python 3.10+、PyGObject/GTK 3、PyYAML 与 NumPy。",
         )
 
-    checks.append(_check("python", "Python 运行时", python_check))
+    checks.append(_check("python", "设置中心 Python", python_check))
+
+    def private_python_check() -> DoctorCheck:
+        probe = get_private_runtime_probe()
+        details = f"{probe.python}\n与发行包内 CPython 3.12 wheels 匹配。"
+        if probe.version_supported:
+            return _pass(
+                "private_python",
+                "私有 Python 运行时",
+                f"Python {probe.version}",
+                details,
+            )
+        return _fail(
+            "private_python",
+            "私有 Python 运行时",
+            f"Python {probe.version} 与发行包 wheels 不兼容",
+            details,
+            "在“概览与安装”重新执行当前框架的安装 / 修复。",
+        )
+
+    checks.append(
+        _check("private_python", "私有 Python 运行时", private_python_check)
+    )
 
     def version_check() -> DoctorCheck:
         roots = []
@@ -176,30 +293,23 @@ def run_doctor(*, include_slm_probe: bool = False) -> list[DoctorCheck]:
     )
 
     def deps_check() -> DoctorCheck:
-        required = {
-            "sounddevice": "录音",
-            "soundfile": "音频文件",
-            "funasr_onnx": "ASR",
-            "yaml": "术语库",
-            "itn.chinese.inverse_normalizer": "ITN",
-            "modelscope": "模型下载",
-        }
-        missing = [
-            f"{name}（{purpose}）"
-            for name, purpose in required.items()
-            if not _module_available(name)
-        ]
-        if not missing:
-            return _pass("dependencies", "Python 依赖", "核心依赖均可导入")
+        probe = get_private_runtime_probe()
+        if probe.dependencies_ok:
+            return _pass(
+                "dependencies",
+                "私有运行依赖",
+                "ASR、音频与模型下载依赖均可导入",
+                probe.python,
+            )
         return _fail(
             "dependencies",
-            "Python 依赖",
-            "缺少运行依赖",
-            "\n".join(missing),
-            "重新运行安装/修复。",
+            "私有运行依赖",
+            "私有 Python 3.12 运行环境不完整",
+            probe.dependency_details or probe.python,
+            "在“概览与安装”重新执行当前框架的安装 / 修复。",
         )
 
-    checks.append(_check("dependencies", "Python 依赖", deps_check))
+    checks.append(_check("dependencies", "私有运行依赖", deps_check))
 
     def models_check() -> DoctorCheck:
         status = inspect_required_models()

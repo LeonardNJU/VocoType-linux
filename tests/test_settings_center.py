@@ -1242,6 +1242,91 @@ def test_doctor_uses_live_fcitx_getaddons_for_loaded_state(
         assert '没有创建 VoCoType addon' in check.summary
 
 
+def test_doctor_private_runtime_probe_uses_python312_and_canonical_checker(
+    tmp_path: Path,
+):
+    import settings_center.doctor as doctor_module
+
+    root = tmp_path / "runtime"
+    checker = root / "installers/check-python-runtime.py"
+    checker.parent.mkdir(parents=True)
+    checker.write_text("# checker\n", encoding="utf-8")
+    calls: list[list[str]] = []
+
+    def fake_finder(*, project_root):
+        assert project_root == root.resolve()
+        return "/private/python3.12"
+
+    def fake_runner(argv, **kwargs):
+        calls.append(list(argv))
+        assert kwargs["env"]["PYTHONPATH"].split(os.pathsep)[0] == str(root.resolve())
+        if argv[1] == "-c":
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                json.dumps({"version": "3.12.11", "supported": True}),
+                "",
+            )
+        assert argv == ["/private/python3.12", str(checker.resolve())]
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    probe = doctor_module._probe_private_runtime(
+        project_root=root,
+        runtime_finder=fake_finder,
+        runner=fake_runner,
+    )
+
+    assert probe.python == "/private/python3.12"
+    assert probe.version == "3.12.11"
+    assert probe.version_supported is True
+    assert probe.dependencies_ok is True
+    assert len(calls) == 2
+
+
+def test_doctor_private_runtime_probe_preserves_dependency_failure(
+    tmp_path: Path,
+):
+    import settings_center.doctor as doctor_module
+
+    root = tmp_path / "runtime"
+    checker = root / "installers/check-python-runtime.py"
+    checker.parent.mkdir(parents=True)
+    checker.write_text("# checker\n", encoding="utf-8")
+
+    def fake_runner(argv, **_kwargs):
+        if argv[1] == "-c":
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                json.dumps({"version": "3.12.4", "supported": True}),
+                "",
+            )
+        return subprocess.CompletedProcess(
+            argv,
+            1,
+            "",
+            "VoCoType runtime import failed at sounddevice",
+        )
+
+    probe = doctor_module._probe_private_runtime(
+        project_root=root,
+        runtime_finder=lambda **_kwargs: "/private/python3.12",
+        runner=fake_runner,
+    )
+
+    assert probe.dependencies_ok is False
+    assert "sounddevice" in probe.dependency_details
+
+
+def test_doctor_uses_dual_python_contract_and_no_removed_fst_dependency():
+    source = Path("settings_center/doctor.py").read_text(encoding="utf-8")
+    assert '"设置中心 Python"' in source
+    assert '"私有 Python 运行时"' in source
+    assert "installers/check-python-runtime.py" in source
+    assert "itn.chinese.inverse_normalizer" not in source
+    assert "不在支持范围 3.11–3.12" not in source
+
+
 def test_doctor_reports_polkit_readiness(monkeypatch: pytest.MonkeyPatch):
     import settings_center.doctor as doctor_module
 

@@ -17,7 +17,7 @@
     "ibus/engine.py": "c94d22d7991211038f98e8af0905d614c578667b7554ee9329ee4eb6b1eef296",
     "settings_center/application.py": "be9106efbff9fdf722697a96dd8b0cdef9139c6566fe51288b725511d4223cee",
     "settings_center/config_service.py": "cd4c4e0ec15bc3635c4e23e97c7914b662a5d5a2c8e9d2fb95f43e3537005e63",
-    "settings_center/doctor.py": "6fe87740e97cd0b496ca062caf8894fb2332503b5d4c4180791f3ac657507236",
+    "settings_center/doctor.py": "717576042014ea4a633ab44b35dc7507350c04f66d405f510981c26060b031c6",
     "settings_center/install_integrity.py": "e368f4d6fc670668474378f99a679fdad305b2763ec7c255fe48f423e07a5366",
     "settings_center/playground_audio_worker.py": "4b071b37d6a0ec995f5353bc36c15738c7e34690b9c8d7e5c3640c4d1fbbcfda",
     "settings_center/playground_service.py": "9cb7e87dd38ab98f32e677d1eb0a4168144a9ad478c27aca144cffb8beb247de",
