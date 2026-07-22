@@ -37,7 +37,6 @@ def test_runtime_check_loads_the_actual_asr_entry_points():
         "soundfile",
         "scipy.signal",
         "yaml",
-        "itn.chinese.inverse_normalizer",
         "modelscope.hub.snapshot_download",
         "funasr_onnx.paraformer_bin",
         "funasr_onnx.vad_bin",
@@ -78,10 +77,10 @@ def test_package_manifests_pin_torch_free_funasr_onnx_release():
     requirements = REQUIREMENTS.read_text(encoding="utf-8")
     pyproject = PYPROJECT.read_text(encoding="utf-8")
 
-    assert "funasr_onnx==0.4.2" in requirements
-    assert '"funasr_onnx==0.4.2"' in pyproject
-    assert "funasr_onnx==0.4.1" not in requirements
-    assert "funasr_onnx==0.4.1" not in pyproject
+    assert "funasr-onnx==0.4.2" in requirements
+    assert '"funasr-onnx==0.4.2"' in pyproject
+    assert "funasr-onnx==0.4.1" not in requirements
+    assert "funasr-onnx==0.4.1" not in pyproject
     assert "numpy==1.26.4" in requirements
     assert '"numpy==1.26.4"' in pyproject
     assert "scipy==1.16.3" in requirements

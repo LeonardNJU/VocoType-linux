@@ -87,11 +87,11 @@ Contextual Paraformer + native hotwords
     ↓
 术语 alias → canonical
     ↓
-VoCoType 数字产品规则
+VoCoType 确定性中文数字规则
     ↓
-保护 canonical/protect spans 与已确定格式
+重新应用 canonical/protect spans
     ↓
-强制 WeTextProcessing FST ITN（仅接受安全数字变化）
+按配置输出日期、时间、距离与货币书写风格
 ```
 
 原生热词是概率性偏置，确定性 alias 替换负责保证最终标准写法；二者互补，不应互相替代。ITN 细节见 [`ITN.md`](itn.md)。

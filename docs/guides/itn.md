@@ -1,6 +1,6 @@
 # ITN 与数字格式策略
 
-VoCoType 使用 WeTextProcessing 中文 FST ITN 和产品级数字规则。运行依赖始终安装，但用户可以在图形设置中心整体关闭数字/ITN，或独立选择输出风格。
+VoCoType 使用项目内的确定性中文数字规则，不再依赖 WeTextProcessing/Pynini。用户可以在图形设置中心整体关闭数字标准化，或独立选择日期、时间、距离和货币的输出风格。
 
 ## 默认行为
 
@@ -31,7 +31,7 @@ VoCoType 使用 WeTextProcessing 中文 FST ITN 和产品级数字规则。运�
 
 ## 开关语义
 
-- `enabled=false`：不执行中文数字规则或 FST ITN；用户词典 alias → canonical 仍然执行。
+- `enabled=false`：不执行中文数字规则；用户词典 alias → canonical 仍然执行。
 - `compact_dates=false`：保留 `2026年5月11号`，而不是 `2026/05/11`。
 - `compact_times=false`：保留 `下午3点20分`，而不是 `15:20`。
 - `compact_distances=false`：保留 `320米`，而不是 `320m`。
@@ -46,29 +46,28 @@ Contextual Paraformer + native hotwords
     ↓
 术语 alias → canonical
     ↓
-（enabled=true）产品数字规则
+（enabled=true）确定性中文数字规则
     ↓
-保护 canonical、固定短语和已确定格式
+重新应用术语保护
     ↓
-WeTextProcessing 中文 FST ITN
-    ↓
-按独立开关应用日期/时间/路程/金额书写风格
+按独立开关应用日期/时间/距离/金额书写风格
 ```
 
-通用 FST 仍受语义安全护栏约束。日期、时间、单位和货币风格不再由 FST 随机决定，而由最后一层确定性产品策略统一输出。
+所有转换都由可审查的 Python 规则决定。日期、时间、单位、货币、序数、百分比、电话号码、编号、普通量词与固定短语都有独立上下文判断，不再经过通用 FST 二次改写。
 
 ## 术语保护
 
-用户名称、作品名、型号或特殊写法应加入 `~/.config/vocotype/terms.yaml` 并保持 `protect: true`。例如 `100米计划` 不会因为启用了路程缩写而变成 `100m计划`。
+用户名称、作品名、型号或特殊写法应加入 `~/.config/vocotype/terms.yaml` 并保持 `protect: true`。例如 `一百米计划` 不会因为启用了路程缩写而变成 `100m计划`。
 
 详见 [`TERMS.md`](terms.md) 和 [`SETTINGS_CENTER.md`](settings-center.md)。
 
-## 依赖
+## 运行依赖
 
-基础安装仍固定依赖：
+数字标准化只使用 Python 标准库和 VoCoType 自身代码。安装包不再包含：
 
 ```text
-WeTextProcessing==1.2.0
+WeTextProcessing
+Pynini
 ```
 
-关闭 ITN 只是运行策略，不会卸载依赖；再次开启时无需重新安装。
+这移除了约 160 MiB 的压缩 wheel，同时避免启动时加载大型 FST 运行时。

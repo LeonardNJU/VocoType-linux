@@ -78,7 +78,10 @@ fi
 
 "$work/venv/bin/python" - <<'PY'
 import importlib.util
-for forbidden in ("torch", "transformers", "socksio", "pyrime", "wcwidth"):
+for forbidden in (
+    "torch", "transformers", "socksio", "pyrime", "wcwidth",
+    "itn", "pynini", "importlib_resources",
+):
     assert importlib.util.find_spec(forbidden) is None, forbidden
 PY
 echo "PACKAGE_BINARY_RUNTIME_OK flavor=$flavor"

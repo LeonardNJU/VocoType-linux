@@ -10,7 +10,6 @@ import sys
 from typing import Sequence
 
 try:
-    from .itn_normalizer import normalize_mandatory_itn
     from .term_lexicon import apply_term_lexicon
 except ImportError:
     def _load_sibling(module_name: str, filename: str):
@@ -26,9 +25,6 @@ except ImportError:
         spec.loader.exec_module(module)
         return module
 
-    normalize_mandatory_itn = _load_sibling(
-        "_vocotype_itn_normalizer", "itn_normalizer.py"
-    ).normalize_mandatory_itn
     apply_term_lexicon = _load_sibling(
         "_vocotype_term_lexicon", "term_lexicon.py"
     ).apply_term_lexicon
@@ -150,7 +146,7 @@ _APPROX_MEASURE_TOKENS = (
     "％",
     "℃",
 )
-_COUNT_CLASSIFIER_TOKENS = ("个", "盒", "件", "行", "关")
+_COUNT_CLASSIFIER_TOKENS = ("个", "盒", "件", "行", "关", "台")
 _NUMERIC_SUFFIX_TOKENS = ("以内", "以上", "以下", "左右")
 _SEMANTIC_NUMERIC_PREFIXES = (
     "库存",
@@ -319,8 +315,9 @@ def normalize_text(text: str, *, config: dict | None = None) -> str:
     """Apply terms and configurable ITN/compact written-style policies.
 
     Terminology canonicalization is always active. ``normalization.enabled``
-    controls numeric and FST ITN rewriting; the remaining switches independently
-    select compact written forms for dates, times, distances, and currency.
+    controls deterministic Chinese-number rewriting; the remaining switches
+    independently select compact written forms for dates, times, distances,
+    and currency.
     """
 
     settings = dict(_DEFAULT_NORMALIZATION_CONFIG)
@@ -339,14 +336,7 @@ def normalize_text(text: str, *, config: dict | None = None) -> str:
         protected_spans=term_result.protected_spans,
     )
     # Re-evaluate protected spans after numeric replacements shift offsets.
-    refreshed_terms = apply_term_lexicon(product_normalized)
-    normalized = normalize_mandatory_itn(
-        refreshed_terms.text,
-        source_text=source,
-        protected_spans=refreshed_terms.protected_spans,
-        fixed_phrases=_FIXED_NON_NUMERIC_PHRASES,
-    )
-    styled_terms = apply_term_lexicon(normalized)
+    styled_terms = apply_term_lexicon(product_normalized)
     return apply_written_style(
         styled_terms.text,
         config=settings,

@@ -28,10 +28,9 @@ dependencies = [
   "numpy==1.26.4",
   "scipy==1.16.3",
   "soundfile==0.13.1",
-  "funasr_onnx==0.4.2",
+  "funasr-onnx==0.4.2",
   "jieba==0.42.1",
   "PyYAML>=6.0,<7",
-  "WeTextProcessing==1.2.0",
   "PyGObject>=3.46",
   "modelscope==1.30.0",
 ]

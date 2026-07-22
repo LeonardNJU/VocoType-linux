@@ -169,12 +169,12 @@ python3 /usr/share/vocotype/packaging/tools/audit-wheelhouse.py \
 (cd /usr/share/vocotype && sha256sum -c .wheelhouse.sha256)
 wheel_count=$(find "$wheelhouse" -maxdepth 1 -type f -name '*.whl' | wc -l)
 [[ "$wheel_count" -ge 12 ]] || { echo "incomplete wheelhouse: $wheel_count" >&2; exit 1; }
-for normalized in funasr_onnx jieba modelscope numpy onnxruntime PyYAML scipy sentencepiece sounddevice soundfile WeTextProcessing; do
+for normalized in funasr_onnx jieba modelscope numpy onnxruntime PyYAML scipy sentencepiece sounddevice soundfile; do
   find "$wheelhouse" -maxdepth 1 -type f -iname "${normalized//-/_}-*.whl" -print -quit | grep -q . || {
     echo "required wheel missing: $normalized" >&2; exit 1;
   }
 done
-for excluded in torch transformers socksio pyrime wcwidth; do
+for excluded in torch transformers socksio pyrime wcwidth WeTextProcessing pynini importlib_resources; do
   if find "$wheelhouse" -maxdepth 1 -type f -iname "${excluded}-*.whl" -print -quit | grep -q .; then
     echo "forbidden wheel present: $excluded" >&2; exit 1
   fi

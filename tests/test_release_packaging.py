@@ -1432,7 +1432,6 @@ def _write_common_runtime_wheels(root: Path) -> None:
         "sentencepiece": "0.2.1-cp312-cp312-linux_x86_64",
         "sounddevice": "0.5.2-py3-none-any",
         "soundfile": "0.13.1-py3-none-any",
-        "WeTextProcessing": "1.2.0-py3-none-any",
     }
     for name, suffix in required.items():
         version = suffix.split("-", 1)[0]

@@ -19,10 +19,12 @@ BASE_REQUIRED = {
     "sentencepiece",
     "sounddevice",
     "soundfile",
-    "wetextprocessing",
 }
 IBUS_REQUIRED = {"pygobject", "pycairo"}
-COMMON_FORBIDDEN = {"torch", "transformers", "socksio", "pyrime", "wcwidth"}
+COMMON_FORBIDDEN = {
+    "torch", "transformers", "socksio", "pyrime", "wcwidth",
+    "wetextprocessing", "pynini", "importlib-resources",
+}
 FCITX_FORBIDDEN = {"pygobject", "pycairo"}
 SUPPORTED_FLAVORS = {"universal", "ibus", "fcitx5"}
 
