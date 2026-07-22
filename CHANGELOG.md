@@ -5,6 +5,23 @@ All notable changes to VoCoType Linux will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0-beta.3] - 2026-07-23
+
+### Added
+
+- Added a shared “取消句尾句号” switch under General Settings. It removes one final Chinese full stop or ASCII period from F9 / Shift+F9 voice commits while preserving question marks, exclamation marks, ordinary Rime typing, and Ctrl+F9 voice-edit replacements.
+
+### Changed
+
+- Moved the real AI endpoint/model health check directly above the “启用 AI 功能” switch. Automatic first-enable probing now displays its in-progress and final status where users can see it.
+
+### Fixed
+
+- Native-package repair now removes stale source-install launchers and desktop entries under `~/.local` that shadow `/usr/bin/vocotype-settings` and force the private ASR Python to import GTK/PyGObject.
+- The source-installed settings launcher now selects an interpreter only after it can import the complete settings application.
+- Unified trailing-period behavior across Fcitx 5 and IBus while preserving the existing opt-in default.
+
+
 ## [3.0.0-beta.2] - 2026-07-22
 
 ### Fixed

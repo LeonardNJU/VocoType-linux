@@ -480,11 +480,11 @@ def test_backend_launcher_fails_cleanly_before_gui_setup(tmp_path: Path):
 def test_version_is_consistent_across_package_metadata():
     version = _version()
     assert version.startswith("3.0.0")
-    assert _version_field("tag") == "v3.0.0-beta.2"
-    assert _version_field("debian") == "3.0.0~beta2"
+    assert _version_field("tag") == "v3.0.0-beta.3"
+    assert _version_field("debian") == "3.0.0~beta3"
     assert _version_field("rpm_version") == "3.0.0"
-    assert _version_field("rpm_release") == "0.beta2"
-    assert _version_field("arch") == "3.0.0b2"
+    assert _version_field("rpm_release") == "0.beta3"
+    assert _version_field("arch") == "3.0.0b3"
     changelog = (ROOT / "packaging/debian/changelog").read_text(encoding="utf-8")
     assert changelog.startswith(
         f"vocotype-linux ({_version_field('debian')}-1)"
@@ -1610,3 +1610,39 @@ def test_wheelhouse_audit_enforces_framework_profiles(tmp_path: Path):
     )[0]
     assert 'repository_args=(--no-index --find-links "$wheelhouse")' in optional_body
     assert "--only-binary" in optional_body
+
+
+def test_v3_beta3_release_notes_cover_corrected_release_and_promotion_plan():
+    notes = (ROOT / ".github/release-notes/v3.0.0-beta.3.md").read_text(
+        encoding="utf-8"
+    )
+    for required in (
+        "当前推荐测试版本",
+        "9 个可安装软件包",
+        "~/.local/bin/vocotype-settings",
+        "取消句尾句号",
+        "AI 测活",
+        "v2.1.3",
+        "2026 年 7 月 26 日",
+        "v3.0.0 正式版",
+    ):
+        assert required in notes
+
+
+def test_readme_announces_v3_beta_native_packages_and_stable_fallback():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    news = readme.split("## 📰 V3 Beta 现已发布", 1)[1].split(
+        "## 为什么使用 VoCoType Linux", 1
+    )[0]
+    for required in (
+        "V3 Beta 3",
+        "Debian/Ubuntu `.deb`",
+        "Fedora/RHEL `.rpm`",
+        "Arch Linux `.pkg.tar.zst`",
+        "共 9 个安装包",
+        "GitHub Issue",
+        "v2.1.3",
+        "2026 年 7 月 26 日",
+        "v3.0.0 正式版",
+    ):
+        assert required in news

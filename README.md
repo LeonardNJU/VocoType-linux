@@ -13,6 +13,20 @@
 
 > Windows / macOS 用户请使用 VoCoType 官方桌面版：[vocotype.com](https://vocotype.com/)
 
+## 📰 V3 Beta 现已发布
+
+VocoType Linux V3 Beta 已开放使用。这一版本把项目从语音输入脚本升级为完整的 Linux 桌面语音输入工具：
+
+- 统一图形设置中心，可完成安装、修复、模型下载、麦克风测试、AI 配置、Doctor 和反馈；
+- Fcitx 5 全局 Module，无需切换输入法即可在现有 Rime、拼音、Mozc 等输入法中使用 `F9`；
+- IBus 与 Fcitx 5 统一支持 `F9` 离线语音输入、`Shift+F9` AI 润色和 `Ctrl+F9` 语音编辑；
+- 支持实时 2-pass preedit、用户术语、原生热词、确定性中文 ITN 和 OpenAI-compatible API；
+- 新增完整原生打包：Debian/Ubuntu `.deb`、Fedora/RHEL `.rpm`、Arch Linux `.pkg.tar.zst`，并分别提供通用版、IBus 专用版和 Fcitx 5 专用版，共 9 个安装包。
+
+欢迎试用 [V3 Beta 3](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v3.0.0-beta.3)。遇到问题请直接提交 [GitHub Issue](https://github.com/LeonardNJU/VocoType-linux/issues)；如需稳定环境，可回退到最后一个已知可用的 V2 正式版 [v2.1.3](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v2.1.3)。
+
+> 若截至 **2026 年 7 月 26 日** 未发现阻塞性问题，Beta 3 将晋升为 **v3.0.0 正式版**。
+
 ## 为什么使用 VoCoType Linux
 
 - **本地语音识别**：语音默认不离开设备，断网也能输入。
