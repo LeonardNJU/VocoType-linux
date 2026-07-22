@@ -25,3 +25,9 @@ override_dh_auto_install:
 
 override_dh_auto_test:
 	python3 -m compileall -q app settings_center
+
+override_dh_strip_nondeterminism:
+	dh_strip_nondeterminism -X/usr/share/vocotype/wheelhouse
+
+override_dh_strip:
+	dh_strip -X/vocotype/

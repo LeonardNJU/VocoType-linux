@@ -1,13 +1,17 @@
 name: Build release assets
 
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
     inputs:
       version:
-        description: Expected tag or version, such as v3.0.0-rc.1
-        required: false
+        description: Expected tag or version, such as v3.0.0-beta.1
+        required: true
+        type: string
+      publish:
+        description: Create the tag and GitHub Release only after every package passes
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -108,7 +112,7 @@ jobs:
       - name: Build Ubuntu-compatible Python wheelhouse
         env:
           VOCOTYPE_WHEELHOUSE_PYTHON: python
-          VOCOTYPE_PYGOBJECT_SPEC: PyGObject>=3.46,<3.52
+          VOCOTYPE_PYGOBJECT_SPEC: PyGObject==3.50.2
         run: packaging/tools/build-runtime-wheelhouse.sh "$RUNNER_TEMP/wheelhouse"
       - name: Build and validate source/Python release metadata
         run: |
@@ -132,6 +136,7 @@ jobs:
             package_name=$(python3 packaging/tools/package-flavor.py "$flavor" --field package_name)
             package=$(find dist/packages -maxdepth 1 -name "${package_name}_${debian_version}-*_amd64.deb" -print -quit)
             test -n "$package"
+            packaging/tests/audit-built-package.sh "$package" "$RUNNER_TEMP/wheelhouse" "${{ needs.validate-version.outputs.version }}" "$flavor"
             sudo apt-get install -y "$(realpath "$package")"
             sudo packaging/tests/smoke-installed-package.sh "${{ needs.validate-version.outputs.version }}" "$flavor"
             sudo env PATH="$PATH" packaging/tests/smoke-binary-runtime.sh
@@ -162,7 +167,7 @@ jobs:
             systemd-rpm-macros python3-gobject gtk3 ibus fcitx5 \
             portaudio portaudio-devel polkit dbus-daemon \
             glib2-devel gobject-introspection-devel cairo-gobject-devel libffi-devel \
-            meson ninja-build binutils
+            meson ninja-build binutils cpio
           python3 -m pip install --break-system-packages uv
       - uses: actions/checkout@v6
         with:
@@ -185,7 +190,7 @@ jobs:
       - name: Build Fedora-compatible Python wheelhouse
         env:
           VOCOTYPE_WHEELHOUSE_PYTHON: ${{ runner.temp }}/wheel-builder/bin/python
-          VOCOTYPE_PYGOBJECT_SPEC: PyGObject>=3.56
+          VOCOTYPE_PYGOBJECT_SPEC: PyGObject==3.56.3
         run: packaging/tools/build-runtime-wheelhouse.sh "$RUNNER_TEMP/wheelhouse"
       - name: Build all complete RPM flavors
         env:
@@ -203,6 +208,7 @@ jobs:
             package_name=$(python3 packaging/tools/package-flavor.py "$flavor" --field package_name)
             package=$(find dist/packages -maxdepth 1 -name "${package_name}-${rpm_version}-${rpm_release}*.x86_64.rpm" ! -name '*debug*' -print -quit)
             test -n "$package"
+            packaging/tests/audit-built-package.sh "$package" "$RUNNER_TEMP/wheelhouse" "${{ needs.validate-version.outputs.version }}" "$flavor"
             dnf install -y "$package"
             packaging/tests/smoke-installed-package.sh "${{ needs.validate-version.outputs.version }}" "$flavor"
             packaging/tests/smoke-binary-runtime.sh
@@ -247,7 +253,7 @@ jobs:
       - name: Build Arch-compatible Python wheelhouse
         env:
           VOCOTYPE_WHEELHOUSE_PYTHON: ${{ runner.temp }}/wheel-builder/bin/python
-          VOCOTYPE_PYGOBJECT_SPEC: PyGObject>=3.56
+          VOCOTYPE_PYGOBJECT_SPEC: PyGObject==3.56.3
         run: packaging/tools/build-runtime-wheelhouse.sh "$RUNNER_TEMP/wheelhouse"
       - name: Build all complete Arch flavors as an unprivileged user
         run: |
@@ -266,6 +272,7 @@ jobs:
             package_name=$(python3 packaging/tools/package-flavor.py "$flavor" --field package_name)
             package=$(find dist/packages -maxdepth 1 -name "${package_name}-${arch_version}-*.pkg.tar.*" ! -name '*debug*' -print -quit)
             test -n "$package"
+            packaging/tests/audit-built-package.sh "$package" "$RUNNER_TEMP/wheelhouse" "${{ needs.validate-version.outputs.version }}" "$flavor"
             pacman -U --noconfirm "$package"
             packaging/tests/smoke-installed-package.sh "${{ needs.validate-version.outputs.version }}" "$flavor"
             packaging/tests/smoke-binary-runtime.sh
@@ -280,7 +287,7 @@ jobs:
           compression-level: 0
 
   publish:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: ${{ inputs.publish == true }}
     needs: [validate-version, native-streaming, source-python-deb, rpm, arch]
     runs-on: ubuntu-24.04
     steps:
@@ -303,13 +310,41 @@ jobs:
               ! -name SHA256SUMS.all -print0 \
               | sort -z | xargs -0 sha256sum > SHA256SUMS.all
           )
-      - name: Publish RC or create formal-release draft
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ needs.validate-version.outputs.tag }}
-          name: ${{ needs.validate-version.outputs.tag }}
-          prerelease: ${{ needs.validate-version.outputs.prerelease == 'true' }}
-          draft: ${{ needs.validate-version.outputs.prerelease != 'true' }}
-          generate_release_notes: true
-          fail_on_unmatched_files: true
-          files: final-assets/*
+      - name: Create tag and Release from the tested assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate-version.outputs.tag }}
+          PRERELEASE: ${{ needs.validate-version.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Refusing to overwrite existing tag $RELEASE_TAG" >&2
+            exit 1
+          fi
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Refusing to overwrite existing release $RELEASE_TAG" >&2
+            exit 1
+          fi
+          cleanup_failed_release() {
+            gh release delete "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag \
+              >/dev/null 2>&1 || true
+          }
+          trap cleanup_failed_release ERR
+          release_flags=(
+            --repo "$GITHUB_REPOSITORY"
+            --target "$GITHUB_SHA"
+            --title "$RELEASE_TAG"
+            --generate-notes
+            --latest=false
+          )
+          if [[ "$PRERELEASE" == true ]]; then
+            release_flags+=(--prerelease)
+          else
+            release_flags+=(--draft)
+          fi
+          gh release create "$RELEASE_TAG" final-assets/* "${release_flags[@]}"
+          trap - ERR
+          gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json tagName,isDraft,isPrerelease,url

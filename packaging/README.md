@@ -24,7 +24,7 @@ Artifacts are written below `dist/release/` and `dist/packages/`.
 
 ## Release tags
 
-Pushing `v3.0.0-rc.1` for internal version `3.0.0rc1` builds and publishes a GitHub **Pre-release**. If defects are found, create `rc.2`; never move an existing RC tag. Pushing the formal `v3.0.0` tag builds a **Draft** Release. Download and smoke-test those exact draft assets, then publish the existing draft without rebuilding.
+Release builds are started with `workflow_dispatch`. The workflow builds and installs every package first; only when `publish=true` and every validation job succeeds does it create the requested tag and GitHub Release from those exact tested artifacts. `v3.0.0-beta.1` maps to internal version `3.0.0b1`. Failed runs create neither a public tag nor a Release.
 
 Every Release build first creates one portable native streaming artifact. The DEB, RPM, and Arch jobs consume that same audited artifact, build a PyGObject-compatible wheelhouse for their own distro, install the resulting package, and verify a fresh Python 3.12 runtime using only package-local wheels. GitHub Release assets include the source archive, Python distributions, complete native packages, the standalone native bundle, machine-readable manifests, and SHA-256 checksums.
 

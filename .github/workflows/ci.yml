@@ -129,7 +129,7 @@ jobs:
       - name: Prepare complete package inputs
         env:
           VOCOTYPE_WHEELHOUSE_PYTHON: python
-          VOCOTYPE_PYGOBJECT_SPEC: PyGObject>=3.46,<3.52
+          VOCOTYPE_PYGOBJECT_SPEC: PyGObject==3.50.2
         run: |
           archive=$(find "$RUNNER_TEMP/native-artifact" -name 'vocotype-native-streaming-*.tar.gz' -print -quit)
           packaging/tools/unpack-native-streaming-release.sh "$archive" "$RUNNER_TEMP/native-bundle"
@@ -150,6 +150,7 @@ jobs:
             package_name=$(python3 packaging/tools/package-flavor.py "$flavor" --field package_name)
             package=$(find dist/packages -maxdepth 1 -name "${package_name}_${debian_version}-*_amd64.deb" -print -quit)
             test -n "$package"
+            packaging/tests/audit-built-package.sh "$package" "$RUNNER_TEMP/wheelhouse" "$version" "$flavor"
             sudo apt-get install -y "$(realpath "$package")"
             sudo packaging/tests/smoke-installed-package.sh "$version" "$flavor"
             sudo env PATH="$PATH" packaging/tests/smoke-binary-runtime.sh
@@ -179,7 +180,7 @@ jobs:
             systemd-rpm-macros python3-gobject gtk3 ibus fcitx5 \
             portaudio portaudio-devel polkit dbus-daemon \
             glib2-devel gobject-introspection-devel cairo-gobject-devel libffi-devel \
-            meson ninja-build binutils
+            meson ninja-build binutils cpio
           python3 -m pip install --break-system-packages uv
       - uses: actions/checkout@v6
         with:
@@ -192,7 +193,7 @@ jobs:
           path: ${{ runner.temp }}/native-artifact
       - name: Prepare complete package inputs
         env:
-          VOCOTYPE_PYGOBJECT_SPEC: PyGObject>=3.56
+          VOCOTYPE_PYGOBJECT_SPEC: PyGObject==3.56.3
         run: |
           uv python install 3.12
           uv venv --python 3.12 --seed "$RUNNER_TEMP/wheel-builder"
@@ -217,6 +218,7 @@ jobs:
             package_name=$(python3 packaging/tools/package-flavor.py "$flavor" --field package_name)
             package=$(find dist/packages -maxdepth 1 -name "${package_name}-${rpm_version}-${rpm_release}*.x86_64.rpm" ! -name '*debug*' -print -quit)
             test -n "$package"
+            packaging/tests/audit-built-package.sh "$package" "$RUNNER_TEMP/wheelhouse" "$version" "$flavor"
             dnf install -y "$package"
             packaging/tests/smoke-installed-package.sh "$version" "$flavor"
             packaging/tests/smoke-binary-runtime.sh
@@ -251,7 +253,7 @@ jobs:
           path: ${{ runner.temp }}/native-artifact
       - name: Prepare complete package inputs
         env:
-          VOCOTYPE_PYGOBJECT_SPEC: PyGObject>=3.56
+          VOCOTYPE_PYGOBJECT_SPEC: PyGObject==3.56.3
         run: |
           uv python install 3.12
           uv venv --python 3.12 --seed "$RUNNER_TEMP/wheel-builder"
@@ -277,6 +279,7 @@ jobs:
             package_name=$(python3 packaging/tools/package-flavor.py "$flavor" --field package_name)
             package=$(find dist/packages -maxdepth 1 -name "${package_name}-${arch_version}-*.pkg.tar.*" ! -name '*debug*' -print -quit)
             test -n "$package"
+            packaging/tests/audit-built-package.sh "$package" "$RUNNER_TEMP/wheelhouse" "$version" "$flavor"
             pacman -U --noconfirm "$package"
             packaging/tests/smoke-installed-package.sh "$version" "$flavor"
             packaging/tests/smoke-binary-runtime.sh

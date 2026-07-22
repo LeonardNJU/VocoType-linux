@@ -209,12 +209,25 @@ runtime_wheelhouse_dir() {
     fi
 }
 
+verify_runtime_wheelhouse() {
+    local project_dir="$1"
+    local wheelhouse="$2"
+    local audit="$project_dir/packaging/tools/audit-wheelhouse.py"
+    if [ -f "$project_dir/.wheelhouse.sha256" ]; then
+        (cd "$project_dir" && sha256sum -c .wheelhouse.sha256)
+    fi
+    if [ -f "$audit" ]; then
+        python3 "$audit" "$wheelhouse"
+    fi
+}
+
 install_runtime_requirements() {
     local python_bin="$1"
     local project_dir="$2"
     local wheelhouse=""
     wheelhouse=$(runtime_wheelhouse_dir "$project_dir" 2>/dev/null || true)
     if [ -n "$wheelhouse" ]; then
+        verify_runtime_wheelhouse "$project_dir" "$wheelhouse"
         if command -v uv >/dev/null 2>&1; then
             uv pip install --python "$python_bin" \
                 --no-index --find-links "$wheelhouse" \

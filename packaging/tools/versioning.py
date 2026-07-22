@@ -10,7 +10,7 @@ _VERSION_RE = re.compile(
     r"^(?P<major>0|[1-9][0-9]*)\."
     r"(?P<minor>0|[1-9][0-9]*)\."
     r"(?P<patch>0|[1-9][0-9]*)"
-    r"(?:(?:-?rc(?:\.|)?)(?P<rc>[1-9][0-9]*))?$",
+    r"(?:(?:-?(?P<label>beta|b|rc)(?:\.|)?)(?P<serial>[1-9][0-9]*))?$",
     re.IGNORECASE,
 )
 
@@ -20,7 +20,8 @@ class ReleaseVersion:
     major: int
     minor: int
     patch: int
-    rc: int | None = None
+    stage: str | None = None
+    serial: int | None = None
 
     @classmethod
     def parse(cls, value: str) -> "ReleaseVersion":
@@ -30,14 +31,19 @@ class ReleaseVersion:
         match = _VERSION_RE.fullmatch(normalized)
         if not match:
             raise ValueError(
-                "version must be MAJOR.MINOR.PATCH, MAJOR.MINOR.PATCHrcN, "
+                "version must be MAJOR.MINOR.PATCH, MAJOR.MINOR.PATCHbN, "
+                "vMAJOR.MINOR.PATCH-beta.N, MAJOR.MINOR.PATCHrcN, "
                 "or vMAJOR.MINOR.PATCH-rc.N"
             )
+        label = (match.group("label") or "").lower()
+        stage = "beta" if label in {"b", "beta"} else "rc" if label == "rc" else None
+        serial = int(match.group("serial")) if match.group("serial") else None
         return cls(
             int(match.group("major")),
             int(match.group("minor")),
             int(match.group("patch")),
-            int(match.group("rc")) if match.group("rc") else None,
+            stage,
+            serial,
         )
 
     @property
@@ -46,15 +52,22 @@ class ReleaseVersion:
 
     @property
     def python(self) -> str:
-        return self.base if self.rc is None else f"{self.base}rc{self.rc}"
+        if self.stage is None:
+            return self.base
+        marker = "b" if self.stage == "beta" else "rc"
+        return f"{self.base}{marker}{self.serial}"
 
     @property
     def tag(self) -> str:
-        return f"v{self.base}" if self.rc is None else f"v{self.base}-rc.{self.rc}"
+        if self.stage is None:
+            return f"v{self.base}"
+        return f"v{self.base}-{self.stage}.{self.serial}"
 
     @property
     def debian(self) -> str:
-        return self.base if self.rc is None else f"{self.base}~rc{self.rc}"
+        if self.stage is None:
+            return self.base
+        return f"{self.base}~{self.stage}{self.serial}"
 
     @property
     def rpm_version(self) -> str:
@@ -62,7 +75,9 @@ class ReleaseVersion:
 
     @property
     def rpm_release(self) -> str:
-        return "1" if self.rc is None else f"0.rc{self.rc}"
+        if self.stage is None:
+            return "1"
+        return f"0.{self.stage}{self.serial}"
 
     @property
     def arch(self) -> str:
@@ -70,7 +85,7 @@ class ReleaseVersion:
 
     @property
     def prerelease(self) -> bool:
-        return self.rc is not None
+        return self.stage is not None
 
     def as_dict(self) -> dict[str, str | bool]:
         return {

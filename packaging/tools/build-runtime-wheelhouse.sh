@@ -3,13 +3,19 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 OUT=${1:-"$ROOT/dist/wheelhouse"}
 PYTHON=${VOCOTYPE_WHEELHOUSE_PYTHON:-python3}
-PYGOBJECT_SPEC=${VOCOTYPE_PYGOBJECT_SPEC:-PyGObject>=3.46}
+PYGOBJECT_SPEC=${VOCOTYPE_PYGOBJECT_SPEC:-PyGObject==3.50.2}
 INDEX_URL=${VOCOTYPE_PYPI_INDEX_URL:-https://pypi.org/simple}
 UV=${VOCOTYPE_UV_BIN:-uv}
 command -v "$UV" >/dev/null 2>&1 || {
   echo "uv is required to export the locked runtime dependency graph" >&2
   exit 127
 }
+
+if [[ ! "$PYGOBJECT_SPEC" =~ ^[Pp]y[Gg][Oo]bject==([0-9]+([.][0-9]+)*)$ ]]; then
+  echo "VOCOTYPE_PYGOBJECT_SPEC must pin one exact version, found: $PYGOBJECT_SPEC" >&2
+  exit 2
+fi
+PYGOBJECT_VERSION=${BASH_REMATCH[1]}
 
 python_abi=$("$PYTHON" - <<'PYTHON_CHECK'
 import platform
@@ -55,4 +61,5 @@ printf '%s\n' "$PYGOBJECT_SPEC" >> "$work/runtime-requirements.txt"
   --constraint "$work/locked-constraints.txt" \
   --wheel-dir "$OUT" \
   -r "$work/runtime-requirements.txt"
-python3 "$ROOT/packaging/tools/audit-wheelhouse.py" "$OUT"
+python3 "$ROOT/packaging/tools/audit-wheelhouse.py" "$OUT" \
+  --expected-pygobject-version "$PYGOBJECT_VERSION"

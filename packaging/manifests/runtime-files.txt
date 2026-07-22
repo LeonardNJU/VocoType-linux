@@ -11,6 +11,7 @@ fcitx5/data
 fcitx5/module
 fcitx5/scripts
 installers
+packaging/tools/audit-wheelhouse.py
 native/streaming_worker
 data
 site/icon-192.png

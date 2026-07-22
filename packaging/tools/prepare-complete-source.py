@@ -43,15 +43,18 @@ def _validate_bundle(bundle: Path) -> None:
 
 
 def _validate_wheelhouse(wheelhouse: Path) -> None:
-    wheels = sorted(wheelhouse.glob("*.whl"))
-    if not wheels:
-        raise ValueError("runtime wheelhouse contains no wheels")
-    forbidden = [path for path in wheelhouse.iterdir() if path.is_file() and path.suffix != ".whl"]
-    if forbidden:
-        raise ValueError(
-            "runtime wheelhouse contains non-wheel files: "
-            + ", ".join(path.name for path in forbidden)
-        )
+    import subprocess
+    import sys
+
+    audit = Path(__file__).resolve().with_name("audit-wheelhouse.py")
+    result = subprocess.run(
+        [sys.executable, str(audit), str(wheelhouse)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise ValueError(result.stderr.strip() or result.stdout.strip())
 
 
 def _write_reproducible_archive(source_root: Path, output: Path) -> None:

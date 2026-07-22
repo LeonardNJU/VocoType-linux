@@ -106,6 +106,11 @@ elif compgen -G "$wheelhouse/*.whl" >/dev/null; then
   rm -rf "$source_root/wheelhouse"
   mkdir -p "$source_root/wheelhouse"
   cp -a "$wheelhouse"/*.whl "$source_root/wheelhouse/"
+  python3 "$source_root/packaging/tools/audit-wheelhouse.py"     "$source_root/wheelhouse"
+  (
+    cd "$source_root"
+    find wheelhouse -maxdepth 1 -type f -name '*.whl' -print0       | sort -z | xargs -0 sha256sum > .wheelhouse.sha256
+  )
 elif [[ "$REQUIRE_WHEELHOUSE" == "1" ]]; then
   echo "Required Python runtime wheelhouse is missing: $wheelhouse" >&2
   exit 1
@@ -136,6 +141,10 @@ elif [[ -x "$streaming_bundle/bin/vocotype-streaming-worker" && -d "$streaming_b
   install -m755 "$streaming_bundle/bin/vocotype-streaming-worker" \
     "$streaming_libdir/vocotype-streaming-worker"
   cp -a "$streaming_bundle/lib/." "$streaming_libdir/"
+  (
+    cd "$streaming_libdir"
+    find . -maxdepth 1 \( -type f -o -type l \)       ! -name .native-payload.sha256 -print0       | sort -z | xargs -0 sha256sum > .native-payload.sha256
+  )
   if [[ -d "$streaming_bundle/share/licenses" ]]; then
     mkdir -p "$DESTDIR$PREFIX/share/licenses/vocotype-linux/native-streaming"
     cp -a "$streaming_bundle/share/licenses/." \

@@ -5,49 +5,12 @@ All notable changes to VoCoType Linux will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.0.0-rc.6] - 2026-07-22
-
-### Fixed
-
-- Native packages now install an executable libexec wrapper when the portable streaming worker lives in a distro-specific private library directory. An ELF symlink caused `$ORIGIN` to resolve from `/usr/libexec` on Debian multiarch systems, so the worker could not locate its bundled FunASR/ONNX libraries.
-- Package smoke tests now run relocation checks against the private worker ELF while invoking `--help` through the public launcher, covering both dependency resolution and the installed execution path.
-
-
-## [3.0.0-rc.5] - 2026-07-22
-
-### Fixed
-
-- Debian/Ubuntu packages now distinguish the distro Python used only to launch the GTK setup application from the isolated Python 3.12 ASR runtime created from package-local wheels. This restores installation on Ubuntu 22.04 with its system Python 3.10 while keeping inference on the audited Python 3.12 environment.
-
-
-## [3.0.0-rc.4] - 2026-07-22
-
-### Fixed
-
-- Disabled automatic RPM debuginfo/debugsource side packages for Release builds. The IBus-only flavor has no compiled module, so Fedora's generated debugsource package had an empty file list and incorrectly failed an otherwise valid RPM build.
-
-
-## [3.0.0-rc.3] - 2026-07-22
-
-### Fixed
-
-- Release CI now selects each native package flavor by its exact package name and normalized distro version, preventing the universal Arch/RPM smoke test from accidentally installing the IBus- or Fcitx-specific package.
-
-
-## [3.0.0-rc.2] - 2026-07-22
-
-### Fixed
-
-- Restored the Fcitx asynchronous transcription and polish-poll IPC client implementations that were declared and called but missing from the shared module, which caused the packaged addon to fail at `dlopen` with an undefined symbol.
-- Fcitx module builds now reject unresolved symbols at link time, and native-package smoke tests validate all runtime relocations with `ldd -r` before starting Fcitx.
-
-
-## [3.0.0-rc.1] - 2026-07-21
+## [3.0.0-beta.1] - 2026-07-22
 
 ### Added
 
 - Added reproducible source archives, Python wheel/sdist builds, a shared native-package staging contract, and DEB/RPM/Arch build recipes.
-- Added Python 3.11/3.12 CI, package-layout and launcher behavior tests, real Fcitx multiarch staging tests, and tag-driven GitHub Release publishing with checksums and a machine-readable manifest.
+- Added Python 3.11/3.12 CI, package-layout and launcher behavior tests, real Fcitx multiarch staging tests, and validation-gated GitHub Release publishing with checksums and a machine-readable manifest.
 - Fcitx 5 and IBus now share a fully graphical install/repair workflow. All choices and logs stay in the settings window; missing system packages and system-level IBus component registration use desktop Polkit authorization dialogs through `pkexec`, with no terminal password prompt.
 - Fcitx 5 now installs a true global `Category=Module` addon: `F9` and its modifiers work with the user's existing Rime, Pinyin, Mozc, keyboard, or other Fcitx input method without proxying ordinary key events.
 - Added a shared `~/.config/vocotype/terms.yaml` terminology layer with deterministic canonical replacements, protected spans, live reload, legacy Geequlim dictionary compatibility, and native Contextual Paraformer hotwords.
@@ -76,6 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Restored the Fcitx asynchronous transcription and polish-poll IPC methods and made unresolved module symbols a link-time error.
+- Native-package CI now selects every flavor by exact package name and distro version, so universal, IBus, and Fcitx packages cannot be confused.
+- Disabled invalid RPM debugsource side packages for flavors without compiled source.
+- Separated the distro Python/GTK bootstrap from the isolated Python 3.12 ASR runtime, preserving Ubuntu 22.04 support.
+- Replaced the Debian multiarch streaming-worker ELF symlink with an executable wrapper so `$ORIGIN` resolves from the private runtime directory.
+- Locked distro-specific PyGObject wheels to verified versions and added byte-for-byte payload manifests, wheel ZIP/CRC validation, and pre-install archive audits for DEB, RPM, and Arch.
+- Prevented Debian reproducibility tooling from rewriting package-local wheels and corrupting ZIP64 metadata.
 - Recordings shorter than the configured minimum duration are rejected consistently by the shared ASR service, IBus, and Fcitx 5 instead of entering inference with unusable audio.
 - Ubuntu 22.04/24.04 now install a Python 3.12-compatible PyGObject release without requiring the newer `girepository-2.0` toolchain.
 - IBus 1.5.26 no longer fails to import when optional `OSK` and `SYNC_PROCESS_KEY` capability constants are absent.

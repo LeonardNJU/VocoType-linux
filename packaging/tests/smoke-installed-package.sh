@@ -145,6 +145,10 @@ if grep -Eqi 'not found|undefined symbol|version `[^`]+. not found' "$streaming_
   exit 1
 fi
 rm -f "$streaming_ldd_log"
+(
+  cd "$(dirname "$streaming_worker_elf")"
+  sha256sum -c .native-payload.sha256
+)
 "$streaming_launcher" --help >/dev/null
 check_path /usr/share/licenses/vocotype-linux/native-streaming/onnxruntime/LICENSE
 check_path /usr/share/licenses/vocotype-linux/native-streaming/funasr/LICENSE
@@ -152,6 +156,9 @@ echo "PACKAGE_STREAMING_RUNTIME_OK launcher=$streaming_launcher elf=$streaming_w
 
 wheelhouse=/usr/share/vocotype/wheelhouse
 check_path "$wheelhouse"
+check_path /usr/share/vocotype/.wheelhouse.sha256
+python3 /usr/share/vocotype/packaging/tools/audit-wheelhouse.py "$wheelhouse"
+(cd /usr/share/vocotype && sha256sum -c .wheelhouse.sha256)
 wheel_count=$(find "$wheelhouse" -maxdepth 1 -type f -name '*.whl' | wc -l)
 [[ "$wheel_count" -ge 12 ]] || { echo "incomplete wheelhouse: $wheel_count" >&2; exit 1; }
 for normalized in funasr_onnx jieba modelscope numpy onnxruntime PyGObject PyYAML scipy sentencepiece sounddevice soundfile WeTextProcessing; do

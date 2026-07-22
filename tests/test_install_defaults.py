@@ -17,8 +17,8 @@ def test_pygobject_is_built_in_ci_for_each_supported_distro():
     dependencies = project["project"]["dependencies"]
     assert "PyGObject>=3.46" in dependencies
     release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
-    assert "PyGObject>=3.46,<3.52" in release
-    assert release.count("PyGObject>=3.56") >= 2
+    assert "PyGObject==3.50.2" in release
+    assert release.count("PyGObject==3.56.3") >= 2
     assert "build-runtime-wheelhouse.sh" in release
 
 

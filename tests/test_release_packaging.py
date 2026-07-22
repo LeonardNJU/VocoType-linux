@@ -91,6 +91,16 @@ def _run(*argv: str, **kwargs) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _write_minimal_wheel(path: Path, distribution: str, version: str) -> None:
+    dist_info = f"{distribution.replace('-', '_')}-{version}.dist-info"
+    metadata = f"Metadata-Version: 2.1\nName: {distribution}\nVersion: {version}\n"
+    wheel = "Wheel-Version: 1.0\nGenerator: vocotype-test\nRoot-Is-Purelib: true\nTag: py3-none-any\n"
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(f"{dist_info}/METADATA", metadata)
+        archive.writestr(f"{dist_info}/WHEEL", wheel)
+        archive.writestr(f"{dist_info}/RECORD", "")
+
+
 
 def test_repository_layout_groups_tools_by_responsibility():
     assert not (ROOT / "scripts").exists()
@@ -210,9 +220,15 @@ def test_staging_script_builds_complete_noninteractive_tree(tmp_path: Path):
     assert "VOCOTYPE_" not in xml
     assert not list(source_root.rglob("*.pyc"))
     assert not list(source_root.rglob("__pycache__"))
+    assert (source_root / "packaging/tools/audit-wheelhouse.py").is_file()
+    packaged_tools = sorted(
+        path.relative_to(source_root).as_posix()
+        for path in (source_root / "packaging").rglob("*")
+        if path.is_file()
+    )
+    assert packaged_tools == ["packaging/tools/audit-wheelhouse.py"]
     for excluded in (
         ".github",
-        "packaging",
         "test",
         "packaging/tools/build-release.py",
         "packaging/tools/validate-release.py",
@@ -370,11 +386,11 @@ def test_backend_launcher_fails_cleanly_before_gui_setup(tmp_path: Path):
 def test_version_is_consistent_across_package_metadata():
     version = _version()
     assert version.startswith("3.0.0")
-    assert _version_field("tag") == "v3.0.0-rc.6"
-    assert _version_field("debian") == "3.0.0~rc6"
+    assert _version_field("tag") == "v3.0.0-beta.1"
+    assert _version_field("debian") == "3.0.0~beta1"
     assert _version_field("rpm_version") == "3.0.0"
-    assert _version_field("rpm_release") == "0.rc6"
-    assert _version_field("arch") == "3.0.0rc6"
+    assert _version_field("rpm_release") == "0.beta1"
+    assert _version_field("arch") == "3.0.0b1"
     changelog = (ROOT / "packaging/debian/changelog").read_text(encoding="utf-8")
     assert changelog.startswith(
         f"vocotype-linux ({_version_field('debian')}-1)"
@@ -494,7 +510,7 @@ def test_native_package_recipes_share_one_staging_contract(tmp_path: Path):
         assert "License:        GPL-3.0-or-later" in spec
         assert "%global debug_package %{nil}" in spec
         assert "sha256sums=('@SOURCE_SHA256@')" in pkgbuild
-        assert "options=('!debug')" in pkgbuild
+        assert "options=('!debug' '!strip')" in pkgbuild
         assert "--libexecdir /usr/lib/vocotype" in pkgbuild
         assert '--libexecdir "%{_libexecdir}"' in spec
         assert "SKIP" not in pkgbuild
@@ -577,7 +593,10 @@ def test_workflows_parse_and_pin_current_major_actions():
         assert "actions/upload-artifact@v7" in text
     assert "actions/setup-python@v6" in ci_text
     assert "actions/download-artifact@v5" in release_text
-    assert "softprops/action-gh-release@v3" in release_text
+    assert "softprops/action-gh-release" not in release_text
+    assert "gh release create" in release_text
+    assert "inputs.publish == true" in release_text
+    assert 'tags: ["v*"]' not in release_text
     assert release["jobs"]["publish"]["needs"] == [
         "validate-version",
         "native-streaming",
@@ -585,9 +604,13 @@ def test_workflows_parse_and_pin_current_major_actions():
         "rpm",
         "arch",
     ]
-    publish = release["jobs"]["publish"]["steps"][-1]["with"]
-    assert "prerelease" in publish
-    assert "draft" in publish
+    publish_step = release["jobs"]["publish"]["steps"][-1]
+    assert publish_step["name"] == "Create tag and Release from the tested assets"
+    publish_script = publish_step["run"]
+    assert "gh release create" in publish_script
+    assert "--prerelease" in publish_script
+    assert "--draft" in publish_script
+    assert "cleanup_failed_release" in publish_script
 
 
 def test_release_documentation_explains_all_distribution_layers():
@@ -897,6 +920,8 @@ def test_release_packages_are_offline_but_require_complete_prebuilt_runtimes():
     assert "%{_libexecdir}/vocotype-streaming-worker" in rpm
     assert "%{_libdir}/vocotype/" in rpm
     assert "arch=('x86_64')" in arch
+    assert "options=('!debug' '!strip')" in arch
+    assert "%global __strip /bin/true" in rpm
     assert "'clang'" not in arch
     assert "'curl'" not in arch.split("optdepends", 1)[0]
 
@@ -931,6 +956,9 @@ def test_release_packages_are_offline_but_require_complete_prebuilt_runtimes():
     assert "build-native-streaming-release.sh" in release
     assert "build-runtime-wheelhouse.sh" in release
     assert "smoke-binary-runtime.sh" in release
+    assert "audit-built-package.sh" in release
+    assert "PyGObject==3.50.2" in release
+    assert release.count("PyGObject==3.56.3") >= 2
     assert release.count("for flavor in universal ibus fcitx5") >= 3
     assert '${package_name}_${debian_version}-*_amd64.deb' in release
     assert '${package_name}-${rpm_version}-${rpm_release}*.x86_64.rpm' in release
@@ -943,6 +971,11 @@ def test_release_packages_are_offline_but_require_complete_prebuilt_runtimes():
     assert 'flavor=%s' in stage and 'package=%s' in stage
     assert 'rm -rf "$source_root/ibus"' in stage
     assert 'rm -rf "$source_root/fcitx5"' in stage
+    assert ".wheelhouse.sha256" in stage
+    assert ".native-payload.sha256" in stage
+    debian_rules = (ROOT / "packaging/debian/rules").read_text(encoding="utf-8")
+    assert "dh_strip_nondeterminism -X/usr/share/vocotype/wheelhouse" in debian_rules
+    assert "dh_strip -X/vocotype/" in debian_rules
     assert 'streaming_launcher="$DESTDIR$LIBEXECDIR/vocotype-streaming-worker"' in stage
     assert 'ln -sfn "$streaming_link_target"' not in stage
     assert "--only-binary :all:" in (
@@ -1021,6 +1054,8 @@ def test_wheelhouse_builder_uses_locked_core_runtime_only():
     assert "pyrime" not in source
     assert "--wheel-dir" in source
     assert "audit-wheelhouse.py" in source
+    assert "must pin one exact version" in source
+    assert "PyGObject==3.50.2" in source
     runtime = (ROOT / "installers/runtime-common.sh").read_text(encoding="utf-8")
     assert '--no-index --find-links "$wheelhouse"' in runtime
     assert "--only-binary=:all:" in runtime
@@ -1055,10 +1090,16 @@ def test_release_assets_are_flattened_before_checksums_and_publication(tmp_path:
     workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
     assert "collect-release-assets.py assets final-assets" in workflow
     assert "cd final-assets" in workflow
-    assert "files: final-assets/*" in workflow
+    assert 'gh release create "$RELEASE_TAG" final-assets/*' in workflow
 
 
 def test_release_candidate_versions_sort_before_formal_versions():
+    assert _version_field("python", "v3.0.0-beta.1") == "3.0.0b1"
+    assert _version_field("tag", "3.0.0b1") == "v3.0.0-beta.1"
+    assert _version_field("debian", "3.0.0b1") == "3.0.0~beta1"
+    assert _version_field("rpm_release", "3.0.0b1") == "0.beta1"
+    assert _version_field("arch", "3.0.0b1") == "3.0.0b1"
+    assert _version_field("prerelease", "3.0.0b1") == "true"
     assert _version_field("python", "v3.0.0-rc.1") == "3.0.0rc1"
     assert _version_field("tag", "3.0.0rc1") == "v3.0.0-rc.1"
     assert _version_field("debian", "3.0.0rc1") == "3.0.0~rc1"
@@ -1071,6 +1112,13 @@ def test_release_candidate_versions_sort_before_formal_versions():
     assert _version_field("prerelease", "3.0.0") == "false"
 
     if shutil.which("vercmp"):
+        beta_to_rc = subprocess.run(
+            ["vercmp", "3.0.0b1", "3.0.0rc1"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert int(beta_to_rc.stdout.strip()) < 0
         result = subprocess.run(
             ["vercmp", "3.0.0rc1", "3.0.0"],
             capture_output=True,
@@ -1079,6 +1127,11 @@ def test_release_candidate_versions_sort_before_formal_versions():
         )
         assert int(result.stdout.strip()) < 0
     if shutil.which("dpkg"):
+        beta_to_rc = subprocess.run(
+            ["dpkg", "--compare-versions", "3.0.0~beta1", "lt", "3.0.0~rc1"],
+            check=False,
+        )
+        assert beta_to_rc.returncode == 0
         result = subprocess.run(
             ["dpkg", "--compare-versions", "3.0.0~rc1", "lt", "3.0.0"],
             check=False,
@@ -1102,15 +1155,18 @@ def test_core_wheelhouse_matches_default_runtime_subset(tmp_path: Path):
         "WeTextProcessing": "1.2.0-py3-none-any",
     }
     for name, suffix in required.items():
-        (tmp_path / f"{name}-{suffix}.whl").write_bytes(b"wheel")
+        version = suffix.split("-", 1)[0]
+        _write_minimal_wheel(tmp_path / f"{name}-{suffix}.whl", name, version)
     result = _run(
         sys.executable,
         "packaging/tools/audit-wheelhouse.py",
         str(tmp_path),
+        "--expected-pygobject-version",
+        "3.50.2",
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
-    (tmp_path / "torch-2.9.1-cp312-cp312-linux_x86_64.whl").write_bytes(b"extra")
+    _write_minimal_wheel(tmp_path / "torch-2.9.1-cp312-cp312-linux_x86_64.whl", "torch", "2.9.1")
     leaked = _run(
         sys.executable,
         "packaging/tools/audit-wheelhouse.py",
@@ -1118,6 +1174,18 @@ def test_core_wheelhouse_matches_default_runtime_subset(tmp_path: Path):
     )
     assert leaked.returncode != 0
     assert "optional backend wheels leaked into core package" in leaked.stderr
+
+    (tmp_path / "torch-2.9.1-cp312-cp312-linux_x86_64.whl").unlink()
+    protobuf = tmp_path / "protobuf-6.33.2-cp39-abi3-manylinux2014_x86_64.whl"
+    _write_minimal_wheel(protobuf, "protobuf", "6.33.2")
+    protobuf.write_bytes(protobuf.read_bytes()[:32])
+    corrupted = _run(
+        sys.executable,
+        "packaging/tools/audit-wheelhouse.py",
+        str(tmp_path),
+    )
+    assert corrupted.returncode != 0
+    assert "invalid wheel archive" in corrupted.stderr
 
     smoke = (ROOT / "packaging/tests/smoke-binary-runtime.sh").read_text(
         encoding="utf-8"
