@@ -110,3 +110,23 @@ def test_ibus_slm_key_plans_cover_navigation_and_recheck_snapshot():
     assert "plan.key_actions" in plan_call
     assert "plan.hint" in plan_call
     assert "edit_snapshot" in plan_call
+
+
+def test_ibus_voice_output_can_strip_final_period_without_touching_other_commits():
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "ibus/engine.py").read_text(
+        encoding="utf-8"
+    )
+    config = (Path(__file__).resolve().parents[1] / "app/config.py").read_text(
+        encoding="utf-8"
+    )
+    assert '"strip_trailing_period_on_commit": False' in config
+    assert "self._strip_trailing_period_on_commit = False" in source
+    assert "def _configure_text_output" in source
+    assert 'output.get("strip_trailing_period_on_commit", False)' in source
+    assert "strip_trailing_commit_period(commit_text)" in source
+    assert '"voice_input",\n                                True,' in source
+    # Rime typing and voice-edit replacement calls do not opt into voice-output rules.
+    assert 'self._commit_text(new_text, "voice_edit")' in source
+    assert "self.commit_text(IBus.Text.new_from_string(commit.text))" in source

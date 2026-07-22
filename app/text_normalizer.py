@@ -31,6 +31,17 @@ except ImportError:
 
 
 
+def strip_trailing_commit_period(text: str) -> str:
+    """Remove one final Chinese full stop or ASCII period from voice input."""
+
+    value = str(text or "")
+    if value.endswith("。"):
+        return value[:-1]
+    if value.endswith("."):
+        return value[:-1]
+    return value
+
+
 def _load_fixed_non_numeric_phrases() -> dict[str, str]:
     phrases_path = Path(__file__).with_name("text_normalizer_phrases.py")
     namespace = run_path(str(phrases_path))

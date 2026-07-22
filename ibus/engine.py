@@ -37,6 +37,7 @@ from app.config import DEFAULT_CONFIG, load_config
 from app.ibus_compat import build_capability_flags
 from app.slm_polisher import SLMPolisher
 from app.streaming_asr import StreamingASRProcess, StreamingAudioChunker
+from app.text_normalizer import strip_trailing_commit_period
 from app.voice_edit import KeyAction, SurroundingSnapshot
 from ibus.rime_runtime import RimeSession, get_runtime, librime_available
 
@@ -169,6 +170,7 @@ class VoCoTypeEngine(IBus.Engine):
         self._streaming_session_id = ""
         self._streaming_enabled = False
         self._panel_style = "minimal"
+        self._strip_trailing_period_on_commit = False
         self._min_recording_ms = 1000
         self._recording_animation_source: Optional[int] = None
         self._recording_animation_index = 0
@@ -191,6 +193,7 @@ class VoCoTypeEngine(IBus.Engine):
         self._configure_recording_limits(self._runtime_config)
         self._configure_streaming_asr(self._runtime_config)
         self._configure_panel_style(self._runtime_config)
+        self._configure_text_output(self._runtime_config)
 
         # ASR服务使用类级共享实例
         self._native_sample_rate = CONFIGURED_SAMPLE_RATE
@@ -873,6 +876,14 @@ class VoCoTypeEngine(IBus.Engine):
         style = str(ui.get("panel_style", "minimal")).strip().lower()
         self._panel_style = style if style in {"minimal", "animated"} else "minimal"
 
+    def _configure_text_output(self, config: dict) -> None:
+        output = config.get("output", {})
+        if not isinstance(output, dict):
+            output = {}
+        self._strip_trailing_period_on_commit = bool(
+            output.get("strip_trailing_period_on_commit", False)
+        )
+
     def _stop_recording_status_animation(self) -> None:
         source_id = self._recording_animation_source
         self._recording_animation_source = None
@@ -1084,11 +1095,13 @@ class VoCoTypeEngine(IBus.Engine):
         self._configure_recording_limits(latest)
         self._configure_streaming_asr(latest)
         self._configure_panel_style(latest)
+        self._configure_text_output(latest)
         logger.info(
-            "VoCoType 运行配置已重新加载: slm_enabled=%s streaming_enabled=%s normalization_enabled=%s min_recording_ms=%s",
+            "VoCoType 运行配置已重新加载: slm_enabled=%s streaming_enabled=%s normalization_enabled=%s strip_trailing_period=%s min_recording_ms=%s",
             self._slm_polisher.enabled,
             self._streaming_enabled,
             self._asr_options["normalization"].get("enabled", True),
+            self._strip_trailing_period_on_commit,
             self._min_recording_ms,
         )
 
@@ -1775,7 +1788,12 @@ class VoCoTypeEngine(IBus.Engine):
                                 slm_ms,
                                 slm_reason,
                             )
-                            GLib.idle_add(self._commit_text, final_text)
+                            GLib.idle_add(
+                                self._commit_text,
+                                final_text,
+                                "voice_input",
+                                True,
+                            )
                         else:
                             logger.info(
                                 "转录流水线 mode=%s asr_ms=%.2f slm_used=false slm_ms=0.00 fallback_reason=empty_asr_text",
@@ -1890,11 +1908,19 @@ class VoCoTypeEngine(IBus.Engine):
         self._clear_auxiliary_text()
         return False  # 用于GLib.timeout_add
 
-    def _commit_text(self, text: str, mutation_source: str = "app_commit"):
-        """提交文本到应用"""
+    def _commit_text(
+        self,
+        text: str,
+        mutation_source: str = "app_commit",
+        apply_voice_output_rules: bool = False,
+    ):
+        """提交文本到应用；仅语音输入结果应用输出格式规则。"""
+        commit_text = str(text or "")
+        if apply_voice_output_rules and self._strip_trailing_period_on_commit:
+            commit_text = strip_trailing_commit_period(commit_text)
         self._clear_preedit()
-        self.commit_text(IBus.Text.new_from_string(text))
-        logger.info(f"已提交文本: {text}")
+        self.commit_text(IBus.Text.new_from_string(commit_text))
+        logger.info("已提交文本 source=%s text=%s", mutation_source, commit_text)
         return False
 
     def _show_error(self, error: str):

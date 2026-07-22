@@ -102,6 +102,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "min_chars": 1,
         "method": "auto",
         "append_newline": False,
+        # Remove only a final Chinese full stop or ASCII period from committed
+        # voice input. Question and exclamation marks are preserved.
+        "strip_trailing_period_on_commit": False,
     },
     "logging": {"dir": "logs", "level": "INFO"},
 }

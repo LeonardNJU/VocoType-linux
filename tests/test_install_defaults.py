@@ -108,3 +108,7 @@ def test_official_two_pass_preview_is_optional_and_cpu_bounded_by_default():
     assert streaming["idle_timeout_s"] == 30
     assert streaming["session_idle_timeout_s"] == 15
     assert streaming["model"].endswith("-online-onnx")
+
+
+def test_trailing_period_removal_is_opt_in_by_default():
+    assert DEFAULT_CONFIG["output"]["strip_trailing_period_on_commit"] is False

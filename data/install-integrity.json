@@ -7,15 +7,15 @@
     "Suppressed duplicate VoCoType recording start"
   ],
   "files": {
-    "app/config.py": "50333f55e4420fbcbce3eaa88b3f9c70df96c455277e45b1007db1895f39ee42",
+    "app/config.py": "df3a989f912ab518bc2ecab21b411efeaa7e7b02261d8748a89262a40a48557b",
     "app/funasr_server.py": "7d387ca8691945cf9e1791119ebc1b15b67579eab4b865c8249192e5fb3025a3",
     "app/slm_polisher.py": "449bb72d0d32d028d58c12236d3c7b7d85460e7f2891f8b415c83038c857711e",
     "app/streaming_asr.py": "a0fde40d1d2b1de4b77682f6947353b1d27d3d3bd8486ddb6fc8f5fbfa98c7e9",
     "app/voice_edit.py": "8accb00abea6fdb89290ec8c8de19a51865915c5a97ce9e85de214954a5ae412",
     "fcitx5/backend/audio_recorder.py": "ebbad692b0261944543ac08cfb3e97ec48468c12c919dfbaea7c8d16fd88bcae",
     "fcitx5/backend/fcitx5_server.py": "5950b3aef2f7c093161467dcb0098781b46301e5a366f7230c65133f46a82501",
-    "ibus/engine.py": "c94d22d7991211038f98e8af0905d614c578667b7554ee9329ee4eb6b1eef296",
-    "settings_center/application.py": "be9106efbff9fdf722697a96dd8b0cdef9139c6566fe51288b725511d4223cee",
+    "ibus/engine.py": "78eada28556418bdd0823e14f31fa9b75dbd88fb29238954787388070d33c33f",
+    "settings_center/application.py": "8afe588b175b30f3d8813d229b41c9a078ddc337214f2dd9c5f708fab0afabaa",
     "settings_center/config_service.py": "cd4c4e0ec15bc3635c4e23e97c7914b662a5d5a2c8e9d2fb95f43e3537005e63",
     "settings_center/doctor.py": "717576042014ea4a633ab44b35dc7507350c04f66d405f510981c26060b031c6",
     "settings_center/install_integrity.py": "e368f4d6fc670668474378f99a679fdad305b2763ec7c255fe48f423e07a5366",

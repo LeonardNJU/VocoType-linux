@@ -1606,3 +1606,28 @@ def test_slm_config_change_reports_persistence_failure_without_reload():
     assert calls[-1] == ("gate", True)
     assert "无法保存自动关闭状态" in status.text
     assert "read-only filesystem" in status.text
+
+
+def test_general_settings_exposes_shared_trailing_period_switch():
+    source = Path("settings_center/application.py").read_text(encoding="utf-8")
+    config = Path("app/config.py").read_text(encoding="utf-8")
+    assert '"取消句尾句号"' in source
+    assert "self.strip_trailing_period = self._switch()" in source
+    assert '"strip_trailing_period_on_commit": False' in config
+    assert 'output.get("strip_trailing_period_on_commit")' in source
+    assert 'output["strip_trailing_period_on_commit"]' in source
+    assert (
+        '"StripTrailingPeriodOnCommit": self.strip_trailing_period.get_active()'
+        in source
+    )
+    assert "Fcitx 5 与 IBus 均生效" in source
+
+
+def test_ai_health_check_is_above_enable_switch_and_shows_auto_probe_progress():
+    source = Path("settings_center/application.py").read_text(encoding="utf-8")
+    slm_page = source.split("    def _slm_page", 1)[1].split(
+        "    def _playground_page", 1
+    )[0]
+    assert slm_page.index('"AI 测活"') < slm_page.index('"启用 AI 功能"')
+    assert "首次打开下方开关时，测活进度与结果也会显示在这里" in slm_page
+    assert "⏳ 正在测活；成功后才会启用 AI 润色…" in source

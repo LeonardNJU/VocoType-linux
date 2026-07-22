@@ -766,6 +766,29 @@ class SettingsWindow(Gtk.ApplicationWindow):
 
         content.pack_start(
             self._section_heading(
+                "输出文本",
+                "控制 F9 与 Shift+F9 最终提交到当前输入框的文本格式。",
+            ),
+            False,
+            False,
+            0,
+        )
+        output_card = self._card()
+        self.strip_trailing_period = self._switch()
+        output_card.pack_start(
+            self._row(
+                "取消句尾句号",
+                "开启后，语音结果提交时会移除末尾的中文句号“。”或英文句点“.”；问号、叹号和语音编辑结果不受影响。Fcitx 5 与 IBus 均生效。",
+                self.strip_trailing_period,
+            ),
+            False,
+            False,
+            0,
+        )
+        content.pack_start(output_card, False, False, 0)
+
+        content.pack_start(
+            self._section_heading(
                 "实时识别预览（2-pass）",
                 "在线模型只负责录音期间的第二行预览；松键后仍由原高精度离线模型给出最终结果。",
             ),
@@ -875,6 +898,23 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.slm_clear_api_key = Gtk.CheckButton(label="清除已保存的直接 API Key")
         self.slm_min_chars = Gtk.SpinButton.new_with_range(0, 2000, 1)
         self.slm_timeout = Gtk.SpinButton.new_with_range(1000, 120000, 1000)
+        actions = Gtk.Box(spacing=8)
+        self.slm_test_button = Gtk.Button(label="测活 AI 端点 / 模型")
+        self.slm_test_button.connect("clicked", self._on_test_slm)
+        actions.pack_start(self.slm_test_button, False, False, 0)
+        self.slm_test_status = Gtk.Label(xalign=0)
+        self.slm_test_status.set_line_wrap(True)
+        actions.pack_start(self.slm_test_status, True, True, 0)
+        card.pack_start(
+            self._row(
+                "AI 测活",
+                "对当前端点和模型发起一次真实请求；首次打开下方开关时，测活进度与结果也会显示在这里。",
+                actions,
+            ),
+            False,
+            False,
+            0,
+        )
         card.pack_start(
             self._row(
                 "启用 AI 功能",
@@ -895,14 +935,6 @@ class SettingsWindow(Gtk.ApplicationWindow):
         card.pack_start(self._row("流式输出", "支持 SSE 的端点可在候选框实时显示可见增量。", self.slm_remote_stream), False, False, 0)
         card.pack_start(self._row("允许 reasoning/thinking", "思考内容不会进入最终提交。", self.slm_thinking), False, False, 0)
         content.pack_start(card, False, False, 0)
-        actions = Gtk.Box(spacing=8)
-        test_button = Gtk.Button(label="测活 AI 端点 / 模型")
-        test_button.connect("clicked", self._on_test_slm)
-        actions.pack_start(test_button, False, False, 0)
-        self.slm_test_status = Gtk.Label(xalign=0)
-        self.slm_test_status.set_line_wrap(True)
-        actions.pack_start(self.slm_test_status, True, True, 0)
-        content.pack_start(actions, False, False, 0)
 
         self.slm_enabled.connect(
             "notify::active", self._on_slm_enabled_changed
@@ -1455,6 +1487,18 @@ class SettingsWindow(Gtk.ApplicationWindow):
         audio_runtime = self.runtime_config.get("audio", {})
         if not isinstance(audio_runtime, dict):
             audio_runtime = {}
+        output = self.runtime_config.get("output", {})
+        if not isinstance(output, dict):
+            output = {}
+        legacy_strip_period = _as_bool(
+            self.module_config.get("striptrailingperiodoncommit"), False
+        )
+        self.strip_trailing_period.set_active(
+            _as_bool(
+                output.get("strip_trailing_period_on_commit"),
+                legacy_strip_period,
+            )
+        )
         self.min_recording_ms.set_value(
             max(0, min(5000, int(audio_runtime.get("min_recording_ms", 1000))))
         )
@@ -1598,6 +1642,13 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 self.min_recording_ms.get_value()
             )
             config["audio"] = audio_runtime
+            output = config.get("output")
+            if not isinstance(output, dict):
+                output = {}
+            output["strip_trailing_period_on_commit"] = (
+                self.strip_trailing_period.get_active()
+            )
+            config["output"] = output
             config["normalization"] = self._current_normalization()
             ui = config.get("ui")
             if not isinstance(ui, dict):
@@ -1628,6 +1679,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
                     "PolishMinChars": int(self.slm_min_chars.get_value()),
                     "PolishTimeoutMs": int(self.slm_timeout.get_value()),
                     "EnableThinking": self.slm_thinking.get_active(),
+                    "StripTrailingPeriodOnCommit": self.strip_trailing_period.get_active(),
                     "PanelStyle": self.panel_style.get_active_id() or "minimal",
                 }
             )

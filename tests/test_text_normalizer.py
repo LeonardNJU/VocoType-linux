@@ -510,3 +510,15 @@ MORE_NO_CHANGE_CONTEXT_CASES = [
 @pytest.mark.parametrize("input_text", MORE_NO_CHANGE_CONTEXT_CASES)
 def test_more_no_change_context_matrix(input_text: str):
     assert_normalized(input_text, input_text)
+
+
+def test_strip_trailing_commit_period_removes_only_one_final_period():
+    from app.text_normalizer import strip_trailing_commit_period
+
+    assert strip_trailing_commit_period("这是语音输入。") == "这是语音输入"
+    assert strip_trailing_commit_period("Voice input.") == "Voice input"
+    assert strip_trailing_commit_period("这是问题？") == "这是问题？"
+    assert strip_trailing_commit_period("这是提醒！") == "这是提醒！"
+    assert strip_trailing_commit_period("版本 3.0") == "版本 3.0"
+    assert strip_trailing_commit_period("省略号……") == "省略号……"
+    assert strip_trailing_commit_period("") == ""
