@@ -1,0 +1,178 @@
+name: Publish tested release assets
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Build release assets run whose package jobs already passed
+        required: true
+        type: string
+      tag:
+        description: Existing immutable release tag
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: vocotype-publish-tested-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish-tested:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - id: verify
+        name: Verify source run, package jobs, artifacts, and immutable tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          version=$(python3 packaging/tools/versioning.py "$RELEASE_TAG" --field python)
+          canonical_tag=$(python3 packaging/tools/versioning.py "$version" --field tag)
+          prerelease=$(python3 packaging/tools/versioning.py "$version" --field prerelease)
+          [[ "$RELEASE_TAG" == "$canonical_tag" ]] || {
+            echo "Non-canonical tag: $RELEASE_TAG (expected $canonical_tag)" >&2
+            exit 1
+          }
+
+          run_json=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID")
+          source_sha=$(jq -r '.head_sha' <<<"$run_json")
+          workflow_name=$(jq -r '.name' <<<"$run_json")
+          [[ "$workflow_name" == "Build release assets" ]] || {
+            echo "Unexpected source workflow: $workflow_name" >&2
+            exit 1
+          }
+
+          jobs_json=$(gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/jobs?per_page=100")
+          for required in native-streaming source-python-deb rpm arch; do
+            conclusion=$(jq -r --arg name "$required" \
+              '[.jobs[] | select(.name == $name) | .conclusion] | first // "missing"' \
+              <<<"$jobs_json")
+            [[ "$conclusion" == success ]] || {
+              echo "Required job $required is not successful: $conclusion" >&2
+              exit 1
+            }
+          done
+
+          artifacts_json=$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100")
+          for required in source-python-deb rpm arch; do
+            count=$(jq -r --arg name "$required" \
+              '[.artifacts[] | select(.name == $name and (.expired | not))] | length' \
+              <<<"$artifacts_json")
+            [[ "$count" == 1 ]] || {
+              echo "Required artifact $required missing, duplicated, or expired" >&2
+              exit 1
+            }
+          done
+
+          ref_json=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG")
+          object_type=$(jq -r '.object.type' <<<"$ref_json")
+          object_sha=$(jq -r '.object.sha' <<<"$ref_json")
+          while [[ "$object_type" == tag ]]; do
+            tag_json=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object_sha")
+            object_type=$(jq -r '.object.type' <<<"$tag_json")
+            object_sha=$(jq -r '.object.sha' <<<"$tag_json")
+          done
+          [[ "$object_type" == commit ]] || {
+            echo "Tag does not resolve to a commit: $object_type" >&2
+            exit 1
+          }
+          [[ "$object_sha" == "$source_sha" ]] || {
+            echo "Source run $source_sha does not match tag commit $object_sha" >&2
+            exit 1
+          }
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists: $RELEASE_TAG" >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$canonical_tag" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v5
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.source_run_id }}
+          path: assets
+          merge-multiple: true
+
+      - name: Collect installer-only GitHub Release assets
+        run: |
+          python packaging/tools/collect-release-assets.py \
+            assets final-assets --installers-only
+
+      - name: Write installer checksums
+        run: |
+          (
+            cd final-assets
+            find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 \
+              | sort -z | xargs -0 sha256sum \
+              | sed 's#  \./#  #' > SHA256SUMS
+          )
+
+      - name: Validate the exact downloadable asset set
+        run: |
+          python packaging/tools/validate-final-release-assets.py final-assets \
+            --version "${{ steps.verify.outputs.version }}"
+
+      - name: Create prerelease from the already tested immutable tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.verify.outputs.tag }}
+          PRERELEASE: ${{ steps.verify.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          cleanup_failed_release() {
+            gh release delete "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" --yes \
+              >/dev/null 2>&1 || true
+          }
+          trap cleanup_failed_release ERR
+          notes_file=".github/release-notes/${RELEASE_TAG}.md"
+          test -f "$notes_file"
+          flags=(
+            --repo "$GITHUB_REPOSITORY"
+            --verify-tag
+            --title "$RELEASE_TAG"
+            --notes-file "$notes_file"
+            --latest=false
+          )
+          if [[ "$PRERELEASE" == true ]]; then
+            flags+=(--prerelease)
+          else
+            flags+=(--draft)
+          fi
+          gh release create "$RELEASE_TAG" final-assets/* "${flags[@]}"
+          trap - ERR
+
+      - name: Verify published release metadata and exact asset names
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.verify.outputs.tag }}
+          PRERELEASE: ${{ steps.verify.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,isDraft,isPrerelease,url,assets > release.json
+          jq -e --arg tag "$RELEASE_TAG" '.tagName == $tag' release.json
+          if [[ "$PRERELEASE" == true ]]; then
+            jq -e '.isPrerelease == true and .isDraft == false' release.json
+          else
+            jq -e '.isDraft == true' release.json
+          fi
+          find final-assets -maxdepth 1 -type f -printf '%f\n' | sort > expected-assets.txt
+          jq -r '.assets[].name' release.json | sort > published-assets.txt
+          diff -u expected-assets.txt published-assets.txt
+          cat release.json

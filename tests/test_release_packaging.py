@@ -724,6 +724,29 @@ def test_workflows_parse_and_pin_current_major_actions():
 
 
 
+def test_publish_tested_release_workflow_requires_matching_tagged_run():
+    workflow_path = ROOT / ".github/workflows/publish-tested-release.yml"
+    workflow = workflow_path.read_text(encoding="utf-8")
+    parsed = yaml.safe_load(workflow)
+    job = parsed["jobs"]["publish-tested"]
+    assert parsed["permissions"] == {"actions": "read", "contents": "write"}
+    assert "source_run_id" in workflow
+    assert "Existing immutable release tag" in workflow
+    assert "Build release assets" in workflow
+    assert "native-streaming source-python-deb rpm arch" in workflow
+    assert "does not match tag commit" in workflow
+    assert "missing, duplicated, or expired" in workflow
+    assert "! -name SHA256SUMS" in workflow
+    assert "validate-final-release-assets.py final-assets" in workflow
+    assert '--verify-tag' in workflow
+    assert "--cleanup-tag" not in workflow
+    assert 'gh release create "$RELEASE_TAG" final-assets/*' in workflow
+    assert "jq -r '.assets[].name'" in workflow
+    assert job["steps"][-1]["name"] == (
+        "Verify published release metadata and exact asset names"
+    )
+
+
 def test_v3_beta_release_notes_cover_product_level_changes():
     notes = (ROOT / ".github/release-notes/v3.0.0-beta.1.md").read_text(
         encoding="utf-8"
