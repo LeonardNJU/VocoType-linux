@@ -98,6 +98,10 @@ def test_native_installer_uses_an_exact_user_fcitx_module_stem():
     assert 'Library=$HOME/.local/lib/fcitx5/vocotype' in installer
     assert 'vocotype.so' in installer
     assert 'FCITX_ADDON_DIRS' in installer
+    assert 'app-org.fcitx.Fcitx5@autostart.service' in installer
+    assert 'manager_user restart "$unit"' in installer
+    assert '[[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]]' in installer
+    assert 'DBUS_SESSION_BUS_ADDRESS:-}" || -n "${DISPLAY' not in installer
     assert 'escape_sed_replacement' not in installer
 
 

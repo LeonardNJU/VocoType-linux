@@ -63,10 +63,40 @@ USER_LIBEXEC="$HOME/.local/libexec"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/vocotype"
 mkdir -p "$CONFIG_DIR" "$USER_BIN" "$NATIVE_BIN"
 
+if [[ -z "${XDG_RUNTIME_DIR:-}" && -d "/run/user/$(id -u)" ]]; then
+  export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+fi
+if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" && -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus" ]]; then
+  export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus"
+fi
+
 log() { printf '%s\n' "$*"; }
 manager_cmd() { printf 'system%s' ctl; }
-manager_available() { command -v "$(manager_cmd)" >/dev/null 2>&1; }
 manager_user() { local manager; manager=$(manager_cmd); "$manager" --user "$@"; }
+manager_available() {
+  command -v "$(manager_cmd)" >/dev/null 2>&1 &&
+    manager_user show-environment >/dev/null 2>&1
+}
+
+restart_fcitx_desktop() {
+  local unit='app-org.fcitx.Fcitx5@autostart.service'
+  if manager_available; then
+    local load_state manager_environment
+    load_state=$(manager_user show "$unit" -p LoadState --value 2>/dev/null || true)
+    manager_environment=$(manager_user show-environment 2>/dev/null || true)
+    if [[ "$load_state" == loaded ]] &&
+       grep -Eq '^(DISPLAY|WAYLAND_DISPLAY)=' <<<"$manager_environment"; then
+      manager_user restart "$unit"
+      return 0
+    fi
+  fi
+  if command -v fcitx5 >/dev/null 2>&1 &&
+     [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]]; then
+    env -u FCITX_ADDON_DIRS fcitx5 -r -d >/dev/null 2>&1 || true
+    return 0
+  fi
+  log "Fcitx 5 module installed; desktop restart deferred because no graphical session is available."
+}
 
 install_deps() {
   [[ "$INSTALL_SYSTEM_DEPS" == true ]] || return 0
@@ -248,10 +278,7 @@ EOF_SERVICE
     manager_user enable vocotype-fcitx5-backend.service >/dev/null
     manager_user restart vocotype-fcitx5-backend.service
   fi
-  if command -v fcitx5 >/dev/null 2>&1 &&
-     [[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" || -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]]; then
-    env -u FCITX_ADDON_DIRS fcitx5 -r -d >/dev/null 2>&1 || true
-  fi
+  restart_fcitx_desktop
 }
 
 install_ibus() {

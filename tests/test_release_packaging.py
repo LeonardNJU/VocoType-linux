@@ -124,18 +124,21 @@ def test_live_ibus_install_validation_is_a_diagnostic_not_a_pytest_case():
 
 def test_native_stage_contract_is_safe_compiled_and_unique():
     source = (ROOT / "packaging/tools/stage-system-package.sh").read_text(encoding="utf-8")
-    required = (
+    desktop_cmake = (ROOT / "native/desktop/CMakeLists.txt").read_text(encoding="utf-8")
+    for value in (
         "native/desktop",
-        "vocotype-audio-recorder",
-        "vocotype-model-manager",
-        "vocotype-settings",
         "vocotype-core",
         "vocotype-streaming-worker",
         "vocotype-offline-worker",
         "runtime=native",
-    )
-    for value in required:
+    ):
         assert value in source
+    for value in (
+        "vocotype-audio-recorder",
+        "vocotype-model-manager",
+        "vocotype-settings",
+    ):
+        assert value in desktop_cmake
     for forbidden in (
         "runtime-files.txt",
         "audit-wheelhouse.py",
@@ -145,7 +148,10 @@ def test_native_stage_contract_is_safe_compiled_and_unique():
         "ibus/main.py",
     ):
         assert forbidden not in source
-    assert source.count("install-native-user.sh") == 2
+    assert '"$PROJECT_DIR/installers/install-native-user.sh"' in source
+    assert '"$source_root/installers/install-native-user.sh"' in source
+    assert '"$PROJECT_DIR/installers/uninstall-native-user.sh"' in source
+    assert '"$source_root/installers/uninstall-native-user.sh"' in source
 
 
 
