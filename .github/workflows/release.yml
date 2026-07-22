@@ -295,25 +295,22 @@ jobs:
         with:
           path: assets
           merge-multiple: true
-      - name: Collect GitHub-safe final asset names
-        run: python packaging/tools/collect-release-assets.py assets final-assets
-      - name: Write final asset manifest and checksums
+      - name: Collect installer-only GitHub Release assets
         run: |
-          python packaging/tools/write-release-assets-manifest.py final-assets \
-            --tag "${{ needs.validate-version.outputs.tag }}" \
-            --commit "$GITHUB_SHA" \
-            --output final-assets/release-assets.json
+          python packaging/tools/collect-release-assets.py \
+            assets final-assets --installers-only
+      - name: Write installer checksums
+        run: |
           (
             cd final-assets
-            find . -maxdepth 1 -type f \
-              ! -name SHA256SUMS.all -print0 \
-              | sort -z | xargs -0 sha256sum > SHA256SUMS.all
+            find . -maxdepth 1 -type f -print0 \
+              | sort -z | xargs -0 sha256sum \
+              | sed 's#  \./#  #' > SHA256SUMS
           )
       - name: Validate the exact downloadable asset set
         run: |
           python packaging/tools/validate-final-release-assets.py final-assets \
-            --tag "${{ needs.validate-version.outputs.tag }}" \
-            --commit "$GITHUB_SHA"
+            --version "${{ needs.validate-version.outputs.version }}"
       - uses: actions/upload-artifact@v7
         with:
           name: final-release-assets
@@ -334,8 +331,7 @@ jobs:
       - name: Revalidate the assembled downloadable assets
         run: |
           python packaging/tools/validate-final-release-assets.py final-assets \
-            --tag "${{ needs.validate-version.outputs.tag }}" \
-            --commit "$GITHUB_SHA"
+            --version "${{ needs.validate-version.outputs.version }}"
       - name: Create tag and Release from the tested assets
         env:
           GH_TOKEN: ${{ github.token }}

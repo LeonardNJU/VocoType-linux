@@ -706,6 +706,10 @@ def test_workflows_parse_and_pin_current_major_actions():
     assemble_text = str(release["jobs"]["assemble"])
     assert "final-release-assets" in assemble_text
     assert "validate-final-release-assets.py" in assemble_text
+    assert "--installers-only" in assemble_text
+    assert "SHA256SUMS" in assemble_text
+    assert "release-assets.json" not in assemble_text
+    assert "SHA256SUMS.all" not in assemble_text
     publish_step = release["jobs"]["publish"]["steps"][-1]
     assert publish_step["name"] == "Create tag and Release from the tested assets"
     publish_script = publish_step["run"]
@@ -1213,59 +1217,72 @@ def test_release_assets_are_flattened_before_checksums_and_publication(tmp_path:
     source = tmp_path / "downloaded"
     (source / "one").mkdir(parents=True)
     (source / "two").mkdir()
-    (source / "one/a.deb").write_bytes(b"deb")
-    (source / "two/b.rpm").write_bytes(b"rpm")
+    (source / "one/vocotype-linux_3.0.0~beta1-1_amd64.deb").write_bytes(
+        b"debian-beta"
+    )
+    (source / "two/vocotype-linux-3.0.0-0.beta1.fc44.x86_64.rpm").write_bytes(
+        b"rpm"
+    )
+    (source / "two/vocotype-linux-3.0.0-0.beta1.fc44.src.rpm").write_bytes(
+        b"source-rpm"
+    )
+    (source / "two/vocotype_linux-3.0.0b1-py3-none-any.whl").write_bytes(
+        b"wheel"
+    )
+    (source / "two/release-assets.json").write_text("{}", encoding="utf-8")
+
     destination = tmp_path / "final"
     result = _run(
         sys.executable,
         "packaging/tools/collect-release-assets.py",
         str(source),
         str(destination),
+        "--installers-only",
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert sorted(path.name for path in destination.iterdir()) == ["a.deb", "b.rpm"]
-
-    (source / "two/a.deb").write_bytes(b"duplicate")
-    duplicate = _run(
-        sys.executable,
-        "packaging/tools/collect-release-assets.py",
-        str(source),
-        str(destination),
-    )
-    assert duplicate.returncode != 0
-    assert "duplicate normalized release asset name" in duplicate.stderr
-
-    # GitHub rewrites '~' in asset names. Normalize before manifest/checksum
-    # generation so downloaded names stay directly verifiable.
-    tilde = source / "one/vocotype-linux_3.0.0~beta1-1_amd64.deb"
-    tilde.write_bytes(b"debian-beta")
-    normalized = _run(
-        sys.executable,
-        "packaging/tools/collect-release-assets.py",
-        str(source),
-        str(destination),
-    )
-    assert normalized.returncode != 0  # duplicate a.deb still present
-    (source / "two/a.deb").unlink()
-    normalized = _run(
-        sys.executable,
-        "packaging/tools/collect-release-assets.py",
-        str(source),
-        str(destination),
-    )
-    assert normalized.returncode == 0, normalized.stderr
-    assert (destination / "vocotype-linux_3.0.0.beta1-1_amd64.deb").read_bytes() == b"debian-beta"
+    assert sorted(path.name for path in destination.iterdir()) == [
+        "vocotype-linux-3.0.0-0.beta1.fc44.x86_64.rpm",
+        "vocotype-linux_3.0.0.beta1-1_amd64.deb",
+    ]
+    assert (
+        destination / "vocotype-linux_3.0.0.beta1-1_amd64.deb"
+    ).read_bytes() == b"debian-beta"
     assert not any("~" in path.name for path in destination.iterdir())
 
+    duplicate = source / "two/vocotype-linux_3.0.0~beta1-1_amd64.deb"
+    duplicate.write_bytes(b"duplicate")
+    rejected = _run(
+        sys.executable,
+        "packaging/tools/collect-release-assets.py",
+        str(source),
+        str(destination),
+        "--installers-only",
+    )
+    assert rejected.returncode != 0
+    assert "duplicate normalized release asset name" in rejected.stderr
+
     workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
-    assert "collect-release-assets.py assets final-assets" in workflow
+    assert "collect-release-assets.py" in workflow
+    assert "assets final-assets --installers-only" in workflow
     assert "validate-final-release-assets.py final-assets" in workflow
     assert "name: final-release-assets" in workflow
     assert "cd final-assets" in workflow
+    assert "SHA256SUMS" in workflow
+    assert "SHA256SUMS.all" not in workflow
+    assert "release-assets.json" not in workflow
     assert 'gh release create "$RELEASE_TAG" final-assets/*' in workflow
 
 
-def test_final_release_asset_validator_matches_downloadable_names(tmp_path: Path):
+def _write_installer_checksum_file(root: Path) -> None:
+    lines = [
+        f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}"
+        for path in sorted(root.iterdir())
+        if path.name != "SHA256SUMS"
+    ]
+    (root / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_final_release_asset_validator_accepts_only_installers(tmp_path: Path):
     final = tmp_path / "final"
     final.mkdir()
     names = (
@@ -1278,56 +1295,61 @@ def test_final_release_asset_validator_matches_downloadable_names(tmp_path: Path
         "vocotype-linux-3.0.0b1-1-x86_64.pkg.tar.zst",
         "vocotype-linux-ibus-3.0.0b1-1-x86_64.pkg.tar.zst",
         "vocotype-linux-fcitx5-3.0.0b1-1-x86_64.pkg.tar.zst",
-        "vocotype-native-streaming-linux-x86_64.tar.gz",
-        "VocoType-linux-3.0.0b1.tar.gz",
-        "vocotype_linux-3.0.0b1-py3-none-any.whl",
-        "vocotype_linux-3.0.0b1.tar.gz",
     )
     for index, name in enumerate(names):
         (final / name).write_bytes(f"asset-{index}".encode())
-    manifest = _run(
-        sys.executable,
-        "packaging/tools/write-release-assets-manifest.py",
-        str(final),
-        "--tag",
-        "v3.0.0-beta.1",
-        "--commit",
-        "a" * 40,
-        "--output",
-        str(final / "release-assets.json"),
-    )
-    assert manifest.returncode == 0, manifest.stderr
-    checksum_lines = []
-    for file in sorted(final.iterdir()):
-        if file.name == "SHA256SUMS.all":
-            continue
-        checksum_lines.append(f"{hashlib.sha256(file.read_bytes()).hexdigest()}  ./{file.name}")
-    (final / "SHA256SUMS.all").write_text("\n".join(checksum_lines) + "\n")
+    _write_installer_checksum_file(final)
+
     valid = _run(
         sys.executable,
         "packaging/tools/validate-final-release-assets.py",
         str(final),
-        "--tag",
-        "v3.0.0-beta.1",
-        "--commit",
-        "a" * 40,
+        "--version",
+        "3.0.0b1",
     )
     assert valid.returncode == 0, valid.stdout + valid.stderr
-    assert "FINAL_RELEASE_ASSETS_OK" in valid.stdout
+    assert "FINAL_RELEASE_INSTALLERS_OK" in valid.stdout
 
-    bad = final / "bad~name.deb"
-    bad.write_bytes(b"bad")
+    forbidden = final / "release-assets.json"
+    forbidden.write_text("{}", encoding="utf-8")
     rejected = _run(
         sys.executable,
         "packaging/tools/validate-final-release-assets.py",
         str(final),
-        "--tag",
-        "v3.0.0-beta.1",
-        "--commit",
-        "a" * 40,
+        "--version",
+        "3.0.0b1",
     )
     assert rejected.returncode != 0
-    assert "GitHub-unsafe final asset name" in rejected.stderr
+    assert "exactly 9 installers and SHA256SUMS" in rejected.stderr
+
+
+def test_final_release_asset_validator_rejects_bad_checksum(tmp_path: Path):
+    final = tmp_path / "final"
+    final.mkdir()
+    names = (
+        "vocotype-linux_3.0.0.beta1-1_amd64.deb",
+        "vocotype-linux-ibus_3.0.0.beta1-1_amd64.deb",
+        "vocotype-linux-fcitx5_3.0.0.beta1-1_amd64.deb",
+        "vocotype-linux-3.0.0-0.beta1.fc44.x86_64.rpm",
+        "vocotype-linux-ibus-3.0.0-0.beta1.fc44.x86_64.rpm",
+        "vocotype-linux-fcitx5-3.0.0-0.beta1.fc44.x86_64.rpm",
+        "vocotype-linux-3.0.0b1-1-x86_64.pkg.tar.zst",
+        "vocotype-linux-ibus-3.0.0b1-1-x86_64.pkg.tar.zst",
+        "vocotype-linux-fcitx5-3.0.0b1-1-x86_64.pkg.tar.zst",
+    )
+    for name in names:
+        (final / name).write_bytes(b"installer")
+    _write_installer_checksum_file(final)
+    (final / names[0]).write_bytes(b"tampered")
+    rejected = _run(
+        sys.executable,
+        "packaging/tools/validate-final-release-assets.py",
+        str(final),
+        "--version",
+        "3.0.0b1",
+    )
+    assert rejected.returncode != 0
+    assert "checksum index mismatch" in rejected.stderr
 
 
 def test_release_candidate_versions_sort_before_formal_versions():

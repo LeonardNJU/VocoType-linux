@@ -8,6 +8,11 @@ import shutil
 from pathlib import Path
 
 SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+\-]*$")
+INSTALLER_PATTERNS = (
+    re.compile(r"^vocotype-linux(?:-ibus|-fcitx5)?_.+_amd64\.deb$"),
+    re.compile(r"^vocotype-linux(?:-ibus|-fcitx5)?-.+\.x86_64\.rpm$"),
+    re.compile(r"^vocotype-linux(?:-ibus|-fcitx5)?-.+-x86_64\.pkg\.tar\.zst$"),
+)
 
 
 def release_asset_name(name: str) -> str:
@@ -19,10 +24,21 @@ def release_asset_name(name: str) -> str:
     return normalized
 
 
+def is_installer_asset(name: str) -> bool:
+    return not name.endswith(".src.rpm") and any(
+        pattern.fullmatch(name) for pattern in INSTALLER_PATTERNS
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("source", type=Path)
     parser.add_argument("destination", type=Path)
+    parser.add_argument(
+        "--installers-only",
+        action="store_true",
+        help="collect only binary DEB, RPM, and Arch installation packages",
+    )
     args = parser.parse_args()
     source = args.source.resolve()
     destination = args.destination.resolve()
@@ -39,6 +55,8 @@ def main() -> int:
             name = release_asset_name(path.name)
         except ValueError as exc:
             raise SystemExit(str(exc)) from exc
+        if args.installers_only and not is_installer_asset(name):
+            continue
         previous = seen.get(name)
         if previous is not None:
             raise SystemExit(
