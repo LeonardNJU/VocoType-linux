@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import hashlib
 import json
 import os
 import shutil
@@ -597,13 +598,20 @@ def test_workflows_parse_and_pin_current_major_actions():
     assert "gh release create" in release_text
     assert "inputs.publish == true" in release_text
     assert 'tags: ["v*"]' not in release_text
-    assert release["jobs"]["publish"]["needs"] == [
+    assert release["jobs"]["assemble"]["needs"] == [
         "validate-version",
         "native-streaming",
         "source-python-deb",
         "rpm",
         "arch",
     ]
+    assert release["jobs"]["publish"]["needs"] == [
+        "validate-version",
+        "assemble",
+    ]
+    assemble_text = str(release["jobs"]["assemble"])
+    assert "final-release-assets" in assemble_text
+    assert "validate-final-release-assets.py" in assemble_text
     publish_step = release["jobs"]["publish"]["steps"][-1]
     assert publish_step["name"] == "Create tag and Release from the tested assets"
     publish_script = publish_step["run"]
@@ -1085,12 +1093,101 @@ def test_release_assets_are_flattened_before_checksums_and_publication(tmp_path:
         str(destination),
     )
     assert duplicate.returncode != 0
-    assert "duplicate release asset basename" in duplicate.stderr
+    assert "duplicate normalized release asset name" in duplicate.stderr
+
+    # GitHub rewrites '~' in asset names. Normalize before manifest/checksum
+    # generation so downloaded names stay directly verifiable.
+    tilde = source / "one/vocotype-linux_3.0.0~beta1-1_amd64.deb"
+    tilde.write_bytes(b"debian-beta")
+    normalized = _run(
+        sys.executable,
+        "packaging/tools/collect-release-assets.py",
+        str(source),
+        str(destination),
+    )
+    assert normalized.returncode != 0  # duplicate a.deb still present
+    (source / "two/a.deb").unlink()
+    normalized = _run(
+        sys.executable,
+        "packaging/tools/collect-release-assets.py",
+        str(source),
+        str(destination),
+    )
+    assert normalized.returncode == 0, normalized.stderr
+    assert (destination / "vocotype-linux_3.0.0.beta1-1_amd64.deb").read_bytes() == b"debian-beta"
+    assert not any("~" in path.name for path in destination.iterdir())
 
     workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
     assert "collect-release-assets.py assets final-assets" in workflow
+    assert "validate-final-release-assets.py final-assets" in workflow
+    assert "name: final-release-assets" in workflow
     assert "cd final-assets" in workflow
     assert 'gh release create "$RELEASE_TAG" final-assets/*' in workflow
+
+
+def test_final_release_asset_validator_matches_downloadable_names(tmp_path: Path):
+    final = tmp_path / "final"
+    final.mkdir()
+    names = (
+        "vocotype-linux_3.0.0.beta1-1_amd64.deb",
+        "vocotype-linux-ibus_3.0.0.beta1-1_amd64.deb",
+        "vocotype-linux-fcitx5_3.0.0.beta1-1_amd64.deb",
+        "vocotype-linux-3.0.0-0.beta1.fc44.x86_64.rpm",
+        "vocotype-linux-ibus-3.0.0-0.beta1.fc44.x86_64.rpm",
+        "vocotype-linux-fcitx5-3.0.0-0.beta1.fc44.x86_64.rpm",
+        "vocotype-linux-3.0.0b1-1-x86_64.pkg.tar.zst",
+        "vocotype-linux-ibus-3.0.0b1-1-x86_64.pkg.tar.zst",
+        "vocotype-linux-fcitx5-3.0.0b1-1-x86_64.pkg.tar.zst",
+        "vocotype-native-streaming-linux-x86_64.tar.gz",
+        "VocoType-linux-3.0.0b1.tar.gz",
+        "vocotype_linux-3.0.0b1-py3-none-any.whl",
+        "vocotype_linux-3.0.0b1.tar.gz",
+    )
+    for index, name in enumerate(names):
+        (final / name).write_bytes(f"asset-{index}".encode())
+    manifest = _run(
+        sys.executable,
+        "packaging/tools/write-release-assets-manifest.py",
+        str(final),
+        "--tag",
+        "v3.0.0-beta.1",
+        "--commit",
+        "a" * 40,
+        "--output",
+        str(final / "release-assets.json"),
+    )
+    assert manifest.returncode == 0, manifest.stderr
+    checksum_lines = []
+    for file in sorted(final.iterdir()):
+        if file.name == "SHA256SUMS.all":
+            continue
+        checksum_lines.append(f"{hashlib.sha256(file.read_bytes()).hexdigest()}  ./{file.name}")
+    (final / "SHA256SUMS.all").write_text("\n".join(checksum_lines) + "\n")
+    valid = _run(
+        sys.executable,
+        "packaging/tools/validate-final-release-assets.py",
+        str(final),
+        "--tag",
+        "v3.0.0-beta.1",
+        "--commit",
+        "a" * 40,
+    )
+    assert valid.returncode == 0, valid.stdout + valid.stderr
+    assert "FINAL_RELEASE_ASSETS_OK" in valid.stdout
+
+    bad = final / "bad~name.deb"
+    bad.write_bytes(b"bad")
+    rejected = _run(
+        sys.executable,
+        "packaging/tools/validate-final-release-assets.py",
+        str(final),
+        "--tag",
+        "v3.0.0-beta.1",
+        "--commit",
+        "a" * 40,
+    )
+    assert rejected.returncode != 0
+    assert "GitHub-unsafe final asset name" in rejected.stderr
 
 
 def test_release_candidate_versions_sort_before_formal_versions():

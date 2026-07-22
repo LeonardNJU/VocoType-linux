@@ -1,10 +1,22 @@
 #!/usr/bin/env python3
-"""Flatten downloaded CI artifacts into the exact GitHub Release asset set."""
+"""Flatten CI artifacts into GitHub-safe, deterministic Release asset names."""
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 from pathlib import Path
+
+SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+\-]*$")
+
+
+def release_asset_name(name: str) -> str:
+    # GitHub replaces '~' in uploaded asset names. Normalize before writing the
+    # manifest and checksums so downloaded names remain directly verifiable.
+    normalized = name.replace("~", ".")
+    if normalized != Path(normalized).name or not SAFE_NAME_RE.fullmatch(normalized):
+        raise ValueError(f"unsafe GitHub Release asset name: {name!r}")
+    return normalized
 
 
 def main() -> int:
@@ -23,17 +35,23 @@ def main() -> int:
     for path in sorted(source.rglob("*")):
         if not path.is_file():
             continue
-        name = path.name
+        try:
+            name = release_asset_name(path.name)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
         previous = seen.get(name)
         if previous is not None:
             raise SystemExit(
-                f"duplicate release asset basename {name!r}: {previous} and {path}"
+                f"duplicate normalized release asset name {name!r}: "
+                f"{previous} and {path}"
             )
         seen[name] = path
         shutil.copy2(path, destination / name)
     if not seen:
         raise SystemExit("no release assets were collected")
     print(f"Collected {len(seen)} final assets in {destination}")
+    for name in sorted(seen):
+        print(name)
     return 0
 
 

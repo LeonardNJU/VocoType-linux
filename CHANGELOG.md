@@ -46,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced the Debian multiarch streaming-worker ELF symlink with an executable wrapper so `$ORIGIN` resolves from the private runtime directory.
 - Locked distro-specific PyGObject wheels to verified versions and added byte-for-byte payload manifests, wheel ZIP/CRC validation, and pre-install archive audits for DEB, RPM, and Arch.
 - Prevented Debian reproducibility tooling from rewriting package-local wheels and corrupting ZIP64 metadata.
+- Normalized GitHub-safe asset filenames before generating manifests and checksums, and made dry runs assemble and validate the exact downloadable Release asset set.
 - Recordings shorter than the configured minimum duration are rejected consistently by the shared ASR service, IBus, and Fcitx 5 instead of entering inference with unusable audio.
 - Ubuntu 22.04/24.04 now install a Python 3.12-compatible PyGObject release without requiring the newer `girepository-2.0` toolchain.
 - IBus 1.5.26 no longer fails to import when optional `OSK` and `SYNC_PROCESS_KEY` capability constants are absent.

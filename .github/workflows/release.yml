@@ -286,8 +286,7 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
-  publish:
-    if: ${{ inputs.publish == true }}
+  assemble:
     needs: [validate-version, native-streaming, source-python-deb, rpm, arch]
     runs-on: ubuntu-24.04
     steps:
@@ -296,7 +295,7 @@ jobs:
         with:
           path: assets
           merge-multiple: true
-      - name: Collect the exact public assets
+      - name: Collect GitHub-safe final asset names
         run: python packaging/tools/collect-release-assets.py assets final-assets
       - name: Write final asset manifest and checksums
         run: |
@@ -310,6 +309,33 @@ jobs:
               ! -name SHA256SUMS.all -print0 \
               | sort -z | xargs -0 sha256sum > SHA256SUMS.all
           )
+      - name: Validate the exact downloadable asset set
+        run: |
+          python packaging/tools/validate-final-release-assets.py final-assets \
+            --tag "${{ needs.validate-version.outputs.tag }}" \
+            --commit "$GITHUB_SHA"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: final-release-assets
+          path: final-assets/*
+          if-no-files-found: error
+          compression-level: 0
+
+  publish:
+    if: ${{ inputs.publish == true }}
+    needs: [validate-version, assemble]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v5
+        with:
+          name: final-release-assets
+          path: final-assets
+      - name: Revalidate the assembled downloadable assets
+        run: |
+          python packaging/tools/validate-final-release-assets.py final-assets \
+            --tag "${{ needs.validate-version.outputs.tag }}" \
+            --commit "$GITHUB_SHA"
       - name: Create tag and Release from the tested assets
         env:
           GH_TOKEN: ${{ github.token }}
