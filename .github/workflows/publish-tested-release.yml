@@ -34,9 +34,10 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          version=$(python3 packaging/tools/versioning.py "$RELEASE_TAG" --field python)
-          canonical_tag=$(python3 packaging/tools/versioning.py "$version" --field tag)
-          prerelease=$(python3 packaging/tools/versioning.py "$version" --field prerelease)
+          . packaging/tools/package-common.sh
+          version=$(vocotype_version_from_tag "$RELEASE_TAG")
+          canonical_tag=$(vocotype_version_field "$version" tag)
+          prerelease=$(vocotype_version_field "$version" prerelease)
           [[ "$RELEASE_TAG" == "$canonical_tag" ]] || {
             echo "Non-canonical tag: $RELEASE_TAG (expected $canonical_tag)" >&2
             exit 1
@@ -52,7 +53,7 @@ jobs:
 
           jobs_json=$(gh api --paginate \
             "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/jobs?per_page=100")
-          for required in native-streaming source-python-deb rpm arch; do
+          for required in native-streaming source-deb rpm arch; do
             conclusion=$(jq -r --arg name "$required" \
               '[.jobs[] | select(.name == $name) | .conclusion] | first // "missing"' \
               <<<"$jobs_json")
@@ -64,7 +65,7 @@ jobs:
 
           artifacts_json=$(gh api \
             "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100")
-          for required in source-python-deb rpm arch; do
+          for required in source-deb rpm arch; do
             count=$(jq -r --arg name "$required" \
               '[.artifacts[] | select(.name == $name and (.expired | not))] | length' \
               <<<"$artifacts_json")
@@ -115,7 +116,7 @@ jobs:
 
       - name: Collect installer-only GitHub Release assets
         run: |
-          python packaging/tools/collect-release-assets.py \
+          packaging/tools/collect-release-assets.sh \
             assets final-assets --installers-only
 
       - name: Write installer checksums
@@ -129,7 +130,7 @@ jobs:
 
       - name: Validate the exact downloadable asset set
         run: |
-          python packaging/tools/validate-final-release-assets.py final-assets \
+          packaging/tools/validate-final-release-assets.sh final-assets \
             --version "${{ steps.verify.outputs.version }}"
 
       - name: Create prerelease from the already tested immutable tag

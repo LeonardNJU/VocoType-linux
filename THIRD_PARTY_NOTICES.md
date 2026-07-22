@@ -1,26 +1,26 @@
-# Third-Party Notices
+# Third-party notices
 
-This project depends on third-party software and models. Each component is
-covered by its own license; consult the upstream project for the authoritative
-license text.
+VoCoType's native desktop runtime links against or bundles the following projects under their respective licenses:
 
-Runtime dependencies (from requirements.txt / pyproject.toml):
-- sounddevice 0.5.2 - https://github.com/spatialaudio/python-sounddevice
-- NumPy 1.26.4 - https://numpy.org/
-- SciPy 1.16.3 - https://scipy.org/
-- soundfile 0.13.1 - https://github.com/bastibe/python-soundfile
-- funasr_onnx 0.4.2 - https://github.com/modelscope/FunASR
-- ONNX Runtime 1.23.2 (native streaming bundle) - https://github.com/microsoft/onnxruntime
-- jieba 0.42.1 - https://github.com/fxsjy/jieba
-- PyGObject >=3.46, <3.52 - https://pygobject.gnome.org/
-- modelscope 1.30.0 - https://github.com/modelscope/modelscope
+- FunASR / FunASR ONNX runtime
+- ONNX Runtime
+- PortAudio
+- GTK 3 and GLib
+- Fcitx 5
+- IBus
+- librime and Rime data
+- yaml-cpp
+- nlohmann/json
+- libcurl
+- OpenSSL
+- Boost.Asio / Boost.Beast
+- SQLite
+- OpenFST, glog, and dependencies included by the audited FunASR bundle
 
-Models (downloaded via ModelScope):
-- iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-onnx
-- iic/speech_fsmn_vad_zh-cn-16k-common-onnx
-- iic/punc_ct-transformer_zh-cn-common-vocab272727-onnx
+The portable native bundle copies upstream license and notice files into
+`share/licenses/`. Distribution packages install those notices under the
+platform's standard license directory.
 
-Check the corresponding model cards and licenses on ModelScope before
-redistribution or commercial use.
-
-`funasr_onnx` may declare additional decoder packages transitively. VoCoType itself decodes with soundfile, resamples with SciPy, and passes NumPy waveforms directly to the ONNX model.
+The repository contains no Python implementation or Python dependency manifest.
+Desktop clients, the feedback receiver, package/release tooling, and the static
+documentation builder are compiled C++ or shell components.

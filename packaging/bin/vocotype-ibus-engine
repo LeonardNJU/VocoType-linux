@@ -1,17 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
-ROOT="${VOCOTYPE_SYSTEM_ROOT:-/usr/share/vocotype}"
-export VOCOTYPE_PROJECT_DIR="$ROOT"
-export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
-export PYTHONDONTWRITEBYTECODE=1
-export PYTHONIOENCODING=UTF-8
-
-for python in \
-  "$HOME/.local/share/vocotype/.venv/bin/python" \
-  "$HOME/.local/share/vocotype-fcitx5/.venv/bin/python"; do
-  [[ -x "$python" ]] || continue
-  exec "$python" -m ibus.main "$@"
+for engine in "$HOME/.local/lib/vocotype-native/bin/vocotype-ibus-engine" /usr/libexec/vocotype-ibus-engine /usr/lib/vocotype/vocotype-ibus-engine /usr/lib64/vocotype/vocotype-ibus-engine; do
+  [[ -x "$engine" ]] || continue
+  exec "$engine" "$@"
 done
-
-echo "VoCoType user runtime is not configured. Open VoCoType Settings and run IBus installation/repair." >&2
+echo "VoCoType native IBus engine is not installed." >&2
 exit 78

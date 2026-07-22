@@ -2,7 +2,7 @@
 pkgname=@PACKAGE_NAME@
 pkgver=@VERSION@
 pkgrel=1
-pkgdesc="@SUMMARY@"
+pkgdesc="@SUMMARY@ with native C++ speech core"
 arch=('x86_64')
 options=('!debug' '!strip')
 url="https://github.com/LeonardNJU/VocoType-linux"
@@ -12,7 +12,6 @@ makedepends=(@MAKEDEPENDS@)
 conflicts=(@CONFLICTS@)
 replaces=(@CONFLICTS@)
 provides=('vocotype-linux-runtime')
-optdepends=('curl: bootstrap the recommended user Python runtime')
 source=("VocoType-linux-${pkgver}.tar.gz")
 sha256sums=('@SOURCE_SHA256@')
 
@@ -26,6 +25,5 @@ package() {
     --build-dir "$srcdir/fcitx-build-@FLAVOR@" \
     --flavor "@FLAVOR@" \
     --package-manager pacman \
-    --require-streaming-bundle \
-    --require-wheelhouse
+    --require-streaming-bundle
 }

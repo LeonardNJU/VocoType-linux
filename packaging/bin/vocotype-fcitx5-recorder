@@ -1,16 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
-ROOT="${VOCOTYPE_SYSTEM_ROOT:-/usr/share/vocotype}"
-export VOCOTYPE_PROJECT_DIR="$ROOT"
-export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
-export PYTHONDONTWRITEBYTECODE=1
-
-for python in \
-  "$HOME/.local/share/vocotype-fcitx5/.venv/bin/python" \
-  "$HOME/.local/share/vocotype/.venv/bin/python"; do
-  [[ -x "$python" ]] || continue
-  exec "$python" "$ROOT/fcitx5/backend/audio_recorder.py" "$@"
+for recorder in \
+  "${VOCOTYPE_AUDIO_RECORDER:-}" \
+  "$HOME/.local/lib/vocotype-native/bin/vocotype-audio-recorder" \
+  /usr/libexec/vocotype-audio-recorder \
+  /usr/lib/vocotype/vocotype-audio-recorder \
+  /usr/lib64/vocotype/vocotype-audio-recorder; do
+  [[ -n "$recorder" && -x "$recorder" ]] || continue
+  exec "$recorder" "$@"
 done
-
-echo "VoCoType user runtime is not configured. Open VoCoType Settings and run Fcitx 5 installation/repair." >&2
+echo "VoCoType native audio recorder is not installed." >&2
 exit 78

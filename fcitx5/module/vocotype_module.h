@@ -150,9 +150,6 @@ private:
                                 const std::string &new_text,
                                 bool record_history,
                                 const std::string &hint);
-    void scheduleEditReplacementCheck();
-    void finalizeEditReplacement();
-    void clearPendingEditReplacement();
     void confirmVoiceEditApplied(const VoiceEditSnapshot &snapshot,
                                  const std::string &new_text,
                                  bool record_history);
@@ -180,7 +177,6 @@ private:
     void handlePolishPollResult(fcitx::InputContext *ic,
                                 const PolishPollResult &result);
     void showPolishProgress(fcitx::InputContext *ic,
-                            const std::string &status,
                             const std::string &preview,
                             const std::string &original_text);
     void cancelActivePolishTask();
@@ -216,7 +212,6 @@ private:
                    const std::string &original_text = {});
     bool handlePendingFallbackKey(fcitx::KeyEvent &event);
 
-    bool pasteTextForClient(fcitx::InputContext *ic, const std::string &text);
     void commitText(fcitx::InputContext *ic, const std::string &text,
                     bool strip_trailing_period = false);
 
@@ -283,7 +278,6 @@ private:
     std::unique_ptr<fcitx::EventSourceTime> ptt_release_timer_;
     std::unique_ptr<fcitx::EventSourceTime> recording_animation_timer_;
     std::unique_ptr<fcitx::EventSourceTime> polish_poll_timer_;
-    std::unique_ptr<fcitx::EventSourceTime> edit_replace_timer_;
     std::unique_ptr<fcitx::EventSourceTime> edit_hint_timer_;
     std::unique_ptr<fcitx::EventSourceTime> voice_edit_poll_timer_;
     size_t recording_animation_frame_index_ = 0;
@@ -304,15 +298,9 @@ private:
     std::string active_polish_preview_;
     std::string active_polish_original_;
     int active_polish_after_seq_ = 0;
+    uint64_t active_polish_started_us_ = 0;
 
     std::string pending_fallback_text_;
-    bool edit_replace_pending_ = false;
-    VoiceEditSnapshot edit_replace_snapshot_;
-    std::string edit_replace_new_text_;
-    std::string edit_replace_hint_;
-    bool edit_replace_record_history_ = true;
-    int edit_replace_retries_left_ = 0;
-    std::string edit_replace_state_ = "unknown";
     fcitx::InputContext *last_committed_ic_ = nullptr;
     std::string last_committed_program_;
     std::string last_committed_frontend_;

@@ -13,5 +13,5 @@ rm -rf "$destination"
 mkdir -p "$destination"
 tar -xzf "$archive" -C "$destination"
 root=$(cd "$(dirname "$0")/../.." && pwd)
-python3 "$root/native/streaming_worker/audit_bundle.py" "$destination"
+"$root/native/streaming_worker/audit_bundle.sh" "$destination"
 printf '%s\n' "$destination"

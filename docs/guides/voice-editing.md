@@ -34,7 +34,9 @@ VoCoType 只使用输入法框架的正式接口：
 - 录音前保存文本、光标、选区和输入上下文标识；
 - 编辑结果返回后再次确认输入框和内容没有变化；
 - 使用框架的 surrounding-text 删除接口和正常文本提交接口完成修改；
-- 上下文无效、焦点变化或正文已变化时取消本次编辑。
+- 在修改前验证快照仍与当前输入框一致；
+- 验证通过后，在同一次输入法回调中依次发送删除旧文本和提交新文本，不把异步 surrounding-text 缓存当成删除确认；
+- 上下文无效、焦点变化或正文已变化时，在删除发生前取消本次编辑。
 
 VoCoType **不会**通过以下方式猜测或抓取上下文：
 
@@ -64,6 +66,10 @@ IBus 的官方接口也明确使用 `text + cursor_pos + anchor_pos` 表示 surr
 ## Fcitx 5 下的局限
 
 Fcitx 5 Module 只在当前 InputContext 声明 `SurroundingText` capability 且缓存有效时启动语音编辑。标准 GTK/Qt 文本控件通常可以在 X11 或 Wayland 下提供这类信息，但自定义控件仍可能不实现。
+
+### gedit / 标准 GTK 文本控件
+
+对于“光标在行尾，要求把整行翻译或改写”的计划，VoCoType 会先确认正文、光标和焦点未变化，再连续发送 `deleteSurroundingText` 与正常文本提交。GTK 更新 surrounding-text 快照可能晚于输入法回调，因此 VoCoType 不再等待缓存变化来判断删除是否成功。该修复避免了 gedit 中“原文已删、替换未提交、随后误报不支持替换”的旧故障。
 
 GTK 官方文档明确说明：控件可响应 `retrieve-surrounding` 并提供最多一个段落的上下文，但没有义务响应；输入法必须能够在没有上下文时工作。参见 [GTK 4 `get_surrounding`](https://docs.gtk.org/gtk4/method.IMContext.get_surrounding.html) 和 [`delete_surrounding`](https://docs.gtk.org/gtk4/method.IMContext.delete_surrounding.html)。
 
@@ -119,7 +125,7 @@ VoCoType 不会因为应用兼容性不足而修改未知文本：
 - 无 surrounding-text capability：录音不会开始；
 - surrounding snapshot 无效：提示当前输入框没有可用上下文；
 - 录音期间内容或焦点变化：取消编辑；
-- 应用未执行删除请求：不提交替换文本；
+- 应用只声明 capability 却不正确实现删除/提交：输入法无法获得事务级确认，结果取决于该控件；标准 gedit/GTK 与常见 Qt 文本控件已走顺序删除并提交路径；
 - ASR 未识别到指令：显示“未识别到编辑指令”；
 - AI 未启用或未测活：不执行任何编辑；
 - AI 返回非 JSON、非法模式、`null` 替换文本或越权按键：拒绝计划并保留原文；

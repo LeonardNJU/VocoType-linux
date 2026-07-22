@@ -2,26 +2,26 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 OUT=${1:-"$ROOT/dist/packages"}
+. "$ROOT/packaging/tools/package-common.sh"
 FLAVOR=${2:-${VOCOTYPE_PACKAGE_FLAVOR:-universal}}
-FLAVOR=$(python3 "$ROOT/packaging/tools/package-flavor.py" "$FLAVOR" --field flavor)
-PACKAGE_NAME=$(python3 "$ROOT/packaging/tools/package-flavor.py" "$FLAVOR" --field package_name)
-VERSION=$(python3 "$ROOT/packaging/tools/versioning.py" "$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$ROOT/vocotype_version.py")" --field python)
-ARCH_VERSION=$(python3 "$ROOT/packaging/tools/versioning.py" "$VERSION" --field arch)
+FLAVOR=$(vocotype_flavor "$FLAVOR")
+PACKAGE_NAME=$(vocotype_flavor_field "$FLAVOR" package_name)
+VERSION=$(vocotype_version "$ROOT")
+ARCH_VERSION=$(vocotype_version_field "$VERSION" arch)
 BUNDLE=${VOCOTYPE_STREAMING_BUNDLE_DIR:?VOCOTYPE_STREAMING_BUNDLE_DIR is required for complete packages}
-WHEELHOUSE=${VOCOTYPE_WHEELHOUSE_DIR:?VOCOTYPE_WHEELHOUSE_DIR is required for complete packages}
 command -v makepkg >/dev/null 2>&1 || { echo "makepkg is required" >&2; exit 127; }
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$OUT"
-python3 "$ROOT/packaging/tools/build-release.py" --source-only --output "$work/release"
+"$ROOT/packaging/tools/build-source-release.sh" --source-only --output "$work/release"
 base="$work/release/VocoType-linux-$VERSION.tar.gz"
 archive="$work/VocoType-linux-$ARCH_VERSION.tar.gz"
-python3 "$ROOT/packaging/tools/prepare-complete-source.py" \
-  --source "$base" --native-bundle "$BUNDLE" --wheelhouse "$WHEELHOUSE" \
+"$ROOT/packaging/tools/prepare-complete-source.sh" \
+  --source "$base" --native-bundle "$BUNDLE" \
   --flavor "$FLAVOR" --output "$archive"
 sha=$(sha256sum "$archive" | awk '{print $1}')
-python3 "$ROOT/packaging/tools/render-package-metadata.py" \
+"$ROOT/packaging/tools/render-package-metadata.sh" \
   --format arch --flavor "$FLAVOR" \
   --template "$ROOT/packaging/arch/PKGBUILD.in" \
   --output "$work/PKGBUILD.flavor"

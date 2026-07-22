@@ -1,3 +1,0 @@
-# Ubuntu CI uses the legacy girepository-1.0 development ABI.
-# Keep this aligned with the Ubuntu release wheelhouse build.
-PyGObject==3.50.2

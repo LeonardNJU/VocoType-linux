@@ -169,16 +169,6 @@ std::string finishRecorderProcess(
     return audio_path;
 }
 
-bool copyTextToWaylandClipboard(const std::string &text) {
-    FILE *pipe = popen("wl-copy", "w");
-    if (!pipe) {
-        return false;
-    }
-    const size_t written = fwrite(text.data(), 1, text.size(), pipe);
-    const int status = pclose(pipe);
-    return written == text.size() && status == 0;
-}
-
 std::string resolveBackendSocketPath() {
     if (const char *override_path = std::getenv("VOCOTYPE_FCITX5_SOCKET")) {
         if (*override_path != '\0') {
@@ -186,26 +176,6 @@ std::string resolveBackendSocketPath() {
         }
     }
     return "/tmp/vocotype-fcitx5.sock";
-}
-
-bool pasteTextToX11Client(const std::string &text) {
-    constexpr auto command =
-        "python3 -c 'import subprocess, sys, tkinter as tk; "
-        "data = sys.stdin.read(); root = tk.Tk(); root.withdraw(); "
-        "sentinel = \"__VOCOTYPE_CLIPBOARD_EMPTY__\"; "
-        "previous = root.tk.eval(\"if {[catch {clipboard get} result]} {set result {__VOCOTYPE_CLIPBOARD_EMPTY__}}; set result\"); "
-        "root.clipboard_clear(); root.clipboard_append(data); root.update(); "
-        "root.after(50, lambda: subprocess.Popen([\"xdotool\", \"key\", \"--clearmodifiers\", \"ctrl+v\"])); "
-        "root.after(800, lambda: (root.clipboard_clear(), None if previous == sentinel else root.clipboard_append(previous), root.update())); "
-        "root.after(30000, root.destroy); root.mainloop()'";
-
-    FILE *pipe = popen(command, "w");
-    if (!pipe) {
-        return false;
-    }
-    const size_t written = fwrite(text.data(), 1, text.size(), pipe);
-    const int status = pclose(pipe);
-    return written == text.size() && status == 0;
 }
 
 } // namespace
@@ -258,7 +228,6 @@ VoCoTypeModule::~VoCoTypeModule() {
     cancelPendingRecordingStart();
     cancelActiveVoiceEditTask();
     cancelActivePolishTask();
-    clearPendingEditReplacement();
     edit_hint_timer_.reset();
     stopPanelAnimation();
     if (recorder_pid_ > 0 || recorder_stdin_fd_ >= 0 ||
@@ -502,30 +471,6 @@ void VoCoTypeModule::confirmVoiceEditApplied(
     }).detach();
 }
 
-void VoCoTypeModule::clearPendingEditReplacement() {
-    edit_replace_timer_.reset();
-    edit_replace_pending_ = false;
-    edit_replace_snapshot_ = VoiceEditSnapshot();
-    edit_replace_new_text_.clear();
-    edit_replace_hint_.clear();
-    edit_replace_record_history_ = true;
-    edit_replace_retries_left_ = 0;
-}
-
-void VoCoTypeModule::scheduleEditReplacementCheck() {
-    edit_replace_timer_.reset();
-    edit_replace_timer_ = instance_->eventLoop().addTimeEvent(
-        CLOCK_MONOTONIC,
-        fcitx::now(CLOCK_MONOTONIC) + 40000ULL,
-        0,
-        [this](fcitx::EventSourceTime *, uint64_t) {
-            edit_replace_timer_.reset();
-            finalizeEditReplacement();
-            return false;
-        });
-    edit_replace_timer_->setOneShot();
-}
-
 void VoCoTypeModule::replaceSurroundingText(
     fcitx::InputContext *ic,
     const VoiceEditSnapshot &snapshot,
@@ -547,55 +492,17 @@ void VoCoTypeModule::replaceSurroundingText(
         return;
     }
 
-    clearPendingEditReplacement();
-    edit_replace_pending_ = true;
-    edit_replace_snapshot_ = snapshot;
-    edit_replace_new_text_ = new_text;
-    edit_replace_hint_ = hint;
-    edit_replace_record_history_ = record_history;
-    edit_replace_retries_left_ = 4;
+    // deleteSurroundingText is an ordered input-method request, while the
+    // surrounding-text snapshot is an asynchronously refreshed cache. GTK
+    // clients such as gedit may refresh that cache only after this callback.
+    // Waiting for the cache can therefore delete the source and suppress the
+    // replacement. Validate before editing, then issue delete and commit in
+    // the same input-method transaction.
     const unsigned int original_length =
         static_cast<unsigned int>(fcitx::utf8::length(snapshot.text));
+    clearOwnedUI(ic);
     ic->deleteSurroundingText(-static_cast<int>(snapshot.cursor),
                               original_length);
-    scheduleEditReplacementCheck();
-}
-
-void VoCoTypeModule::finalizeEditReplacement() {
-    if (!edit_replace_pending_) {
-        return;
-    }
-    auto *ic = active_ic_.get();
-    if (!ic || !ic->hasFocus()) {
-        clearPendingEditReplacement();
-        active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
-        return;
-    }
-
-    const auto &surrounding = ic->surroundingText();
-    const bool unchanged =
-        surrounding.isValid() && !edit_replace_snapshot_.text.empty() &&
-        surrounding.text() == edit_replace_snapshot_.text &&
-        surrounding.cursor() == edit_replace_snapshot_.cursor;
-    if (unchanged && edit_replace_retries_left_ > 0) {
-        --edit_replace_retries_left_;
-        scheduleEditReplacementCheck();
-        return;
-    }
-    if (unchanged) {
-        edit_replace_state_ = "unsupported";
-        clearPendingEditReplacement();
-        showError(ic, "当前输入框不支持替换文本");
-        active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
-        return;
-    }
-
-    edit_replace_state_ = "supported";
-    const VoiceEditSnapshot snapshot = edit_replace_snapshot_;
-    const std::string new_text = edit_replace_new_text_;
-    const std::string hint = edit_replace_hint_;
-    const bool record_history = edit_replace_record_history_;
-    clearPendingEditReplacement();
     commitText(ic, new_text);
     confirmVoiceEditApplied(snapshot, new_text, record_history);
     if (!hint.empty()) {
@@ -767,7 +674,6 @@ void VoCoTypeModule::handleFocusOut(fcitx::InputContextEvent &event) {
 
     cancelActiveVoiceEditTask();
     cancelActivePolishTask();
-    clearPendingEditReplacement();
     edit_hint_timer_.reset();
     cancelPendingPttRelease();
     if (is_recording_) {
@@ -1020,17 +926,9 @@ void VoCoTypeModule::startRecording(
     if (long_mode || edit_mode) {
     }
     if (edit_mode) {
-        const std::string replace_flag =
-            edit_replace_state_ == "supported"
-                ? "ok"
-                : (edit_replace_state_ == "unsupported" ? "no" : "?");
-        showVoiceEditStatusBar(
-            ic,
-            "🎤 编辑中(del=" + replace_flag +
-                " sur=1 sel=" +
-                std::to_string(edit_snapshot.selected_text.size()) +
-                " active=1)",
-            "松开 Ctrl+F9 后识别编辑指令");
+        showVoiceEditStatusBar(ic,
+                               "🎤 语音编辑中...",
+                               "松开 Ctrl+F9 后识别编辑指令");
     } else if (animate_panel_) {
         startPanelAnimation(
             ic,
@@ -1265,7 +1163,7 @@ void VoCoTypeModule::launchVoiceEditTask(
                 snapshot.cursor,
                 snapshot.anchor,
                 snapshot.selected_text,
-                edit_replace_state_,
+                "supported",
                 true);
             // A successful async start transfers ownership of the audio file
             // to the backend task. Failed starts leave cleanup to the module.
@@ -1506,6 +1404,7 @@ void VoCoTypeModule::startPolishPolling(fcitx::InputContext *ic,
     active_polish_preview_.clear();
     active_polish_original_.clear();
     active_polish_after_seq_ = 0;
+    active_polish_started_us_ = fcitx::now(CLOCK_MONOTONIC);
     polish_poll_in_flight_ = false;
     polish_poll_timer_.reset();
     showPanelMessage(ic, "⏳ 识别中");
@@ -1557,6 +1456,7 @@ void VoCoTypeModule::handlePolishPollResult(
     if (!result.success) {
         const std::string fallback = active_polish_original_;
         active_polish_task_id_.clear();
+        active_polish_started_us_ = 0;
         polish_poll_timer_.reset();
         showError(ic,
                   result.error.empty() ? "润色任务失败" : result.error,
@@ -1572,12 +1472,8 @@ void VoCoTypeModule::handlePolishPollResult(
         active_polish_preview_ = result.preview;
     }
 
-    std::string status_text =
-        result.phase == "asr" ? "⏳ 识别中..." : "✨ 正在润色...";
     for (const auto &event : result.events) {
-        if (event.kind == "status" && !event.text.empty()) {
-            status_text = event.text;
-        } else if (event.kind == "delta" && !event.preview.empty()) {
+        if (event.kind == "delta" && !event.preview.empty()) {
             active_polish_preview_ = event.preview;
         }
     }
@@ -1591,6 +1487,7 @@ void VoCoTypeModule::handlePolishPollResult(
         active_polish_preview_.clear();
         active_polish_original_.clear();
         active_polish_after_seq_ = 0;
+        active_polish_started_us_ = 0;
         if (!final_text.empty()) {
             commitText(ic, final_text, strip_trailing_period_on_commit_);
         } else {
@@ -1610,18 +1507,18 @@ void VoCoTypeModule::handlePolishPollResult(
         active_polish_preview_.clear();
         active_polish_original_.clear();
         active_polish_after_seq_ = 0;
+        active_polish_started_us_ = 0;
         showError(ic, error, fallback);
         return;
     }
 
-    showPolishProgress(ic, status_text, active_polish_preview_,
+    showPolishProgress(ic, active_polish_preview_,
                        active_polish_original_);
     schedulePolishPoll(ic->watch());
 }
 
 void VoCoTypeModule::showPolishProgress(
     fcitx::InputContext *ic,
-    const std::string &status,
     const std::string &preview,
     const std::string &original_text) {
     stopPanelAnimation();
@@ -1630,19 +1527,31 @@ void VoCoTypeModule::showPolishProgress(
 
     auto &panel = ic->inputPanel();
     panel.reset();
+    const uint64_t now_us = fcitx::now(CLOCK_MONOTONIC);
+    const uint64_t elapsed_us =
+        active_polish_started_us_ == 0 || now_us < active_polish_started_us_
+            ? 0
+            : now_us - active_polish_started_us_;
+    const int elapsed_seconds = static_cast<int>(elapsed_us / 1000000ULL);
+    const int timeout_seconds = std::max(1, polish_timeout_ms_ / 1000);
+
     fcitx::Text status_text;
-    status_text.append(status.empty() ? "✨ 正在润色..." : status);
+    status_text.append("正在润色... （等待模型输出 " +
+                       std::to_string(elapsed_seconds) + "s/" +
+                       std::to_string(timeout_seconds) + "s）");
     panel.setAuxUp(status_text);
 
     auto candidates = std::make_unique<fcitx::CommonCandidateList>();
     candidates->setPageSize(2);
-    fcitx::Text preview_text;
-    preview_text.append(preview.empty() ? "等待模型输出..." : preview);
-    candidates->append<fcitx::DisplayOnlyCandidateWord>(preview_text);
-    if (!original_text.empty()) {
-        fcitx::Text original;
-        original.append(original_text);
-        candidates->append<fcitx::DisplayOnlyCandidateWord>(original);
+    fcitx::Text original;
+    original.append(original_text.empty()
+                        ? "粗识别文本：等待识别结果..."
+                        : "粗识别文本：" + original_text);
+    candidates->append<fcitx::DisplayOnlyCandidateWord>(original);
+    if (!preview.empty()) {
+        fcitx::Text preview_text;
+        preview_text.append(preview);
+        candidates->append<fcitx::DisplayOnlyCandidateWord>(preview_text);
     }
     candidates->setGlobalCursorIndex(0);
     panel.setCandidateList(std::move(candidates));
@@ -1667,6 +1576,7 @@ void VoCoTypeModule::cancelActivePolishTask() {
     active_polish_preview_.clear();
     active_polish_original_.clear();
     active_polish_after_seq_ = 0;
+    active_polish_started_us_ = 0;
     active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
 }
 
@@ -1877,42 +1787,6 @@ bool VoCoTypeModule::handlePendingFallbackKey(fcitx::KeyEvent &event) {
     return true;
 }
 
-bool VoCoTypeModule::pasteTextForClient(fcitx::InputContext *ic,
-                                        const std::string &text) {
-    const std::string program = toLower(ic->program());
-    if (program.find("wechat") == std::string::npos) {
-        return false;
-    }
-
-    const std::string session_type = toLower(
-        std::getenv("XDG_SESSION_TYPE") ? std::getenv("XDG_SESSION_TYPE") : "");
-    clearOwnedUI(ic);
-
-    if (session_type == "x11") {
-        auto ic_ref = ic->watch();
-        std::thread([this, ic_ref, text]() {
-            if (pasteTextToX11Client(text)) {
-                return;
-            }
-            scheduleWithContext(
-                ic_ref, [this, ic_ref, text]() {
-                    auto *ic_ptr = ic_ref.get();
-                    if (ic_ptr && ic_ptr->hasFocus()) {
-                        ic_ptr->commitString(text);
-                    }
-                });
-        }).detach();
-        return true;
-    }
-
-    if (!copyTextToWaylandClipboard(text)) {
-        return false;
-    }
-    ic->forwardKey(fcitx::Key(FcitxKey_v, fcitx::KeyState::Ctrl), false, 0);
-    ic->forwardKey(fcitx::Key(FcitxKey_v, fcitx::KeyState::Ctrl), true, 0);
-    return true;
-}
-
 void VoCoTypeModule::commitText(fcitx::InputContext *ic,
                                 const std::string &text,
                                 bool strip_trailing_period) {
@@ -1932,10 +1806,8 @@ void VoCoTypeModule::commitText(fcitx::InputContext *ic,
         return;
     }
 
-    if (!pasteTextForClient(ic, commit_text)) {
-        clearOwnedUI(ic);
-        ic->commitString(commit_text);
-    }
+    clearOwnedUI(ic);
+    ic->commitString(commit_text);
 
     last_committed_ic_ = ic;
     last_committed_program_ = program;

@@ -9,7 +9,7 @@ User=vocotype-feedback
 Group=vocotype-feedback
 WorkingDirectory=/opt/vocotype-feedback
 EnvironmentFile=/etc/vocotype-feedback.env
-ExecStart=/opt/vocotype-feedback/.venv/bin/uvicorn feedback_service.app:app --host 127.0.0.1 --port 18088 --proxy-headers --forwarded-allow-ips=127.0.0.1
+ExecStart=/opt/vocotype-feedback/bin/vocotype-feedback serve --host 127.0.0.1 --port 18088
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=30

@@ -1,3 +1,14 @@
+vocotype-linux (3.0.0~beta4-1) unstable; urgency=medium
+
+  * Complete the C++ migration for core, Fcitx 5, IBus, settings, audio,
+    model management, feedback service, packaging, tests, and documentation.
+  * Remove all Python source, dependency manifests, wheelhouse, venv, and
+    runtime fallback paths from the repository and distribution packages.
+  * Fix ordered Ctrl+F9 surrounding-text replacement in gedit and GTK clients.
+  * Show polish elapsed/timeout status and the rough ASR text in the Fcitx pane.
+
+ -- Leonard Li <leo@lsamc.website>  Thu, 23 Jul 2026 21:30:00 +0800
+
 vocotype-linux (3.0.0~beta3-1) unstable; urgency=medium
 
   * Publish the corrected V3 Beta 3 native packages.

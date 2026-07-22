@@ -1,20 +1,29 @@
 # 打包与分发
 
-VoCoType Linux 同时维护源码包、Python wheel / sdist，以及面向 Debian、Fedora 和 Arch 的原生软件包。
+VoCoType Linux 发布源码归档，以及面向 Debian/Ubuntu、Fedora/RHEL 和 Arch 的原生软件包。发布流程不生成 wheel、sdist 或私有虚拟环境。
 
 ## 发布原则
 
-- 原生包按 `universal`、`ibus`、`fcitx5` 三种 flavor 安装对应 integration、桌面入口、native streaming runtime 和锁定 Python 运行闭包；三种包共用同一 staging 代码并互相冲突，专用包不得夹带另一套 integration；
-- 用户运行时由设置中心使用包内 wheels 创建；仅 Python 运行环境、模型与个人配置在首次启动后准备；
-- 软件包安装过程不联网下载模型，也不交互式询问用户选项；用户初始化不得调用编译器或从 sdist 构建依赖；
-- DEB、RPM 和 Arch 包应共享同一套 staged system tree；
-- RC 标签自动生成公开 Pre-release；正式标签先生成 Draft，下载并测试最终资产后再原样发布；
-- GitHub Release 附带全局资产清单和 SHA-256 校验和。
+- `universal`、`ibus`、`fcitx5` 三种 flavor 共用同一 native staging 实现；
+- 每个软件包只包含 ELF、共享库、输入法元数据、桌面资源和 shell lifecycle；
+- 软件包事务不下载模型、不修改用户配置、不调用编译器；
+- 用户首次初始化只校验/下载模型并注册所选输入法集成；
+- 三个平台消费同一个经过审计的 FunASR/ONNX portable bundle；
+- 最终 Release 只发布九个安装包与统一 `SHA256SUMS`；源码归档单独验证；
+- 软件包内禁止 `.py`、`.pyc`、`.whl` 和 Python 依赖。
 
-## 本地验证
+## 工具
 
-发布工具和平台构建命令集中在 `packaging/tools/`，安装后 smoke tests 位于 `packaging/tests/`。详细命令、目录契约和维护流程见仓库的 [打包技术文档](https://github.com/LeonardNJU/VocoType-linux/blob/master/packaging/README.md)。
+`packaging/tools/` 中的版本映射、flavor 元数据、模板渲染、源码归档、资产收集和审计全部由 shell/CMake 实现。
+
+```bash
+make test
+make release
+make package-deb
+make package-rpm
+make package-arch
+```
 
 ## CI
 
-`.github/workflows/ci.yml` 会运行 Python 测试，构建一次 portable native bundle，并验证包含 native runtime 与 wheelhouse 的 DEB、RPM 和 Arch 软件包。`.github/workflows/release.yml` 在版本标签上执行相同完整流程；三个包消费同一份 native artifact，并分别构建与 Ubuntu、Fedora、Arch 系统库兼容的 Python wheelhouse。
+`.github/workflows/ci.yml` 运行 CTest、native architecture contracts、Fcitx module build、feedback service tests、静态文档构建和三平台 package smoke tests。`.github/workflows/release.yml` 复用相同 native bundle，构建并验证最终安装资产。
