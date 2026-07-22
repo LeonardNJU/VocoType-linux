@@ -237,6 +237,7 @@ def test_native_streaming_bundle_helper_is_shared_and_installs_private_runtime(t
         {
             "HOME": str(home),
             "VOCOTYPE_STREAMING_BUNDLE_DIR": str(bundle),
+            "VOCOTYPE_SYSTEM_PREFIX": str(tmp_path / "system"),
         }
     )
     result = subprocess.run(

@@ -227,6 +227,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, transition_duration=160)
         self.stack.set_hexpand(True)
         self.stack.set_vexpand(True)
+        self.stack.connect(
+            "notify::visible-child-name", self._on_visible_page_changed
+        )
         sidebar = Gtk.StackSidebar(stack=self.stack)
         sidebar.set_size_request(220, -1)
         sidebar.get_style_context().add_class("sidebar")
@@ -251,6 +254,12 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.tutorial_page.hide()
         self.stack.add_titled(self.tutorial_page, "tutorial", "教程")
         self.stack.add_titled(self._feedback_page(), "feedback", "反馈")
+
+    def _on_visible_page_changed(
+        self, stack: Gtk.Stack, _param: object
+    ) -> None:
+        if stack.get_visible_child_name() == "overview":
+            self._refresh_install_status()
 
     def _page(self, title: str, subtitle: str) -> tuple[Gtk.ScrolledWindow, Gtk.Box]:
         scroller = Gtk.ScrolledWindow()
@@ -335,14 +344,24 @@ class SettingsWindow(Gtk.ApplicationWindow):
             orientation=Gtk.Orientation.VERTICAL, spacing=8
         )
         environment_box.set_hexpand(True)
+        environment_header = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, spacing=8
+        )
         environment_title = Gtk.Label(label="安装环境检查", xalign=0)
+        environment_title.set_hexpand(True)
         environment_title.get_style_context().add_class("row-title")
+        refresh_status_button = Gtk.Button(label="刷新状态")
+        refresh_status_button.connect(
+            "clicked", lambda _button: self._refresh_install_status()
+        )
+        environment_header.pack_start(environment_title, True, True, 0)
+        environment_header.pack_end(refresh_status_button, False, False, 0)
         self.install_environment_status = Gtk.Label(
             label="正在检查安装环境…", xalign=0
         )
         self.install_environment_status.set_line_wrap(True)
         self.install_environment_status.set_selectable(True)
-        environment_box.pack_start(environment_title, False, False, 0)
+        environment_box.pack_start(environment_header, False, False, 0)
         environment_box.pack_start(
             self.install_environment_status, False, False, 0
         )
@@ -2658,6 +2677,8 @@ class SettingsWindow(Gtk.ApplicationWindow):
         fcitx_status = integration_status("fcitx5", project_root=root)
         ibus_status = integration_status("ibus", project_root=root)
 
+        package_command = native_package_removal_command(root)
+
         def framework_text(name: str, status) -> str:
             if status.state == "complete":
                 return f"✅ VoCoType（{name}）：安装完整"
@@ -2666,9 +2687,13 @@ class SettingsWindow(Gtk.ApplicationWindow):
                     f"⚠️ VoCoType（{name}）：安装不完整\n"
                     f"缺少：{', '.join(status.missing)}"
                 )
+            if package_command:
+                return (
+                    f"○ VoCoType（{name}）：尚未为当前用户配置；"
+                    "软件包已提供系统组件"
+                )
             return f"❌ VoCoType（{name}）：未安装"
 
-        package_command = native_package_removal_command(root)
         environment_lines = []
         if self._last_lifecycle_notice:
             environment_lines.append(self._last_lifecycle_notice)
@@ -2701,6 +2726,8 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 return "✅ 已安装完整"
             if status.state == "partial":
                 return "⚠️ 已安装但不完整"
+            if package_command:
+                return "○ 尚未为当前用户配置，可选择后执行安装"
             return "○ 尚未安装，可选择后执行安装"
 
         self.ibus_choice_status.set_text(choice_text(ibus_status))

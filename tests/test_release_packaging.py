@@ -341,20 +341,53 @@ def test_system_launchers_never_install_dependencies_or_request_privilege():
         assert "export PYTHONDONTWRITEBYTECODE=1" in source
 
 
-def test_settings_launcher_prefers_user_runtime(tmp_path: Path):
+def _write_fake_settings_python(
+    path: Path,
+    *,
+    probe_ok: bool,
+    receipt: Path | None = None,
+) -> None:
+    lines = [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        'if [[ "${1:-}" == "-c" ]]; then',
+        f"  exit {0 if probe_ok else 1}",
+        "fi",
+    ]
+    if receipt is not None:
+        lines += [
+            f"printf '%s\\n' \"$@\" > {str(receipt)!r}",
+            f"printf '%s\\n' \"${{VOCOTYPE_PROJECT_DIR:-}}\" >> {str(receipt)!r}",
+            f"printf '%s\\n' \"${{PYTHONPATH:-}}\" >> {str(receipt)!r}",
+        ]
+    lines.append("exit 0")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    path.chmod(0o755)
+
+
+def test_settings_launcher_prefers_distro_python_with_complete_gtk_runtime(
+    tmp_path: Path,
+):
     home = tmp_path / "home"
-    fake_python = home / ".local/share/vocotype/.venv/bin/python"
-    fake_python.parent.mkdir(parents=True)
-    receipt = tmp_path / "receipt.json"
-    fake_python.write_text(
-        "#!/usr/bin/env python3\n"
-        "import json, os, sys\n"
-        f"open({str(receipt)!r}, 'w').write(json.dumps({{'argv': sys.argv, 'root': os.environ.get('VOCOTYPE_PROJECT_DIR'), 'pythonpath': os.environ.get('PYTHONPATH')}}))\n",
-        encoding="utf-8",
-    )
-    fake_python.chmod(0o755)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    receipt = tmp_path / "receipt.txt"
+    _write_fake_settings_python(fake_bin / "python3", probe_ok=True, receipt=receipt)
+    _write_fake_settings_python(fake_bin / "python3.12", probe_ok=False)
+
+    private_python = home / ".local/share/vocotype/.venv/bin/python"
+    private_python.parent.mkdir(parents=True)
+    _write_fake_settings_python(private_python, probe_ok=False)
+
     env = os.environ.copy()
-    env.update({"HOME": str(home), "VOCOTYPE_SYSTEM_ROOT": "/opt/vocotype-test", "PYTHONPATH": "tail"})
+    env.update(
+        {
+            "HOME": str(home),
+            "PATH": f"{fake_bin}:/usr/bin:/bin",
+            "VOCOTYPE_SYSTEM_ROOT": "/opt/vocotype-test",
+            "PYTHONPATH": "tail",
+        }
+    )
     result = subprocess.run(
         [str(ROOT / "packaging/bin/vocotype-settings"), "--example"],
         cwd=ROOT,
@@ -364,10 +397,69 @@ def test_settings_launcher_prefers_user_runtime(tmp_path: Path):
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    data = json.loads(receipt.read_text(encoding="utf-8"))
-    assert data["argv"][1:] == ["-m", "settings_center.application", "--example"]
-    assert data["root"] == "/opt/vocotype-test"
-    assert data["pythonpath"].startswith("/opt/vocotype-test")
+    lines = receipt.read_text(encoding="utf-8").splitlines()
+    assert lines[:3] == ["-m", "settings_center.application", "--example"]
+    assert lines[3] == "/opt/vocotype-test"
+    assert lines[4].startswith("/opt/vocotype-test")
+
+
+def test_settings_launcher_falls_back_to_compatible_user_runtime(tmp_path: Path):
+    home = tmp_path / "home"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    _write_fake_settings_python(fake_bin / "python3", probe_ok=False)
+
+    receipt = tmp_path / "receipt.txt"
+    private_python = home / ".local/share/vocotype/.venv/bin/python"
+    private_python.parent.mkdir(parents=True)
+    _write_fake_settings_python(private_python, probe_ok=True, receipt=receipt)
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "HOME": str(home),
+            "PATH": f"{fake_bin}:/usr/bin:/bin",
+            "VOCOTYPE_SYSTEM_ROOT": "/opt/vocotype-test",
+        }
+    )
+    result = subprocess.run(
+        [str(ROOT / "packaging/bin/vocotype-settings"), "--example"],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert receipt.read_text(encoding="utf-8").splitlines()[:3] == [
+        "-m",
+        "settings_center.application",
+        "--example",
+    ]
+
+
+def test_settings_launcher_probe_reports_selected_runtime(tmp_path: Path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    _write_fake_settings_python(fake_bin / "python3", probe_ok=True)
+    env = os.environ.copy()
+    env.update(
+        {
+            "HOME": str(tmp_path / "home"),
+            "PATH": f"{fake_bin}:/usr/bin:/bin",
+            "VOCOTYPE_SETTINGS_PROBE_ONLY": "1",
+        }
+    )
+    result = subprocess.run(
+        [str(ROOT / "packaging/bin/vocotype-settings")],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "SETTINGS_RUNTIME_OK python3\n"
 
 
 def test_backend_launcher_fails_cleanly_before_gui_setup(tmp_path: Path):
@@ -742,8 +834,10 @@ def test_native_packages_include_minimal_settings_runtime_dependencies(tmp_path:
         assert "python3 (>= 3.10)" in control
         assert "python3 (>= 3.11)" not in control
         assert "python3-gi" in control and "python3-yaml" in control
+        assert "python3-numpy" in control
         assert "pkexec | policykit-1" in control
         assert "python3-gobject" in spec and "python3-pyyaml" in spec
+        assert "python3-numpy" in spec
         assert 'requires-python = ">=3.11,<3.13"' in (
             ROOT / "pyproject.toml"
         ).read_text(encoding="utf-8")
@@ -751,6 +845,7 @@ def test_native_packages_include_minimal_settings_runtime_dependencies(tmp_path:
             ROOT / "packaging/tests/smoke-binary-runtime.sh"
         ).read_text(encoding="utf-8")
         assert "python-gobject" in pkgbuild and "python-yaml" in pkgbuild
+        assert "python-numpy" in pkgbuild
         for source in (control, spec, pkgbuild):
             assert "funasr" not in source.casefold()
             assert "modelscope" not in source.casefold()
@@ -977,6 +1072,8 @@ def test_release_packages_are_offline_but_require_complete_prebuilt_runtimes():
     assert '"$streaming_launcher" --help' in smoke
     assert "streaming_worker_elf" in smoke
     assert "PACKAGE_WHEELHOUSE_OK" in smoke
+    assert "VOCOTYPE_SETTINGS_PROBE_ONLY=1" in smoke
+    assert "SETTINGS_RUNTIME_OK" in smoke
     assert '"$wheel_count" -ge 12' in smoke
     for required in ("onnxruntime", "sentencepiece", "funasr_onnx"):
         assert required in smoke

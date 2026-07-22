@@ -24,7 +24,7 @@ def debian_values(meta: dict[str, object]) -> dict[str, str]:
         build += ["cmake", "g++", "pkg-config", "libfcitx5core-dev", "nlohmann-json3-dev"]
     depends = [
         "${shlibs:Depends}", "${misc:Depends}", "python3 (>= 3.10)",
-        "python3-gi", "python3-yaml", "gir1.2-gtk-3.0", "libportaudio2",
+        "python3-gi", "python3-yaml", "python3-numpy", "gir1.2-gtk-3.0", "libportaudio2",
         "pkexec | policykit-1",
     ]
     if includes_ibus:
@@ -53,7 +53,8 @@ def rpm_values(meta: dict[str, object]) -> dict[str, str]:
         ]
     requires = [
         "Requires:       python3 >= 3.11", "Requires:       python3-gobject",
-        "Requires:       python3-pyyaml", "Requires:       gtk3",
+        "Requires:       python3-pyyaml", "Requires:       python3-numpy",
+        "Requires:       gtk3",
         "Requires:       portaudio", "Requires:       polkit",
     ]
     files = []
@@ -88,7 +89,10 @@ def rpm_values(meta: dict[str, object]) -> dict[str, str]:
 def arch_values(meta: dict[str, object]) -> dict[str, str]:
     includes_ibus = bool(meta["includes_ibus"])
     includes_fcitx = bool(meta["includes_fcitx5"])
-    depends = ["python>=3.11", "python-gobject", "python-yaml", "gtk3", "portaudio", "polkit"]
+    depends = [
+        "python>=3.11", "python-gobject", "python-yaml", "python-numpy",
+        "gtk3", "portaudio", "polkit",
+    ]
     makedepends: list[str] = []
     if includes_ibus:
         depends.append("ibus")

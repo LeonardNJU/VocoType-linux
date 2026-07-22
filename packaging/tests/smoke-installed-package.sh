@@ -184,6 +184,12 @@ fi
 echo "PACKAGE_WHEELHOUSE_OK $wheel_count"
 
 grep -Fq 'PYTHONDONTWRITEBYTECODE=1' /usr/bin/vocotype-settings
+settings_runtime=$(VOCOTYPE_SETTINGS_PROBE_ONLY=1 /usr/bin/vocotype-settings)
+case "$settings_runtime" in
+  SETTINGS_RUNTIME_OK\ *) ;;
+  *) echo "settings launcher runtime probe failed: $settings_runtime" >&2; exit 1 ;;
+esac
+echo "$settings_runtime"
 echo "PACKAGE_METADATA_OK flavor=$flavor package=$package_name manager=$package_manager"
 [[ "$includes_ibus" == true ]] && "$(dirname "$0")/smoke-ibus-registry.sh"
 [[ "$includes_fcitx" == true ]] && "$(dirname "$0")/smoke-fcitx-addon.sh"

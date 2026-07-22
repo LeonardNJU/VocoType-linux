@@ -203,6 +203,33 @@ def _group_present(paths: tuple[Path, ...]) -> bool:
     return any(path.is_file() for path in paths)
 
 
+def _integration_activation_paths(framework: Framework, home: Path) -> tuple[Path, ...]:
+    """Return user-owned artifacts proving that an integration was configured.
+
+    Native packages intentionally place reusable IBus/Fcitx files under /usr.
+    Those package payloads make an integration available, but do not mean that
+    the current user has installed or enabled it.
+    """
+
+    if framework == "ibus":
+        return (
+            home / ".local/share/vocotype/ibus/main.py",
+            home / ".local/libexec/ibus-engine-vocotype",
+            home / ".local/share/ibus/component/vocotype.xml",
+        )
+    if framework == "fcitx5":
+        return (
+            home / ".local/share/vocotype-fcitx5/backend/fcitx5_server.py",
+            home / ".local/bin/vocotype-fcitx5-backend",
+            home / ".local/bin/vocotype-fcitx5-recorder",
+            home / ".config/systemd/user/vocotype-fcitx5-backend.service",
+            home / ".local/lib/fcitx5/vocotype.so",
+            home / ".local/lib64/fcitx5/vocotype.so",
+            home / ".local/share/fcitx5/addon/vocotype.conf",
+        )
+    raise ValueError(f"unknown framework: {framework}")
+
+
 def fcitx_panel_style_support(
     *,
     home: Path | None = None,
@@ -276,7 +303,6 @@ def integration_status(
             "后端启动器": paths.fcitx_backend_launchers,
             "后端代码": paths.fcitx_runtime_entries,
         }
-        structural_groups = groups
         user_launcher = user_home / ".local/bin/vocotype-fcitx5-backend"
         python_candidates = list(paths.python_runtimes)
         if user_launcher.is_file() and project_root is not None:
@@ -287,7 +313,6 @@ def integration_status(
             "component": paths.ibus_components,
             "引擎代码": paths.ibus_runtime_entries,
         }
-        structural_groups = groups
         python_candidates = list(paths.python_runtimes)
     else:
         raise ValueError(f"unknown framework: {framework}")
@@ -331,8 +356,10 @@ def integration_status(
         else:
             missing.append("Fcitx addon 未加载")
 
-    any_structural_artifact = any(_group_present(candidates) for candidates in structural_groups.values())
-    if not any_structural_artifact:
+    user_activated = any(
+        path.is_file() for path in _integration_activation_paths(framework, user_home)
+    )
+    if not user_activated:
         state: InstallState = "absent"
     elif missing:
         state = "partial"

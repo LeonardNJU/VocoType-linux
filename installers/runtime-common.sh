@@ -183,11 +183,12 @@ PY
 
 find_system_streaming_worker() {
     local candidate
+    local system_prefix="${VOCOTYPE_SYSTEM_PREFIX:-/usr}"
     for candidate in \
-        /usr/libexec/vocotype-streaming-worker \
-        /usr/lib/vocotype/vocotype-streaming-worker \
-        /usr/lib64/vocotype/vocotype-streaming-worker \
-        /usr/lib/*/vocotype/vocotype-streaming-worker; do
+        "$system_prefix/libexec/vocotype-streaming-worker" \
+        "$system_prefix/lib/vocotype/vocotype-streaming-worker" \
+        "$system_prefix/lib64/vocotype/vocotype-streaming-worker" \
+        "$system_prefix"/lib/*/vocotype/vocotype-streaming-worker; do
         if [ -x "$candidate" ]; then
             printf '%s\n' "$candidate"
             return 0

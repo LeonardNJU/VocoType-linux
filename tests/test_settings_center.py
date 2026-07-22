@@ -627,6 +627,76 @@ def _touch(path: Path, *, executable: bool = False) -> None:
         path.chmod(0o755)
 
 
+
+def test_native_package_payload_does_not_count_as_user_integration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    home = tmp_path / "home"
+    prefix = tmp_path / "usr"
+    marker = prefix / "share/vocotype/.system-package"
+    marker.parent.mkdir(parents=True)
+    marker.write_text(
+        "version=3.0.0b1\nmanaged-by=native-package\n"
+        "flavor=universal\npackage=vocotype-linux\nmanager=pacman\n",
+        encoding="utf-8",
+    )
+
+    # Universal packages intentionally provide both integrations under /usr.
+    _touch(prefix / "share/ibus/component/vocotype.xml")
+    _touch(prefix / "lib/vocotype/vocotype-ibus-engine", executable=True)
+    _touch(prefix / "share/vocotype/ibus/main.py")
+    module = prefix / "lib/fcitx5/vocotype.so"
+    _touch(module)
+    module.write_bytes(b"fixture\0PanelStyle\0minimal")
+    _touch(prefix / "share/fcitx5/addon/vocotype.conf")
+    _touch(prefix / "lib/systemd/user/vocotype-fcitx5-backend.service")
+    _touch(prefix / "bin/vocotype-fcitx5-backend", executable=True)
+    _touch(prefix / "share/vocotype/fcitx5/backend/fcitx5_server.py")
+
+    monkeypatch.setattr(
+        "settings_center.setup_manager.inspect_required_models",
+        lambda **_kwargs: {
+            name: {"complete": False}
+            for name in ("asr", "vad", "punc")
+        },
+    )
+
+    ibus = integration_status("ibus", home=home, system_prefix=prefix)
+    fcitx = integration_status(
+        "fcitx5",
+        home=home,
+        system_prefix=prefix,
+        fcitx_socket_path=tmp_path / "missing.sock",
+        fcitx_addon_loaded=False,
+    )
+
+    assert ibus.state == "absent"
+    assert fcitx.state == "absent"
+    assert "component" in ibus.present
+    assert "module" in fcitx.present
+
+
+def test_switching_back_to_overview_refreshes_install_status():
+    from settings_center.application import SettingsWindow
+
+    calls: list[str] = []
+    window = SimpleNamespace(
+        _refresh_install_status=lambda: calls.append("refresh")
+    )
+
+    class FakeStack:
+        def __init__(self, name: str):
+            self.name = name
+
+        def get_visible_child_name(self) -> str:
+            return self.name
+
+    SettingsWindow._on_visible_page_changed(window, FakeStack("general"), None)
+    assert calls == []
+    SettingsWindow._on_visible_page_changed(window, FakeStack("overview"), None)
+    assert calls == ["refresh"]
+
+
 def test_integration_status_distinguishes_absent_partial_and_complete(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -848,6 +918,8 @@ def test_settings_application_exposes_both_install_paths():
     assert '"toggled", self._on_framework_radio_toggled, "ibus"' in source
     assert '"toggled", self._on_framework_radio_toggled, "fcitx5"' in source
     assert 'Gtk.Label(label="安装环境检查"' in source
+    assert 'Gtk.Button(label="刷新状态")' in source
+    assert '"notify::visible-child-name", self._on_visible_page_changed' in source
     assert 'Gtk.Label(label="选择输入法框架"' in source
     assert 'lifecycle_stack.add_titled(' in source
     assert 'ui_config = self.runtime_config.get("ui")' in source

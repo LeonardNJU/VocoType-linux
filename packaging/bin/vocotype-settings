@@ -5,12 +5,15 @@ export VOCOTYPE_PROJECT_DIR="$ROOT"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONDONTWRITEBYTECODE=1
 
+# The settings center is a distro-GTK bootstrap application.  Do not select an
+# interpreter merely because its version matches the private ASR runtime: it
+# must be able to import the complete GTK settings application.
 candidates=(
+  python3
   "$HOME/.local/share/vocotype/.venv/bin/python"
   "$HOME/.local/share/vocotype-fcitx5/.venv/bin/python"
   python3.12
   python3.11
-  python3
 )
 for candidate in "${candidates[@]}"; do
   if [[ "$candidate" == */* ]]; then
@@ -18,8 +21,15 @@ for candidate in "${candidates[@]}"; do
   else
     command -v "$candidate" >/dev/null 2>&1 || continue
   fi
+  if ! "$candidate" -c 'import settings_center.application' >/dev/null 2>&1; then
+    continue
+  fi
+  if [[ "${VOCOTYPE_SETTINGS_PROBE_ONLY:-0}" == "1" ]]; then
+    printf 'SETTINGS_RUNTIME_OK %s\n' "$candidate"
+    exit 0
+  fi
   exec "$candidate" -m settings_center.application "$@"
 done
 
-echo "VoCoType Settings requires a distro Python 3 installation; setup will create the separate Python 3.12 ASR runtime." >&2
-exit 127
+echo "VoCoType Settings could not find a Python interpreter with GTK 3, PyGObject, PyYAML, NumPy, and the packaged settings modules." >&2
+exit 78
