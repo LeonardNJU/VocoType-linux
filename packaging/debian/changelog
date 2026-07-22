@@ -1,3 +1,11 @@
+vocotype-linux (3.0.0~beta2-1) unstable; urgency=medium
+
+  * Select a GTK-capable distro Python for the native settings launcher.
+  * Distinguish package-provided integration files from user installation state.
+  * Refresh installation status when returning to the overview page.
+
+ -- Leonard Li <leo@lsamc.website>  Wed, 22 Jul 2026 12:10:00 +0800
+
 vocotype-linux (3.0.0~beta1-1) unstable; urgency=medium
 
   * Ship the complete native 2-pass streaming runtime in every distro package.

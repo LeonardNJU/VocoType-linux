@@ -5,6 +5,18 @@ All notable changes to VoCoType Linux will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0-beta.2] - 2026-07-22
+
+### Fixed
+
+- The native `vocotype-settings` launcher now selects a distro Python only after it can import the complete GTK settings application. On Arch, it no longer picks an unrelated Python 3.12 installation that cannot import the distro `python-gobject` package.
+- DEB, RPM, and Arch packages now declare NumPy as a settings-center bootstrap dependency, matching the top-level Playground import used before the private ASR runtime is created.
+- Universal and specialized package payloads under `/usr` no longer count as an installed user integration. IBus or Fcitx 5 is reported as absent until the current user has runtime code, launchers, services, or user registration artifacts.
+- The overview page now distinguishes “the package provides system components” from “the current user configured this integration,” preventing package-only IBus files from appearing as a partial installation.
+- Installation status refreshes when the user returns to the overview page and through a new explicit “刷新状态” button, in addition to installation/uninstallation lifecycle refreshes.
+- Native-package smoke tests now execute the real settings launcher probe, and runtime tests can isolate the system streaming prefix from packages installed on the developer host.
+
+
 ## [3.0.0-beta.1] - 2026-07-22
 
 ### Added

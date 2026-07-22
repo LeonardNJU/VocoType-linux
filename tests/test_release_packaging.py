@@ -480,11 +480,11 @@ def test_backend_launcher_fails_cleanly_before_gui_setup(tmp_path: Path):
 def test_version_is_consistent_across_package_metadata():
     version = _version()
     assert version.startswith("3.0.0")
-    assert _version_field("tag") == "v3.0.0-beta.1"
-    assert _version_field("debian") == "3.0.0~beta1"
+    assert _version_field("tag") == "v3.0.0-beta.2"
+    assert _version_field("debian") == "3.0.0~beta2"
     assert _version_field("rpm_version") == "3.0.0"
-    assert _version_field("rpm_release") == "0.beta1"
-    assert _version_field("arch") == "3.0.0b1"
+    assert _version_field("rpm_release") == "0.beta2"
+    assert _version_field("arch") == "3.0.0b2"
     changelog = (ROOT / "packaging/debian/changelog").read_text(encoding="utf-8")
     assert changelog.startswith(
         f"vocotype-linux ({_version_field('debian')}-1)"
@@ -736,6 +736,22 @@ def test_v3_beta_release_notes_cover_product_level_changes():
     ):
         assert required in notes
     assert "## What's Changed" not in notes
+
+
+
+def test_v3_beta2_release_notes_cover_native_package_hotfixes():
+    notes = (ROOT / ".github/release-notes/v3.0.0-beta.2.md").read_text(
+        encoding="utf-8"
+    )
+    for required in (
+        "Arch settings center startup",
+        "ModuleNotFoundError: No module named 'gi'",
+        "Correct native-package installation state",
+        "尚未为当前用户配置；软件包已提供系统组件",
+        "Explicit status refresh behavior",
+        "v3.0.0-beta.1...v3.0.0-beta.2",
+    ):
+        assert required in notes
 
 
 def test_release_documentation_explains_all_distribution_layers():
