@@ -724,6 +724,28 @@ def test_workflows_parse_and_pin_current_major_actions():
 
 
 
+def test_v3_beta2_release_notes_cover_full_v3_product_changes():
+    notes = (ROOT / ".github/release-notes/v3.0.0-beta.2.md").read_text(
+        encoding="utf-8"
+    )
+    for required in (
+        "统一图形设置中心",
+        "Fcitx 5 全局 Module",
+        "IBus 与 Fcitx 5 统一语音编辑",
+        "原生流式 ASR 预览",
+        "用户术语与原生热词",
+        "确定性中文 ITN",
+        "OpenAI-compatible",
+        "Playground",
+        "Doctor",
+        ".deb",
+        ".rpm",
+        ".pkg.tar.zst",
+        "9 个可安装软件包",
+    ):
+        assert required in notes
+
+
 def test_publish_tested_release_workflow_requires_matching_tagged_run():
     workflow_path = ROOT / ".github/workflows/publish-tested-release.yml"
     workflow = workflow_path.read_text(encoding="utf-8")
@@ -775,11 +797,11 @@ def test_v3_beta2_release_notes_cover_native_package_hotfixes():
         encoding="utf-8"
     )
     for required in (
-        "Arch settings center startup",
-        "ModuleNotFoundError: No module named 'gi'",
-        "Correct native-package installation state",
+        "Arch 设置中心与 Playground 音频",
+        "缺少 `gi`",
+        "正确的原生包安装状态",
         "尚未为当前用户配置；软件包已提供系统组件",
-        "Explicit status refresh behavior",
+        "状态会在窗口打开",
         "v3.0.0-beta.1...v3.0.0-beta.2",
     ):
         assert required in notes
