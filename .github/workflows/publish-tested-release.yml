@@ -74,9 +74,14 @@ jobs:
             }
           done
 
-          ref_json=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG")
-          object_type=$(jq -r '.object.type' <<<"$ref_json")
-          object_sha=$(jq -r '.object.sha' <<<"$ref_json")
+          refs_json=$(gh api             "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$RELEASE_TAG")
+          ref_count=$(jq -r --arg ref "refs/tags/$RELEASE_TAG"             '[.[] | select(.ref == $ref)] | length' <<<"$refs_json")
+          [[ "$ref_count" == 1 ]] || {
+            echo "Expected exactly one immutable tag ref; found $ref_count" >&2
+            exit 1
+          }
+          object_type=$(jq -r --arg ref "refs/tags/$RELEASE_TAG"             '.[] | select(.ref == $ref) | .object.type' <<<"$refs_json")
+          object_sha=$(jq -r --arg ref "refs/tags/$RELEASE_TAG"             '.[] | select(.ref == $ref) | .object.sha' <<<"$refs_json")
           while [[ "$object_type" == tag ]]; do
             tag_json=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object_sha")
             object_type=$(jq -r '.object.type' <<<"$tag_json")

@@ -735,6 +735,9 @@ def test_publish_tested_release_workflow_requires_matching_tagged_run():
     assert "Build release assets" in workflow
     assert "native-streaming source-python-deb rpm arch" in workflow
     assert "does not match tag commit" in workflow
+    assert "matching-refs/tags/$RELEASE_TAG" in workflow
+    assert "Expected exactly one immutable tag ref" in workflow
+    assert "git/ref/tags/$RELEASE_TAG" not in workflow
     assert "missing, duplicated, or expired" in workflow
     assert "! -name SHA256SUMS" in workflow
     assert "validate-final-release-assets.py final-assets" in workflow
