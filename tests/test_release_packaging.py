@@ -708,6 +708,7 @@ def test_workflows_parse_and_pin_current_major_actions():
     assert "validate-final-release-assets.py" in assemble_text
     assert "--installers-only" in assemble_text
     assert "SHA256SUMS" in assemble_text
+    assert "! -name SHA256SUMS" in assemble_text
     assert "release-assets.json" not in assemble_text
     assert "SHA256SUMS.all" not in assemble_text
     publish_step = release["jobs"]["publish"]["steps"][-1]
@@ -1293,6 +1294,7 @@ def test_release_assets_are_flattened_before_checksums_and_publication(tmp_path:
     assert "name: final-release-assets" in workflow
     assert "cd final-assets" in workflow
     assert "SHA256SUMS" in workflow
+    assert "! -name SHA256SUMS" in workflow
     assert "SHA256SUMS.all" not in workflow
     assert "release-assets.json" not in workflow
     assert 'gh release create "$RELEASE_TAG" final-assets/*' in workflow
@@ -1346,6 +1348,41 @@ def test_final_release_asset_validator_accepts_only_installers(tmp_path: Path):
     )
     assert rejected.returncode != 0
     assert "exactly 9 installers and SHA256SUMS" in rejected.stderr
+
+
+def test_final_release_asset_validator_rejects_checksum_self_entry(tmp_path: Path):
+    final = tmp_path / "final"
+    final.mkdir()
+    names = (
+        "vocotype-linux_3.0.0.beta1-1_amd64.deb",
+        "vocotype-linux-ibus_3.0.0.beta1-1_amd64.deb",
+        "vocotype-linux-fcitx5_3.0.0.beta1-1_amd64.deb",
+        "vocotype-linux-3.0.0-0.beta1.fc44.x86_64.rpm",
+        "vocotype-linux-ibus-3.0.0-0.beta1.fc44.x86_64.rpm",
+        "vocotype-linux-fcitx5-3.0.0-0.beta1.fc44.x86_64.rpm",
+        "vocotype-linux-3.0.0b1-1-x86_64.pkg.tar.zst",
+        "vocotype-linux-ibus-3.0.0b1-1-x86_64.pkg.tar.zst",
+        "vocotype-linux-fcitx5-3.0.0b1-1-x86_64.pkg.tar.zst",
+    )
+    for name in names:
+        (final / name).write_bytes(b"installer")
+    _write_installer_checksum_file(final)
+    checksum = final / "SHA256SUMS"
+    checksum.write_text(
+        checksum.read_text(encoding="utf-8")
+        + f"{hashlib.sha256(checksum.read_bytes()).hexdigest()}  SHA256SUMS\n",
+        encoding="utf-8",
+    )
+
+    rejected = _run(
+        sys.executable,
+        "packaging/tools/validate-final-release-assets.py",
+        str(final),
+        "--version",
+        "3.0.0b1",
+    )
+    assert rejected.returncode != 0
+    assert "extra=['SHA256SUMS']" in rejected.stderr
 
 
 def test_final_release_asset_validator_rejects_bad_checksum(tmp_path: Path):
