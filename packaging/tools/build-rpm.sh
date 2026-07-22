@@ -20,7 +20,7 @@ base="$work/release/VocoType-linux-$VERSION.tar.gz"
 complete="$work/rpmbuild/SOURCES/VocoType-linux-$VERSION.tar.gz"
 python3 "$ROOT/packaging/tools/prepare-complete-source.py" \
   --source "$base" --native-bundle "$BUNDLE" --wheelhouse "$WHEELHOUSE" \
-  --output "$complete"
+  --flavor "$FLAVOR" --output "$complete"
 python3 "$ROOT/packaging/tools/render-package-metadata.py" \
   --format rpm --flavor "$FLAVOR" \
   --template "$ROOT/packaging/rpm/vocotype.spec.in" \

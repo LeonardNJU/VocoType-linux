@@ -53,7 +53,7 @@ if [[ "$DISTRO_KEYS" == *" debian "* ]] || [[ "$DISTRO_KEYS" == *" ubuntu "* ]];
             PACKAGES=(
                 ibus libportaudio2 python3-gi
                 gir1.2-ibus-1.0 gir1.2-gtk-3.0
-                ibus-rime librime-data-luna-pinyin
+                librime1 librime-bin librime-data rime-data-luna-pinyin
             )
             ;;
     esac
@@ -73,7 +73,10 @@ elif [[ "$DISTRO_KEYS" == *" fedora "* ]] || [[ "$DISTRO_KEYS" == *" rhel "* ]] 
             PACKAGES=(ibus python3-gobject gtk3 portaudio)
             ;;
         ibus-rime)
-            PACKAGES=(ibus python3-gobject gtk3 portaudio ibus-rime rime-data)
+            PACKAGES=(
+                ibus python3-gobject gtk3 portaudio
+                librime librime-tools brise
+            )
             ;;
     esac
 elif [[ "$DISTRO_KEYS" == *" arch "* ]] || [[ "$DISTRO_KEYS" == *" manjaro "* ]]; then
@@ -94,7 +97,7 @@ elif [[ "$DISTRO_KEYS" == *" arch "* ]] || [[ "$DISTRO_KEYS" == *" manjaro "* ]]
         ibus-rime)
             PACKAGES=(
                 ibus python-gobject gtk3 python portaudio
-                librime ibus-rime rime-data
+                librime librime-data
             )
             ;;
     esac

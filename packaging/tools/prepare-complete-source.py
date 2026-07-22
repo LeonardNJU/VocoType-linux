@@ -42,13 +42,13 @@ def _validate_bundle(bundle: Path) -> None:
         raise ValueError("native streaming worker is not executable")
 
 
-def _validate_wheelhouse(wheelhouse: Path) -> None:
+def _validate_wheelhouse(wheelhouse: Path, flavor: str) -> None:
     import subprocess
     import sys
 
     audit = Path(__file__).resolve().with_name("audit-wheelhouse.py")
     result = subprocess.run(
-        [sys.executable, str(audit), str(wheelhouse)],
+        [sys.executable, str(audit), str(wheelhouse), "--flavor", flavor],
         text=True,
         capture_output=True,
         check=False,
@@ -89,6 +89,7 @@ def main() -> int:
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--native-bundle", type=Path, required=True)
     parser.add_argument("--wheelhouse", type=Path, required=True)
+    parser.add_argument("--flavor", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -96,7 +97,7 @@ def main() -> int:
     bundle = args.native_bundle.resolve()
     wheelhouse = args.wheelhouse.resolve()
     _validate_bundle(bundle)
-    _validate_wheelhouse(wheelhouse)
+    _validate_wheelhouse(wheelhouse, args.flavor)
 
     with tempfile.TemporaryDirectory(prefix="vocotype-complete-source-") as value:
         root = _safe_extract(source, Path(value))

@@ -106,78 +106,55 @@ echo ""
 read -r -p "请输入选项 (默认 1): " INSTALL_TYPE
 
 ENABLE_RIME=0
+SELECTED_SCHEMA="luna_pinyin"
 case "$INSTALL_TYPE" in
     2)
         ENABLE_RIME=1
         echo ""
         echo "您选择了完整版（语音 + Rime 拼音）"
-        echo ""
-        echo "完整版需要额外依赖："
-        echo "  - librime-devel (Rime 开发库)"
-        echo "  - pyrime (Python 绑定，自动安装)"
+        echo "VoCoType 通过项目内 ctypes 适配层直接调用系统 librime，"
+        echo "不编译或安装任何 Python Rime 绑定。"
         echo ""
 
-        # 检测系统类型并提供安装命令
         if [ -f /etc/fedora-release ] || [ -f /etc/redhat-release ]; then
             DISTRO="Fedora/RHEL"
-            INSTALL_CMD="sudo dnf install -y librime-devel ibus-rime"
-            CHECK_CMD="rpm -q librime-devel"
+            INSTALL_CMD="sudo dnf install -y librime librime-tools brise"
         elif [ -f /etc/debian_version ]; then
             DISTRO="Debian/Ubuntu"
-            INSTALL_CMD="sudo apt install -y librime-dev ibus-rime"
-            CHECK_CMD="dpkg -l librime-dev"
+            INSTALL_CMD="sudo apt install -y librime1 librime-bin librime-data rime-data-luna-pinyin"
         elif [ -f /etc/arch-release ]; then
             DISTRO="Arch Linux"
-            INSTALL_CMD="sudo pacman -S --noconfirm librime ibus-rime"
-            CHECK_CMD="pacman -Q librime"
+            INSTALL_CMD="sudo pacman -S --needed librime librime-data"
         else
             DISTRO="未知"
             INSTALL_CMD=""
-            CHECK_CMD=""
         fi
 
         echo "检测到系统: $DISTRO"
-        echo ""
-
-        # 检查 librime 是否已安装
-        if [ -n "$CHECK_CMD" ] && eval "$CHECK_CMD" >/dev/null 2>&1; then
-            echo "✓ librime 开发库已安装"
-        else
-            echo "⚠️  未检测到 librime 开发库"
-            echo ""
-
-            if [ -n "$INSTALL_CMD" ]; then
-                echo "需要安装系统依赖，建议执行："
-                echo "  $INSTALL_CMD"
-                echo ""
-                read -r -p "是否现在自动安装？(y/N): " AUTO_INSTALL
-
-                if [[ "$AUTO_INSTALL" =~ ^[Yy]$ ]]; then
-                    echo "正在安装系统依赖..."
-                    if eval "$INSTALL_CMD"; then
-                        echo "✓ 系统依赖安装成功"
-                    else
-                        echo "❌ 系统依赖安装失败"
-                        echo "   请手动执行: $INSTALL_CMD"
-                        echo "   然后重新运行安装脚本"
-                        exit 1
-                    fi
-                else
-                    echo ""
-                    echo "请先手动安装系统依赖："
-                    echo "  $INSTALL_CMD"
-                    echo ""
-                    read -r -p "已完成安装？按回车继续，或 Ctrl+C 取消..."
-                fi
+        if command -v rime_deployer >/dev/null 2>&1 &&            ldconfig -p 2>/dev/null | grep -q 'librime\.so'; then
+            echo "✓ librime 运行库和部署工具已安装"
+        elif [ -n "$INSTALL_CMD" ]; then
+            echo "需要安装 Rime 运行依赖："
+            echo "  $INSTALL_CMD"
+            read -r -p "是否现在自动安装？(y/N): " AUTO_INSTALL
+            if [[ "$AUTO_INSTALL" =~ ^[Yy]$ ]]; then
+                eval "$INSTALL_CMD" || {
+                    echo "❌ 系统依赖安装失败，请手动执行上面的命令。"
+                    exit 1
+                }
             else
-                echo "未知的发行版，请手动安装 librime 开发库"
-                echo "参考: https://github.com/rime/librime"
-                echo ""
-                read -r -p "已完成安装？按回车继续，或 Ctrl+C 取消..."
+                read -r -p "完成依赖安装后按回车继续，或 Ctrl+C 取消..."
             fi
+        else
+            echo "未知发行版，请安装 librime、rime_deployer 与 Rime schema 数据。"
+            read -r -p "完成依赖安装后按回车继续，或 Ctrl+C 取消..."
         fi
 
-        echo ""
+        read -r -p "Rime schema ID (默认 luna_pinyin): " SCHEMA_INPUT
+        if [ -n "$SCHEMA_INPUT" ]; then
+            SELECTED_SCHEMA="$SCHEMA_INPUT"
+        fi
+        echo "✓ 将部署输入方案: $SELECTED_SCHEMA"
         ;;
     ""|1|*)
         ENABLE_RIME=0
@@ -364,198 +341,6 @@ if [ "$USE_SYSTEM_PYTHON" = "1" ]; then
 else
     echo "安装依赖到虚拟环境..."
     install_runtime_requirements "$PYTHON" "$PROJECT_DIR"
-
-    # 如果启用 Rime，安装 pyrime
-    if [ "$ENABLE_RIME" = "1" ]; then
-        echo ""
-        echo "安装 pyrime（Rime Python 绑定）..."
-        if command -v uv >/dev/null 2>&1; then
-            if ! install_binary_packages "$PYTHON" "$PROJECT_DIR" pyrime; then
-                echo "⚠️  pyrime 安装失败"
-                echo "   这可能是因为 librime-devel 未正确安装"
-                echo "   VoCoType 将以纯语音模式运行"
-                ENABLE_RIME=0
-            fi
-        else
-            if ! install_binary_packages "$PYTHON" "$PROJECT_DIR" pyrime; then
-                echo "⚠️  pyrime 安装失败"
-                echo "   这可能是因为 librime-devel 未正确安装"
-                echo "   VoCoType 将以纯语音模式运行"
-                ENABLE_RIME=0
-            fi
-        fi
-
-        # pyrime 安装成功后，进行 schema 选择
-        if [ "$ENABLE_RIME" = "1" ]; then
-            echo ""
-            echo "══════════════════════════════════════════"
-            echo "   RIME 输入方案配置"
-            echo "══════════════════════════════════════════"
-            echo ""
-            # 检测已部署的 schema（从 build 目录）
-            IBUS_RIME_USER="$HOME/.config/ibus/rime"
-            IBUS_RIME_BUILD="$IBUS_RIME_USER/build"
-            declare -a SCHEMAS=()
-            declare -A SCHEMA_NAMES=()
-
-            # 常见 schema 的中文名称
-            SCHEMA_NAMES["luna_pinyin"]="朙月拼音"
-            SCHEMA_NAMES["luna_pinyin_simp"]="朙月拼音·简化字"
-            SCHEMA_NAMES["luna_pinyin_tw"]="朙月拼音·臺灣正體"
-            SCHEMA_NAMES["double_pinyin"]="自然码双拼"
-            SCHEMA_NAMES["double_pinyin_abc"]="智能ABC双拼"
-            SCHEMA_NAMES["double_pinyin_flypy"]="小鹤双拼"
-            SCHEMA_NAMES["double_pinyin_mspy"]="微软双拼"
-            SCHEMA_NAMES["double_pinyin_pyjj"]="拼音加加双拼"
-            SCHEMA_NAMES["rime_ice"]="雾凇拼音"
-            SCHEMA_NAMES["wubi86"]="五笔86"
-            SCHEMA_NAMES["wubi98"]="五笔98"
-            SCHEMA_NAMES["wubi_pinyin"]="五笔拼音混输"
-            SCHEMA_NAMES["pinyin_simp"]="袖珍简化字拼音"
-            SCHEMA_NAMES["terra_pinyin"]="地球拼音"
-            SCHEMA_NAMES["bopomofo"]="注音"
-            SCHEMA_NAMES["bopomofo_tw"]="注音·臺灣正體"
-            SCHEMA_NAMES["bopomofo_express"]="注音·快打"
-            SCHEMA_NAMES["cangjie5"]="仓颉五代"
-            SCHEMA_NAMES["cangjie5_express"]="仓颉五代·快打"
-            SCHEMA_NAMES["quick5"]="速成"
-            SCHEMA_NAMES["stroke"]="五笔画"
-            SCHEMA_NAMES["array30"]="行列30"
-            SCHEMA_NAMES["combo_pinyin"]="宫保拼音"
-            SCHEMA_NAMES["combo_pinyin_kbcon"]="宫保拼音·键盘控"
-            SCHEMA_NAMES["combo_pinyin_left"]="宫保拼音·左手"
-            SCHEMA_NAMES["stenotype"]="打字速记"
-            SCHEMA_NAMES["jyutping"]="粤拼"
-            SCHEMA_NAMES["ipa_xsampa"]="国际音标"
-            SCHEMA_NAMES["emoji"]="绘文字"
-            SCHEMA_NAMES["stroke_simp"]="笔顺·简化字"
-            SCHEMA_NAMES["triungkox"]="中古汉语三拼"
-
-            # 扫描已部署的 schema（从 build 目录的 .prism.bin 文件）
-            if [ -d "$IBUS_RIME_BUILD" ]; then
-                for f in "$IBUS_RIME_BUILD"/*.prism.bin; do
-                    if [ -f "$f" ]; then
-                        schema_id=$(basename "$f" .prism.bin)
-                        SCHEMAS+=("$schema_id")
-                    fi
-                done
-            fi
-
-            # 检查是否有已部署的 schema
-            if [ ${#SCHEMAS[@]} -eq 0 ]; then
-                echo "⚠️  未检测到已部署的 Rime 输入方案"
-                echo ""
-                echo "请先运行 ibus-rime 完成 Rime 部署："
-                echo "  1. 添加 ibus-rime 输入法"
-                echo "  2. 切换到 ibus-rime 并使用一次"
-                echo "  3. Rime 会自动部署输入方案"
-                echo "  4. 然后重新运行本安装脚本"
-                echo ""
-                echo "⚠️  Rime 功能将被禁用，VoCoType 将以纯语音模式运行"
-                ENABLE_RIME=0
-            elif [ ${#SCHEMAS[@]} -gt 0 ]; then
-                echo "检测到 ${#SCHEMAS[@]} 个已部署的输入方案"
-                echo ""
-                # 优先显示 luna_pinyin
-                MENU_SCHEMAS=()
-                if [[ " ${SCHEMAS[*]} " =~ " luna_pinyin " ]]; then
-                    MENU_SCHEMAS+=("luna_pinyin")
-                fi
-                for s in "${SCHEMAS[@]}"; do
-                    if [ "$s" != "luna_pinyin" ]; then
-                        MENU_SCHEMAS+=("$s")
-                    fi
-                done
-
-                # 翻页显示
-                PAGE_SIZE=10
-                TOTAL=${#MENU_SCHEMAS[@]}
-                PAGE=0
-                TOTAL_PAGES=$(( (TOTAL + PAGE_SIZE - 1) / PAGE_SIZE ))
-
-                while true; do
-                    echo "检测到以下可用输入方案（第 $((PAGE + 1))/$TOTAL_PAGES 页，共 $TOTAL 个）："
-                    echo ""
-
-                    START=$((PAGE * PAGE_SIZE))
-                    END=$((START + PAGE_SIZE))
-                    if [ $END -gt $TOTAL ]; then
-                        END=$TOTAL
-                    fi
-
-                    count=0
-                    for ((i = START; i < END; i++)); do
-                        s="${MENU_SCHEMAS[$i]}"
-                        count=$((count + 1))
-                        display_num=$((i + 1))
-                        name="${SCHEMA_NAMES[$s]:-$s}"
-                        if [ "$s" = "luna_pinyin" ]; then
-                            echo "  [$display_num] $s - $name（推荐，librime 自带）"
-                        else
-                            echo "  [$display_num] $s - $name"
-                        fi
-                    done
-
-                    echo ""
-                    if [ $TOTAL_PAGES -gt 1 ]; then
-                        echo "  [n] 下一页  [p] 上一页"
-                    fi
-                    echo "  [0] 使用默认 luna_pinyin"
-                    echo ""
-
-                    read -r -p "请输入方案编号 (默认 1): " SCHEMA_CHOICE
-
-                    # 翻页处理
-                    if [ "$SCHEMA_CHOICE" = "n" ] || [ "$SCHEMA_CHOICE" = "N" ]; then
-                        if [ $((PAGE + 1)) -lt $TOTAL_PAGES ]; then
-                            PAGE=$((PAGE + 1))
-                            echo ""
-                            continue
-                        else
-                            echo "已是最后一页"
-                            echo ""
-                            continue
-                        fi
-                    elif [ "$SCHEMA_CHOICE" = "p" ] || [ "$SCHEMA_CHOICE" = "P" ]; then
-                        if [ $PAGE -gt 0 ]; then
-                            PAGE=$((PAGE - 1))
-                            echo ""
-                            continue
-                        else
-                            echo "已是第一页"
-                            echo ""
-                            continue
-                        fi
-                    fi
-
-                    # 选择处理
-                    if [ -z "$SCHEMA_CHOICE" ] || [ "$SCHEMA_CHOICE" = "1" ]; then
-                        SELECTED_SCHEMA="${MENU_SCHEMAS[0]}"
-                        break
-                    elif [ "$SCHEMA_CHOICE" = "0" ]; then
-                        SELECTED_SCHEMA="luna_pinyin"
-                        break
-                    elif [[ "$SCHEMA_CHOICE" =~ ^[0-9]+$ ]] && [ "$SCHEMA_CHOICE" -ge 1 ] && [ "$SCHEMA_CHOICE" -le $TOTAL ]; then
-                        idx=$((SCHEMA_CHOICE - 1))
-                        SELECTED_SCHEMA="${MENU_SCHEMAS[$idx]}"
-                        break
-                    else
-                        echo "无效选择，请重新输入"
-                        echo ""
-                        continue
-                    fi
-                done
-            else
-                echo "未检测到可用的输入方案，将使用默认方案 luna_pinyin"
-                SELECTED_SCHEMA="luna_pinyin"
-            fi
-
-            echo ""
-            echo "✓ 已选择输入方案: $SELECTED_SCHEMA"
-            echo "══════════════════════════════════════════"
-            echo ""
-        fi
-    fi
 fi
 
 # 验证 IBus GI 绑定可用（避免 Python 3.12 + PyGObject 3.42 导致引擎无法启动）
@@ -733,49 +518,56 @@ echo "✓ 图形设置中心已安装，可运行: vocotype-settings"
 # 5. 配置 Rime 集成（如果启用）
 if [ "$ENABLE_RIME" = "1" ]; then
     echo "[5/6] 配置 Rime 集成..."
-
-    # 使用 ibus-rime 配置目录（保证 Rime 完整可用）
     VOCOTYPE_RIME_CONFIG="$HOME/.config/vocotype/rime"
     VOCOTYPE_RIME_LOG="$HOME/.local/share/vocotype/rime"
-    IBUS_RIME_DIR="$HOME/.config/ibus/rime"
+    mkdir -p "$VOCOTYPE_RIME_CONFIG" "$VOCOTYPE_RIME_LOG"
 
-    mkdir -p "$VOCOTYPE_RIME_CONFIG"
-    mkdir -p "$VOCOTYPE_RIME_LOG"
-    mkdir -p "$IBUS_RIME_DIR"
+    RIME_SHARED_DIR=""
+    for candidate in /usr/share/rime-data /usr/local/share/rime-data; do
+        if [ -f "$candidate/default.yaml" ]; then
+            RIME_SHARED_DIR="$candidate"
+            break
+        fi
+    done
+    [ -n "$RIME_SHARED_DIR" ] || {
+        echo "❌ 未找到 Rime 共享数据目录" >&2
+        exit 1
+    }
+    command -v rime_deployer >/dev/null 2>&1 || {
+        echo "❌ 未找到 rime_deployer" >&2
+        exit 1
+    }
 
-    # 检查系统 Rime 数据是否存在（必需）
-    if [ ! -f "/usr/share/rime-data/default.yaml" ] && [ ! -f "/usr/local/share/rime-data/default.yaml" ]; then
-        echo ""
-        echo "❌ 未找到系统 Rime 配置文件"
-        echo "   请确认 rime-data 已安装"
-        echo ""
-        echo "   Fedora/RHEL: sudo dnf install rime-data"
-        echo "   Debian/Ubuntu: sudo apt install librime-data-*"
-        echo "   Arch: sudo pacman -S rime-data"
-        echo ""
-        echo "⚠️  Rime 功能将被禁用，VoCoType 将以纯语音模式运行"
-        ENABLE_RIME=0
-    else
-        # 创建 user.yaml（仅用于记录用户选择的方案）
-        cat > "$VOCOTYPE_RIME_CONFIG/user.yaml" << EOF
-# VoCoType RIME 用户配置
-# 如需更换输入方案，请修改下面的 previously_selected_schema 值
+    cat > "$VOCOTYPE_RIME_CONFIG/default.custom.yaml" <<EOF
+patch:
+  schema_list:
+    - schema: "$SELECTED_SCHEMA"
+EOF
+    cat > "$VOCOTYPE_RIME_CONFIG/user.yaml" <<EOF
 var:
   previously_selected_schema: "$SELECTED_SCHEMA"
 EOF
-        echo "  创建配置文件: $VOCOTYPE_RIME_CONFIG/user.yaml"
-
-        echo ""
-        echo "✓ Rime 集成配置完成"
-        if [ -f "$IBUS_RIME_DIR/default.yaml" ]; then
-            echo "  用户配置: $IBUS_RIME_DIR/default.yaml"
-        else
-            echo "  系统配置: /usr/share/rime-data/default.yaml"
-        fi
-        echo "  用户目录: $IBUS_RIME_DIR"
-        echo "  输入方案: $SELECTED_SCHEMA"
-    fi
-    echo ""
+    rime_deployer --build \
+        "$VOCOTYPE_RIME_CONFIG" "$RIME_SHARED_DIR" \
+        "$VOCOTYPE_RIME_CONFIG/build" >/dev/null
+    [ -f "$VOCOTYPE_RIME_CONFIG/build/default.yaml" ] || {
+        echo "❌ Rime 默认配置部署失败" >&2
+        exit 1
+    }
+    [ -f "$VOCOTYPE_RIME_CONFIG/build/$SELECTED_SCHEMA.schema.yaml" ] || {
+        echo "❌ Rime schema 部署失败: $SELECTED_SCHEMA" >&2
+        exit 1
+    }
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$INSTALL_DIR" \
+        "$PYTHON" "$INSTALL_DIR/ibus/rime_runtime.py" \
+        --shared-data-dir "$RIME_SHARED_DIR" \
+        --user-data-dir "$VOCOTYPE_RIME_CONFIG" \
+        --log-dir "$VOCOTYPE_RIME_LOG" \
+        --schema "$SELECTED_SCHEMA" --key n >/dev/null || {
+            echo "❌ Rime 普通键盘输入验收失败" >&2
+            exit 1
+        }
+    echo "✓ Rime 集成可用：$SELECTED_SCHEMA"
 else
     echo "[5/6] 跳过 Rime 配置（纯语音版）..."
 fi
@@ -894,7 +686,7 @@ else
     echo "   - 按住F9说话，松开后自动识别并输入"
     echo ""
     echo "提示："
-    echo "   - 如需拼音输入，请安装并切换到其他拼音输入法（如 ibus-rime）"
+    echo "   - 如需拼音输入，请重新运行安装器并选择完整版"
     echo "   - 如果以后想升级到完整版，请重新运行安装脚本并选择选项 2"
 fi
 

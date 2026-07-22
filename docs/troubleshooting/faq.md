@@ -99,27 +99,25 @@ sudo dnf install gcc-c++ pkgconfig cairo-devel \
 
 ---
 
-### Rime开发库缺失（完整版）
+### Rime 运行时或 schema 部署失败
 
-**错误**：pyrime安装失败
+**症状**：找不到 `librime`、`rime_deployer`，或者普通拼音按键没有 preedit。
 
-**解决方案**：
+VoCoType 不使用 Python Rime binding，也不需要开发包。安装对应的运行依赖：
 
-**Fedora/RHEL**：
 ```bash
-sudo dnf install librime-devel ibus-rime
+# Ubuntu / Debian
+sudo apt install librime1 librime-bin librime-data rime-data-luna-pinyin
+
+# Fedora
+sudo dnf install librime librime-tools brise
+
+# Arch
+sudo pacman -S --needed librime librime-data
 ```
 
-**Debian/Ubuntu**：
-```bash
-sudo apt install librime-dev ibus-rime
-```
-Ubuntu 22.04 官方源的 librime-dev/ibus-rime 版本偏旧，必要时请卸载后手动编译安装。
+随后在设置中心重新执行 IBus“安装 / 修复”。安装器会生成最小 schema 配置、运行 `rime_deployer`，并发送真实按键验证 preedit。
 
-然后重新安装：
-```bash
-pip install --force-reinstall pyrime
-```
 
 ---
 
@@ -181,8 +179,8 @@ Session ID: XXX
 ```
 
 **如果看到错误**：
-- `找不到可用的 Rime 配置目录` → 安装ibus-rime
-- `pyrime 未安装` → 安装librime-devel和pyrime
+- `找不到可用的 Rime 配置目录` → 安装对应发行版的 librime、部署工具和 schema 数据后重新运行 IBus“安装 / 修复”
+- `Rime 普通键盘输入验收失败` → 检查 `~/.config/vocotype/rime/build/default.yaml`，再运行 `python tools/diagnostics/debug-rime.py`
 - `初始化失败` → 检查Rime配置文件
 
 #### 3. 验证Rime配置
@@ -422,38 +420,25 @@ sudo pacman -S base-devel pkg-config cairo gobject-introspection
 
 ---
 
-### 6. Rime开发库缺失
+### Rime 运行时或 schema 部署失败
 
-**错误**：
-```
-pyrime 安装失败
-找不到可用的 Rime 配置目录
-```
+**症状**：找不到 `librime`、`rime_deployer`，或者普通拼音按键没有 preedit。
 
-**原因**：缺少 `librime-devel` 或 `librime-dev` 系统包
+VoCoType 不使用 Python Rime binding，也不需要开发包。安装对应的运行依赖：
 
-**解决方案**：
-
-**Fedora/RHEL**：
 ```bash
-sudo dnf install librime-devel ibus-rime
+# Ubuntu / Debian
+sudo apt install librime1 librime-bin librime-data rime-data-luna-pinyin
+
+# Fedora
+sudo dnf install librime librime-tools brise
+
+# Arch
+sudo pacman -S --needed librime librime-data
 ```
 
-**Debian/Ubuntu**：
-```bash
-sudo apt install librime-dev ibus-rime
-```
-Ubuntu 22.04 官方源的 librime-dev/ibus-rime 版本偏旧，必要时请卸载后手动编译安装。
+随后在设置中心重新执行 IBus“安装 / 修复”。安装器会生成最小 schema 配置、运行 `rime_deployer`，并发送真实按键验证 preedit。
 
-**Arch**：
-```bash
-sudo pacman -S librime ibus-rime
-```
-
-然后重新安装pyrime：
-```bash
-pip install --force-reinstall pyrime
-```
 
 ---
 
@@ -531,7 +516,7 @@ Backend 无法启动
 
 2. 验证依赖：
    ```bash
-   ~/.local/share/vocotype-fcitx5/.venv/bin/python -c "import pyrime; print('OK')"
+   ~/.local/share/vocotype-fcitx5/.venv/bin/python -c "from app.funasr_server import FunASRServer; print('OK')"
    ```
 
 3. 启用并启动服务：

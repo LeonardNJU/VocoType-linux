@@ -87,7 +87,6 @@ if [ -f "$VENV_PYTHON" ]; then
 
     echo ""
     echo "检查关键依赖:"
-    "$VENV_PYTHON" -c "import pyrime; print('✓ pyrime')" 2>&1 || echo "✗ pyrime 缺失"
     "$VENV_PYTHON" -c "from app.funasr_server import FunASRServer; print('✓ FunASRServer')" 2>&1 || echo "✗ FunASRServer 缺失"
 else
     echo "✗ Python 虚拟环境不存在: $VENV_PYTHON"

@@ -19,7 +19,7 @@ base="$work/release/VocoType-linux-$VERSION.tar.gz"
 complete="$work/VocoType-linux-$VERSION.tar.gz"
 python3 "$ROOT/packaging/tools/prepare-complete-source.py" \
   --source "$base" --native-bundle "$BUNDLE" --wheelhouse "$WHEELHOUSE" \
-  --output "$complete"
+  --flavor "$FLAVOR" --output "$complete"
 tar -xzf "$complete" -C "$work"
 src="$work/VocoType-linux-$VERSION"
 cp -a "$src/packaging/debian" "$src/debian"

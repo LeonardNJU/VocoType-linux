@@ -504,34 +504,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pyrime"
-version = "0.2.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "platformdirs" },
-    { name = "wcwidth" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/ab/14/37745bdade9ebcab435e150b37392ce64bd2743db46dac32900a0444e310/pyrime-0.2.2.tar.gz", hash = "sha256:be5016ae7eb849f35581296f0febee73ffe8630871eb509167c6e82a3f08940d", size = 53080, upload-time = "2026-01-17T10:58:43.837Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b6/f4/743c920c22a768cb8354f599828d01dd86e01b9a5f30ce996f5ba62ed7f3/pyrime-0.2.2-cp311-cp311-macosx_15_0_arm64.whl", hash = "sha256:348fbc9e2c41d35d8b5663f548dd722b09161ff2f0ab05076308c37598baa66e", size = 1201476, upload-time = "2026-01-17T10:57:44.457Z" },
-    { url = "https://files.pythonhosted.org/packages/94/3a/2044e577c79cb561927c4a1073f4b54fbd13ee7508de24f553aed8d9c9f8/pyrime-0.2.2-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:f28c253613efb171e2b2988f2c67b6e0ab1fc5395455293d7433529b3ad381f4", size = 2333306, upload-time = "2026-01-17T10:57:46.234Z" },
-    { url = "https://files.pythonhosted.org/packages/c8/9e/dcc67abc62cdaaf49db92665253ee595a6be8df0c18ec2a86b55dfc9e307/pyrime-0.2.2-cp311-cp311-musllinux_1_2_armv7l.whl", hash = "sha256:c609faac220011bc44a8492e2a509f19c6b968579c3ef91059e60ad84b5fdd7f", size = 2054342, upload-time = "2026-01-17T10:57:47.668Z" },
-    { url = "https://files.pythonhosted.org/packages/75/76/8ced47e5852bd3db8e7314cb78f161a97f44a2192f8531f1da03e6703c92/pyrime-0.2.2-cp311-cp311-musllinux_1_2_i686.whl", hash = "sha256:288935e662f9d58cc71c6cd8955f520ab212cdd04996a4083e8775e4a0ee2af1", size = 2589286, upload-time = "2026-01-17T10:57:49.369Z" },
-    { url = "https://files.pythonhosted.org/packages/f4/6d/d7e21abc403c0d9501c7462b042e2ab519b1066761531c1ccc7b06af75a8/pyrime-0.2.2-cp311-cp311-musllinux_1_2_ppc64le.whl", hash = "sha256:67e227855aa14c452af584430360cfdc9dd6eccaedb3f6e506f81058882f6266", size = 2501491, upload-time = "2026-01-17T10:57:51.058Z" },
-    { url = "https://files.pythonhosted.org/packages/90/7e/ff35080fc8307268d404fdd2d5b78522c19260b91f877e1283378d79c39f/pyrime-0.2.2-cp311-cp311-musllinux_1_2_riscv64.whl", hash = "sha256:0107cbc41b52128c41108b8dd06999a0609665cc3280a271fb2c405e896bb7eb", size = 2368597, upload-time = "2026-01-17T10:57:53.947Z" },
-    { url = "https://files.pythonhosted.org/packages/d8/6a/4a2731f8b285d1f887ee3804c93d7e5932c89b0bec3bd5a6165ee4ca2d83/pyrime-0.2.2-cp311-cp311-musllinux_1_2_s390x.whl", hash = "sha256:4fa70f703e715967ae48a75db47b4fa08b4d945a42e985796e828b7822d2fd4e", size = 2604285, upload-time = "2026-01-17T10:57:55.189Z" },
-    { url = "https://files.pythonhosted.org/packages/4a/7a/398e4f759dcae15825bdb7b99fc96832a2cf38212acc65df282bfecf1bdd/pyrime-0.2.2-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:15d040a7b1aaa5034afec200f7a47c49194fa612672e3d1131e410f0f459c659", size = 2380966, upload-time = "2026-01-17T10:57:56.377Z" },
-    { url = "https://files.pythonhosted.org/packages/84/5d/2225878acff6ca082650d5cfd6ed81796d4d88dc65c8beda76d1ca005746/pyrime-0.2.2-cp312-cp312-macosx_15_0_arm64.whl", hash = "sha256:52fb5d8b782fe6b6ec77024b2647a35c1c22bb9d60ecc86cb14693600e2eaa44", size = 1201885, upload-time = "2026-01-17T10:57:57.525Z" },
-    { url = "https://files.pythonhosted.org/packages/2b/cb/64a96f9ed507d9a7ad10b860beb389dfb53b0e1551ea8edc6c414b63b952/pyrime-0.2.2-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:fe3fe4992a94646fe0d455105ffba20d6efbf87b5dc8821c82300b3cbe14a55e", size = 2331019, upload-time = "2026-01-17T10:57:59.608Z" },
-    { url = "https://files.pythonhosted.org/packages/53/79/ecdef6996b4d916f7eb59ea119c717850260ee5e3503cfbb35e48550bfcc/pyrime-0.2.2-cp312-cp312-musllinux_1_2_armv7l.whl", hash = "sha256:62627ea5bef4dcc6e065ffcb0e55f84ccff298a86ad40f4b9c4ae127d3894c4b", size = 2054866, upload-time = "2026-01-17T10:58:00.804Z" },
-    { url = "https://files.pythonhosted.org/packages/0a/9a/59800ffb11ff7143bed670e5af7386beeec81a14c463c97b368af13e178b/pyrime-0.2.2-cp312-cp312-musllinux_1_2_i686.whl", hash = "sha256:3950fdac1bb62d91172ed8ecc0ac5430b0c9c4565e49a3b2f1989ccc84fa3488", size = 2588079, upload-time = "2026-01-17T10:58:02.002Z" },
-    { url = "https://files.pythonhosted.org/packages/01/62/0d3d50648986d8053a02d31b917a93bf1cb963e3fb51bcbcfc27e9fe3ad8/pyrime-0.2.2-cp312-cp312-musllinux_1_2_ppc64le.whl", hash = "sha256:9c6a525de9b82e86021cab10ad4934ba177f4f214238d13e9140ff3f915600de", size = 2500267, upload-time = "2026-01-17T10:58:03.185Z" },
-    { url = "https://files.pythonhosted.org/packages/0f/a3/c754df79deabf0d3e2c49039b9cd6dcb05ce3ea1613cecf1ad90388baea4/pyrime-0.2.2-cp312-cp312-musllinux_1_2_riscv64.whl", hash = "sha256:9af40ee681ce4ae0005dfeffcac8ec8e08062eccbd7f0804ae78b90aebdf4d1e", size = 2366652, upload-time = "2026-01-17T10:58:04.821Z" },
-    { url = "https://files.pythonhosted.org/packages/72/19/3273eecac4ab4fba694e8e31b4f7cb597c61615412f2f5354f5a2e1ba9e9/pyrime-0.2.2-cp312-cp312-musllinux_1_2_s390x.whl", hash = "sha256:4fde5e3006f0e74d6b87933cc75c246f8bd5c13bd22ae8b122b51ac0adcdd690", size = 2602845, upload-time = "2026-01-17T10:58:06.201Z" },
-    { url = "https://files.pythonhosted.org/packages/87/70/a9ea64e3272abb9ab3704e0ad014f328d2ef09777d7a568b3b250ab0979e/pyrime-0.2.2-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:b115cbef23150258cdeb2919a489f4ffeec977ef58522aab134da2e508490b14", size = 2379787, upload-time = "2026-01-17T10:58:08.082Z" },
-]
-
-[[package]]
 name = "pyyaml"
 version = "6.0.3"
 source = { registry = "https://pypi.org/simple" }
@@ -785,14 +757,6 @@ dependencies = [
     { name = "wetextprocessing" },
 ]
 
-[package.optional-dependencies]
-full = [
-    { name = "pyrime" },
-]
-rime = [
-    { name = "pyrime" },
-]
-
 [package.metadata]
 requires-dist = [
     { name = "funasr-onnx", specifier = "==0.4.2" },
@@ -800,23 +764,11 @@ requires-dist = [
     { name = "modelscope", specifier = "==1.30.0" },
     { name = "numpy", specifier = "==1.26.4" },
     { name = "pygobject", specifier = ">=3.46" },
-    { name = "pyrime", marker = "extra == 'full'", specifier = ">=0.2.1" },
-    { name = "pyrime", marker = "extra == 'rime'", specifier = ">=0.2.1" },
     { name = "pyyaml", specifier = ">=6.0,<7" },
     { name = "scipy", specifier = "==1.16.3" },
     { name = "sounddevice", specifier = "==0.5.2" },
     { name = "soundfile", specifier = "==0.13.1" },
     { name = "wetextprocessing", specifier = "==1.2.0" },
-]
-provides-extras = ["rime", "full"]
-
-[[package]]
-name = "wcwidth"
-version = "0.2.14"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/24/30/6b0809f4510673dc723187aeaf24c7f5459922d01e2f794277a3dfb90345/wcwidth-0.2.14.tar.gz", hash = "sha256:4d478375d31bc5395a3c55c40ccdf3354688364cd61c4f6adacaa9215d0b3605", size = 102293, upload-time = "2025-09-22T16:29:53.023Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/af/b5/123f13c975e9f27ab9c0770f514345bd406d0e8d3b7a0723af9d43f710af/wcwidth-0.2.14-py2.py3-none-any.whl", hash = "sha256:a7bb560c8aee30f9957e5f9895805edd20602f2d7f720186dfd906e82b4982e1", size = 37286, upload-time = "2025-09-22T16:29:51.641Z" },
 ]
 
 [[package]]

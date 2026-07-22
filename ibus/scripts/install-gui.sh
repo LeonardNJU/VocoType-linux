@@ -146,6 +146,7 @@ PY_CHECK
 }
 
 rime_runtime_available() {
+    command -v rime_deployer >/dev/null 2>&1 || return 1
     ldconfig -p 2>/dev/null | grep -E 'librime\.so' >/dev/null || return 1
     [[ -f /usr/share/rime-data/default.yaml || -f /usr/local/share/rime-data/default.yaml ]]
 }
@@ -254,11 +255,6 @@ fi
 emit_install_progress 55 "下载并校验 ASR、VAD 与标点模型"
 download_and_verify_asr_models "$PYTHON" "$PROJECT_DIR" || exit 1
 
-if [[ "$RIME_MODE" == enabled ]]; then
-    echo "安装 VoCoType（IBus）的 Rime Python 绑定…"
-    install_binary_packages "$PYTHON" "$PROJECT_DIR" pyrime
-fi
-
 IBUS_RUNTIME_CONFIG="$HOME/.config/vocotype/ibus.json"
 FCITX_RUNTIME_CONFIG="$HOME/.config/vocotype/fcitx5-backend.json"
 mkdir -p "$HOME/.config/vocotype"
@@ -338,11 +334,53 @@ chmod +x "$LIBEXEC_DIR/ibus-engine-vocotype"
 install_settings_launcher
 
 if [[ "$RIME_MODE" == enabled ]]; then
-    mkdir -p "$HOME/.config/vocotype/rime" "$HOME/.local/share/vocotype/rime"
-    cat > "$HOME/.config/vocotype/rime/user.yaml" <<EOF
+    RIME_USER_DIR="$HOME/.config/vocotype/rime"
+    RIME_LOG_DIR="$HOME/.local/share/vocotype/rime"
+    RIME_SHARED_DIR=""
+    for candidate in /usr/share/rime-data /usr/local/share/rime-data; do
+        if [[ -f "$candidate/default.yaml" ]]; then
+            RIME_SHARED_DIR="$candidate"
+            break
+        fi
+    done
+    [[ -n "$RIME_SHARED_DIR" ]] || {
+        echo "Rime 共享数据不存在，无法部署拼音输入。" >&2
+        exit 5
+    }
+    command -v rime_deployer >/dev/null 2>&1 || {
+        echo "rime_deployer 不存在，无法部署拼音输入。" >&2
+        exit 5
+    }
+    mkdir -p "$RIME_USER_DIR" "$RIME_LOG_DIR"
+    cat > "$RIME_USER_DIR/default.custom.yaml" <<EOF
+patch:
+  schema_list:
+    - schema: "$RIME_SCHEMA"
+EOF
+    cat > "$RIME_USER_DIR/user.yaml" <<EOF
 var:
   previously_selected_schema: "$RIME_SCHEMA"
 EOF
+    emit_install_progress 76 "部署 Rime 输入方案"
+    rime_deployer --build \
+        "$RIME_USER_DIR" "$RIME_SHARED_DIR" "$RIME_USER_DIR/build" >/dev/null
+    [[ -f "$RIME_USER_DIR/build/default.yaml" ]] || {
+        echo "Rime 默认配置部署失败" >&2
+        exit 5
+    }
+    [[ -f "$RIME_USER_DIR/build/$RIME_SCHEMA.schema.yaml" ]] || {
+        echo "Rime schema 部署失败: $RIME_SCHEMA" >&2
+        exit 5
+    }
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$INSTALL_DIR" \
+        "$PYTHON" "$INSTALL_DIR/ibus/rime_runtime.py" \
+        --shared-data-dir "$RIME_SHARED_DIR" \
+        --user-data-dir "$RIME_USER_DIR" \
+        --log-dir "$RIME_LOG_DIR" \
+        --schema "$RIME_SCHEMA" --key n >/dev/null || {
+            echo "Rime 普通键盘输入验收失败: $RIME_SCHEMA" >&2
+            exit 5
+        }
 fi
 
 VOCOTYPE_VERSION=$(PYTHONPATH="$PROJECT_DIR" "$PYTHON" - <<'PY'

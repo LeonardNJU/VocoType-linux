@@ -1,184 +1,84 @@
-# VoCoType Rime 配置说明
+# IBus Rime 配置
 
-> **Fcitx 5 用户注意**：VoCoType 已改为全局 Fcitx 5 Module，不再内嵌 Rime。
-> 请直接配置和使用 `fcitx5-rime`；VoCoType 的 F9/Shift+F9 会自动增强当前输入法。
-> 下文中 VoCoType 自行调用 librime/pyrime 的说明仅适用于 IBus 版本。
+> Fcitx 5 版本是全局 Module，不内嵌 Rime。Fcitx 用户继续使用自己的 `fcitx5-rime`、Mozc 或其他输入法；VoCoType 只处理 F9 系列快捷键。
 
-## 配置共享机制
+## IBus 的实现方式
 
-如果您安装了 **VoCoType 完整版**（语音 + Rime 拼音），VoCoType 会直接使用 ibus-rime 的配置目录：
+VoCoType IBus 通过项目内 `ibus/rime_runtime.py` 使用 Python 标准库 `ctypes` 直接调用系统 `librime`。没有额外 Python binding，也没有本地编译步骤。
 
-```
-~/.config/ibus/rime/
-```
+支持两类发行版 ABI：
 
-这意味着：
+- Ubuntu 22.04 librime 1.7：传统 `RimeSetup`、`RimeProcessKey` 等直接符号；
+- 当前 Fedora/Arch：`rime_get_api()` 函数表。
 
-✅ **如果您已经在使用 ibus-rime**：
-- VoCoType 会自动继承您的所有配置、词库、用户词典
-- 无需重复配置，开箱即用
-- 两个输入法共享同一套配置和词库
+## 独立用户目录
 
-✅ **如果您是新用户**：
-- VoCoType 会使用 Rime 默认配置
-- 您可以按照 Rime 的标准方式配置拼音输入
-- 配置完成后，ibus-rime 和 VoCoType 都能使用
+VoCoType 不再复用或修改 `~/.config/ibus/rime`，而是使用：
 
-> 方案选择：安装脚本会把选择的方案记录在 `~/.config/vocotype/rime/user.yaml`，
-> 启动时优先使用该方案。
-
-## 配置目录结构
-
-```
-~/.config/ibus/rime/
-├── default.yaml              # 默认配置
-├── default.custom.yaml       # 用户自定义配置
-├── luna_pinyin.yaml          # 明月拼音方案
-├── luna_pinyin.custom.yaml   # 用户自定义方案
-├── user.yaml                 # 用户信息
-├── installation.yaml         # 安装信息
-└── *.userdb/                 # 用户词库
+```text
+~/.config/vocotype/rime/
+├── default.custom.yaml
+├── user.yaml
+└── build/
 ```
 
-## 推荐配置方案
-
-### 🎨 rime-ice（雾凇拼音）
-
-如果您希望获得更好的拼音输入体验，我们推荐使用 **rime-ice（雾凇拼音）** 配置方案：
-
-- **项目地址**：https://github.com/iDvel/rime-ice
-- **特点**：
-  - 开箱即用的现代词库
-  - 支持全拼、双拼
-  - 智能纠错和模糊音
-  - Emoji 支持
-  - 持续更新的网络流行词
-
-### 安装 rime-ice
-
-1. **备份现有配置**（如果有）：
-   ```bash
-   cp -r ~/.config/ibus/rime ~/.config/ibus/rime.backup
-   ```
-
-2. **安装 rime-ice**：
-   ```bash
-   # 克隆配置仓库
-   git clone https://github.com/iDvel/rime-ice.git /tmp/rime-ice
-
-   # 复制配置文件到 Rime 目录
-   cp -r /tmp/rime-ice/* ~/.config/ibus/rime/
-   ```
-
-3. **重新部署 Rime**：
-   ```bash
-   # 如果您在使用 ibus-rime
-   ibus-daemon -drx
-
-   # 或者直接重启 IBus
-   ibus restart
-   ```
-
-4. **切换到 VoCoType**，尝试拼音输入，新配置会立即生效
-
-## 不使用 rime-ice？
-
-如果您不想使用 rime-ice，Rime 默认配置也完全够用：
-
-- **明月拼音**：经典的全拼方案
-- **朙月拼音（简化字）**：适合简体中文用户
-- **自然码双拼**、**小鹤双拼** 等
-
-您可以在 `~/.config/ibus/rime/default.custom.yaml` 中选择方案。
-
-## 自定义配置
-
-VoCoType 完全遵循 Rime 的配置规范，所有 Rime 的自定义配置都适用。
-
-### 常用配置示例
-
-**1. 修改候选词数量**（`default.custom.yaml`）：
+安装器生成最小配置：
 
 ```yaml
 patch:
-  "menu/page_size": 9  # 每页显示 9 个候选词
+  schema_list:
+    - schema: luna_pinyin
 ```
 
-**2. 添加自定义词库**（`luna_pinyin.custom.yaml`）：
-
-```yaml
-patch:
-  "translator/dictionary": luna_pinyin.extended
-```
-
-**3. 启用 Emoji**（需要 rime-ice 或手动配置）：
-
-```yaml
-patch:
-  "switches/@next":
-    name: emoji_suggestion
-    reset: 1
-    states: [ "🈚️️", "🈶️" ]
-```
-
-### 重新部署
-
-每次修改配置后，需要重新部署 Rime：
+然后运行：
 
 ```bash
-# 删除编译缓存
-rm -rf ~/.config/ibus/rime/build/
-
-# 重启 IBus
-ibus restart
+rime_deployer --build \
+  ~/.config/vocotype/rime \
+  /usr/share/rime-data \
+  ~/.config/vocotype/rime/build
 ```
 
-或者在 VoCoType 输入法激活时，按 `Ctrl + ~` 或 `F4` 打开 Rime 菜单，选择"重新部署"。
+这样只部署所选 schema，不要求安装默认配置中列出的所有无关方案。
 
-## 配置资源
+## 发行版依赖
 
-- **Rime 官方文档**：https://rime.im/docs/
-- **rime-ice 配置指南**：https://github.com/iDvel/rime-ice
-- **Rime 配置教程**：https://github.com/rime/home/wiki/UserGuide
-- **方案选单**：https://github.com/rime/plum
+```bash
+# Ubuntu / Debian
+sudo apt install librime1 librime-bin librime-data rime-data-luna-pinyin
 
-## 疑难解答
+# Fedora
+sudo dnf install librime librime-tools brise
 
-### Q: VoCoType 和 ibus-rime 的配置会互相影响吗？
+# Arch
+sudo pacman -S --needed librime librime-data
+```
 
-A: 是的，它们共享同一个配置目录。任何一方的配置修改都会影响另一方。
+其中部署工具分别来自：
 
-### Q: 我只想在 VoCoType 中使用特定配置怎么办？
+- Debian/Ubuntu：`librime-bin`
+- Fedora：`librime-tools`
+- Arch：`librime`
 
-A: Rime 的配置是全局的，无法针对不同前端使用不同配置。
-如果需要完全独立的配置，建议只安装 VoCoType 纯语音版。
+Fedora 的官方 schema 仓库包名是 `brise`。
 
-### Q: 配置修改后不生效？
+## 修改 schema
 
-A: 确保：
-1. 配置文件语法正确（YAML 格式）
-2. 已删除 `~/.config/ibus/rime/build/` 目录
-3. 已重启 IBus：`ibus restart`
-4. 重新切换到 VoCoType 输入法
+推荐在设置中心填写 schema ID 并执行“安装 / 修复”。安装器会重新生成 `default.custom.yaml`、部署数据并执行真实按键测试。
 
-### Q: VoCoType 完整版的拼音输入和 ibus-rime 有什么区别？
+手工修改后也必须重新运行 `rime_deployer --build`。仅编辑 `user.yaml` 不会生成所需的 prism、table 和 schema build 文件。
 
-A: 技术上没有区别，都是调用 librime 引擎。区别在于：
+## 验证
 
-- **VoCoType 完整版**：语音 + 拼音一体，F9 语音，其他键拼音
-- **ibus-rime**：纯拼音输入法
+```bash
+python tools/diagnostics/debug-rime.py
+```
 
-您可以根据使用场景选择：
-- 需要频繁语音输入 → VoCoType 完整版
-- 纯拼音场景 → ibus-rime 或 VoCoType 完整版均可
+成功结果应包含：
 
-## 总结
+```text
+preedit: 'n'
+候选: 你, 那, 呢, 能, 年
+```
 
-VoCoType 完整版的 Rime 集成设计理念：
-
-✅ **配置共享**：不重复造轮子，直接复用 ibus-rime 的配置生态
-✅ **零学习成本**：如果您熟悉 Rime，在 VoCoType 中完全一样
-✅ **可选增强**：推荐 rime-ice，但不强制，用户自主选择
-✅ **语音优先**：F9 语音输入是核心，拼音是便利补充
-
-享受语音与拼音无缝切换的输入体验！🎤⌨️
+原生包 CI 在 Ubuntu、Fedora 和 Arch 上执行同样的端到端检查。

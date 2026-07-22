@@ -28,7 +28,10 @@ def debian_values(meta: dict[str, object]) -> dict[str, str]:
         "pkexec | policykit-1",
     ]
     if includes_ibus:
-        depends.append("ibus")
+        depends += [
+            "ibus", "librime1", "librime-bin", "librime-data",
+            "rime-data-luna-pinyin",
+        ]
     if includes_fcitx:
         depends.append("fcitx5")
     return {
@@ -59,7 +62,12 @@ def rpm_values(meta: dict[str, object]) -> dict[str, str]:
     ]
     files = []
     if includes_ibus:
-        requires.append("Requires:       ibus")
+        requires += [
+            "Requires:       ibus",
+            "Requires:       librime",
+            "Requires:       librime-tools",
+            "Requires:       brise",
+        ]
         files += [
             "%{_libexecdir}/vocotype-ibus-engine",
             "%{_datadir}/ibus/component/vocotype.xml",
@@ -95,7 +103,7 @@ def arch_values(meta: dict[str, object]) -> dict[str, str]:
     ]
     makedepends: list[str] = []
     if includes_ibus:
-        depends.append("ibus")
+        depends += ["ibus", "librime", "librime-data"]
     if includes_fcitx:
         depends.append("fcitx5")
         makedepends += ["cmake", "gcc", "pkgconf", "nlohmann-json"]

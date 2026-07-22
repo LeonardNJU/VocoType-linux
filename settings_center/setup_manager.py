@@ -26,7 +26,7 @@ class InstallOptions:
     preserve_config: bool = True
     install_system_deps: bool = True
     bootstrap_uv: bool = True
-    rime_enabled: bool = False
+    rime_enabled: bool = True
     rime_schema: str = "luna_pinyin"
     component_mode: str = "auto"
 

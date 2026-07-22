@@ -2782,6 +2782,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         options_card.pack_start(self._row("Python 引导", control=bootstrap_uv), False, False, 0)
 
         rime_enabled = Gtk.CheckButton(label="在 VoCoType IBus 内集成 Rime 拼音")
+        rime_enabled.set_active(True)
         rime_schema = self._text_entry()
         rime_schema.set_text("luna_pinyin")
         component_mode = Gtk.ComboBoxText()
@@ -2790,7 +2791,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
         component_mode.append("system", "系统目录（需要 Polkit 授权）")
         component_mode.set_active_id("auto")
         if is_ibus:
-            options_card.pack_start(self._row("Rime 集成", "默认关闭；也可继续使用系统中的其他 IBus 输入法。", rime_enabled), False, False, 0)
+            options_card.pack_start(self._row("Rime 集成", "默认启用，使 VoCoType 同时支持语音与普通拼音输入。", rime_enabled), False, False, 0)
             options_card.pack_start(self._row("Rime schema", "启用 Rime 时使用，例如 luna_pinyin 或 rime_ice。", rime_schema), False, False, 0)
             options_card.pack_start(self._row("IBus component 位置", control=component_mode), False, False, 0)
         content.pack_start(options_card, False, False, 8)

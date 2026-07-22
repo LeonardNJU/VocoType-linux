@@ -30,6 +30,9 @@ def test_pygobject_is_built_in_ci_for_each_supported_distro():
     assert "PyGObject==3.50.2" in release
     assert release.count("PyGObject==3.56.3") >= 2
     assert "build-runtime-wheelhouse.sh" in release
+    assert "pyrime==0.2.2" not in release
+    assert "VOCOTYPE_PYRIME_SPEC" not in release
+    assert "wheelhouse-fcitx5" in release and "wheelhouse-ibus" in release
 
 
 def test_ibus_release_installers_check_runtime_not_build_dependencies():

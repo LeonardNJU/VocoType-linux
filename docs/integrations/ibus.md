@@ -32,7 +32,7 @@ VoCoType 在 IBus 中作为独立输入法引擎运行，适合 GNOME 和默认�
 
 ## Rime
 
-需要拼音输入时，优先让系统的 `ibus-rime` 负责普通键盘输入，让 VoCoType 负责语音。历史上的内嵌 Rime 兼容路径只用于旧安装迁移。详见 [Rime 配置](../guides/rime.md)。
+需要拼音输入时，VoCoType IBus 会通过项目内 `ctypes` 适配层直接调用系统 `librime`，普通键盘输入与 F9 语音输入共存。配置使用独立的 `~/.config/vocotype/rime`，不会修改其他 IBus 输入法。详见 [Rime 配置](../guides/rime.md)。
 
 ## 诊断
 

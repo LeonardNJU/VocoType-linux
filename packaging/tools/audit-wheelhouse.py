@@ -8,13 +8,12 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 NORMALIZE = re.compile(r"[-_.]+")
-REQUIRED = {
+BASE_REQUIRED = {
     "funasr-onnx",
     "jieba",
     "modelscope",
     "numpy",
     "onnxruntime",
-    "pygobject",
     "pyyaml",
     "scipy",
     "sentencepiece",
@@ -22,7 +21,10 @@ REQUIRED = {
     "soundfile",
     "wetextprocessing",
 }
-FORBIDDEN = {"torch", "transformers", "socksio", "pyrime"}
+IBUS_REQUIRED = {"pygobject", "pycairo"}
+COMMON_FORBIDDEN = {"torch", "transformers", "socksio", "pyrime", "wcwidth"}
+FCITX_FORBIDDEN = {"pygobject", "pycairo"}
+SUPPORTED_FLAVORS = {"universal", "ibus", "fcitx5"}
 
 
 def package_name(filename: str) -> str:
@@ -76,8 +78,15 @@ def validate_wheel(path: Path) -> None:
 def validate_wheelhouse(
     root: Path,
     *,
+    flavor: str,
     expected_pygobject_version: str | None = None,
 ) -> list[Path]:
+    flavor = str(flavor or "").strip().lower()
+    if flavor not in SUPPORTED_FLAVORS:
+        raise ValueError(
+            "flavor must be universal, ibus, or fcitx5; "
+            f"found {flavor!r}"
+        )
     root = root.resolve()
     if not root.is_dir():
         raise ValueError(f"wheelhouse does not exist: {root}")
@@ -90,42 +99,63 @@ def validate_wheelhouse(
     for path in files:
         validate_wheel(path)
     names = {package_name(path.name) for path in files}
-    missing = sorted(REQUIRED - names)
+    includes_ibus = flavor in {"universal", "ibus"}
+    required = set(BASE_REQUIRED)
+    if includes_ibus:
+        required.update(IBUS_REQUIRED)
+    missing = sorted(required - names)
     if missing:
-        raise ValueError("required wheels missing: " + ", ".join(missing))
-    extras = sorted(FORBIDDEN & names)
+        raise ValueError(
+            f"required wheels missing for flavor={flavor}: " + ", ".join(missing)
+        )
+
+    forbidden = set(COMMON_FORBIDDEN)
+    if not includes_ibus:
+        forbidden.update(FCITX_FORBIDDEN)
+    extras = sorted(forbidden & names)
     if extras:
         raise ValueError(
-            "optional backend wheels leaked into core package: " + ", ".join(extras)
+            f"forbidden wheels present for flavor={flavor}: " + ", ".join(extras)
         )
+
     pygobject = [path for path in files if package_name(path.name) == "pygobject"]
-    if len(pygobject) != 1:
-        raise ValueError(f"expected exactly one PyGObject wheel, found {len(pygobject)}")
-    if expected_pygobject_version is not None:
-        actual = wheel_version(pygobject[0].name)
-        if actual != expected_pygobject_version:
+    if includes_ibus:
+        if len(pygobject) != 1:
             raise ValueError(
-                f"PyGObject wheel version mismatch: expected "
-                f"{expected_pygobject_version}, found {actual}"
+                f"expected exactly one PyGObject wheel for flavor={flavor}, "
+                f"found {len(pygobject)}"
             )
+        if expected_pygobject_version is not None:
+            actual = wheel_version(pygobject[0].name)
+            if actual != expected_pygobject_version:
+                raise ValueError(
+                    f"PyGObject wheel version mismatch: expected "
+                    f"{expected_pygobject_version}, found {actual}"
+                )
+    elif pygobject:
+        raise ValueError("PyGObject must not be bundled in the Fcitx-only runtime")
     return files
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("wheelhouse", type=Path)
+    parser.add_argument(
+        "--flavor", required=True, choices=sorted(SUPPORTED_FLAVORS)
+    )
     parser.add_argument("--expected-pygobject-version")
     args = parser.parse_args()
     try:
         files = validate_wheelhouse(
             args.wheelhouse,
+            flavor=args.flavor,
             expected_pygobject_version=args.expected_pygobject_version,
         )
     except ValueError as exc:
         parser.error(str(exc))
     print(
-        f"Core runtime wheelhouse audit passed: {len(files)} wheels in "
-        f"{args.wheelhouse.resolve()}"
+        f"Runtime wheelhouse audit passed: flavor={args.flavor} "
+        f"wheels={len(files)} root={args.wheelhouse.resolve()}"
     )
     return 0
 

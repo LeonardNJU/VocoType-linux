@@ -113,6 +113,14 @@ fi
 if [[ "$INCLUDES_FCITX5" != true ]]; then
   rm -rf "$source_root/fcitx5"
 fi
+
+# The private Python 3.12 runtime is framework-specific. The distro Python
+# launches the GTK settings center; only IBus needs private PyGObject. The
+# in-tree Rime adapter uses only the standard library and system librime.
+grep -viE '^[[:space:]]*PyGObject([<>=!~]|$)'   "$source_root/requirements.txt" > "$source_root/runtime-requirements.txt"
+if [[ "$INCLUDES_IBUS" == true ]]; then
+  printf '%s\n' 'PyGObject>=3.46' >> "$source_root/runtime-requirements.txt"
+fi
 printf 'version=%s\nmanaged-by=native-package\nflavor=%s\npackage=%s\n' \
   "$VERSION" "$FLAVOR" "$PACKAGE_NAME" > "$source_root/.system-package"
 if [[ -n "$PACKAGE_MANAGER" ]]; then
@@ -124,11 +132,11 @@ wheelhouse=${VOCOTYPE_WHEELHOUSE_DIR:-"$PROJECT_DIR/vendor/wheelhouse"}
 if [[ "$SKIP_WHEELHOUSE" == "1" ]]; then
   echo "Python runtime wheelhouse intentionally omitted from this staging tree" >&2
 elif compgen -G "$wheelhouse/*.whl" >/dev/null; then
-  python3 "$PROJECT_DIR/packaging/tools/audit-wheelhouse.py" "$wheelhouse"
+  python3 "$PROJECT_DIR/packaging/tools/audit-wheelhouse.py"     "$wheelhouse" --flavor "$FLAVOR"
   rm -rf "$source_root/wheelhouse"
   mkdir -p "$source_root/wheelhouse"
   cp -a "$wheelhouse"/*.whl "$source_root/wheelhouse/"
-  python3 "$source_root/packaging/tools/audit-wheelhouse.py"     "$source_root/wheelhouse"
+  python3 "$source_root/packaging/tools/audit-wheelhouse.py"     "$source_root/wheelhouse" --flavor "$FLAVOR"
   (
     cd "$source_root"
     find wheelhouse -maxdepth 1 -type f -name '*.whl' -print0       | sort -z | xargs -0 sha256sum > .wheelhouse.sha256

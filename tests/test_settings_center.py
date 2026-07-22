@@ -384,10 +384,30 @@ def test_gui_installers_use_noninteractive_polkit_ready_mode():
         assert command[command.index("--python-choice") + 1] == "user"
         assert "--slm-provider" not in command
     assert ibus[1].endswith("ibus/scripts/install-gui.sh")
+    assert InstallOptions().rime_enabled is True
     assert ibus[ibus.index("--rime") + 1] == "enabled"
     assert ibus[ibus.index("--rime-schema") + 1] == "rime_ice"
     assert ibus[ibus.index("--component-mode") + 1] == "system"
 
+
+
+
+def test_ibus_gui_installer_deploys_complete_rime_runtime():
+    installer = Path("ibus/scripts/install-gui.sh").read_text(encoding="utf-8")
+    application = Path("settings_center/application.py").read_text(encoding="utf-8")
+    engine = Path("ibus/engine.py").read_text(encoding="utf-8")
+    assert 'install_binary_packages "$PYTHON" "$PROJECT_DIR" pyrime' not in installer
+    assert "default.custom.yaml" in installer
+    assert "rime_deployer --build" in installer
+    assert 'build/$RIME_SCHEMA.schema.yaml' in installer
+    assert '"$INSTALL_DIR/ibus/rime_runtime.py"' in installer
+    assert "Rime 普通键盘输入验收失败" in installer
+    assert installer.count('if [[ "$RIME_MODE" == enabled ]]; then') >= 1
+    assert "rime_enabled.set_active(True)" in application
+    assert "默认启用，使 VoCoType 同时支持语音与普通拼音输入" in application
+    assert 'directory / "build/default.yaml"' in engine
+    assert "from ibus.rime_runtime import" in engine
+    assert "pyrime" not in engine
 
 
 def test_gui_uninstallers_use_symmetric_noninteractive_entrypoints():

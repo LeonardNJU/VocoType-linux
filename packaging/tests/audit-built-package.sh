@@ -42,7 +42,8 @@ test -f "$marker"
 grep -Fxq "version=$expected_version" "$marker"
 grep -Fxq "flavor=$expected_flavor" "$marker"
 grep -Fxq "manager=$expected_manager" "$marker"
-python3 "$root/packaging/tools/audit-wheelhouse.py" "$project/wheelhouse"
+python3 "$root/packaging/tools/audit-wheelhouse.py" \
+  "$project/wheelhouse" --flavor "$expected_flavor"
 (cd "$project" && sha256sum -c .wheelhouse.sha256)
 
 expected_hashes="$work/expected-wheelhouse.sha256"

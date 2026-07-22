@@ -210,15 +210,39 @@ runtime_wheelhouse_dir() {
     fi
 }
 
+runtime_wheelhouse_flavor() {
+    local project_dir="$1"
+    local marker="$project_dir/.system-package"
+    local flavor=""
+    if [ -f "$marker" ]; then
+        flavor=$(sed -n 's/^flavor=//p' "$marker" | head -n 1)
+    fi
+    case "$flavor" in
+        universal|ibus|fcitx5) printf '%s\n' "$flavor" ;;
+        *) printf '%s\n' "${VOCOTYPE_WHEELHOUSE_FLAVOR:-fcitx5}" ;;
+    esac
+}
+
+runtime_requirements_file() {
+    local project_dir="$1"
+    if [ -f "$project_dir/runtime-requirements.txt" ]; then
+        printf '%s\n' "$project_dir/runtime-requirements.txt"
+    else
+        printf '%s\n' "$project_dir/requirements.txt"
+    fi
+}
+
 verify_runtime_wheelhouse() {
     local project_dir="$1"
     local wheelhouse="$2"
     local audit="$project_dir/packaging/tools/audit-wheelhouse.py"
+    local flavor=""
+    flavor=$(runtime_wheelhouse_flavor "$project_dir")
     if [ -f "$project_dir/.wheelhouse.sha256" ]; then
         (cd "$project_dir" && sha256sum -c .wheelhouse.sha256)
     fi
     if [ -f "$audit" ]; then
-        python3 "$audit" "$wheelhouse"
+        python3 "$audit" "$wheelhouse" --flavor "$flavor"
     fi
 }
 
@@ -226,6 +250,8 @@ install_runtime_requirements() {
     local python_bin="$1"
     local project_dir="$2"
     local wheelhouse=""
+    local requirements=""
+    requirements=$(runtime_requirements_file "$project_dir")
     wheelhouse=$(runtime_wheelhouse_dir "$project_dir" 2>/dev/null || true)
     if [ -n "$wheelhouse" ]; then
         verify_runtime_wheelhouse "$project_dir" "$wheelhouse"
@@ -233,12 +259,12 @@ install_runtime_requirements() {
             uv pip install --python "$python_bin" \
                 --no-index --find-links "$wheelhouse" \
                 --only-binary :all: \
-                -r "$project_dir/requirements.txt"
+                -r "$requirements"
         else
             "$python_bin" -m pip install \
                 --no-index --find-links "$wheelhouse" \
                 --only-binary=:all: \
-                -r "$project_dir/requirements.txt"
+                -r "$requirements"
         fi
         return
     fi
@@ -249,11 +275,11 @@ install_runtime_requirements() {
     if command -v uv >/dev/null 2>&1; then
         uv pip install --python "$python_bin" \
             --only-binary :all: \
-            -r "$project_dir/requirements.txt"
+            -r "$requirements"
     else
         "$python_bin" -m pip install \
             --only-binary=:all: \
-            -r "$project_dir/requirements.txt"
+            -r "$requirements"
     fi
 }
 
@@ -262,19 +288,20 @@ install_binary_packages() {
     local project_dir="$2"
     shift 2
     local wheelhouse=""
-    local -a links=()
+    local -a repository_args=()
     wheelhouse=$(runtime_wheelhouse_dir "$project_dir" 2>/dev/null || true)
     if [ -n "$wheelhouse" ]; then
-        links=(--find-links "$wheelhouse")
+        verify_runtime_wheelhouse "$project_dir" "$wheelhouse"
+        repository_args=(--no-index --find-links "$wheelhouse")
     fi
     if command -v uv >/dev/null 2>&1; then
         uv pip install --python "$python_bin" \
             --only-binary :all: \
-            "${links[@]}" "$@"
+            "${repository_args[@]}" "$@"
     else
         "$python_bin" -m pip install \
             --only-binary=:all: \
-            "${links[@]}" "$@"
+            "${repository_args[@]}" "$@"
     fi
 }
 

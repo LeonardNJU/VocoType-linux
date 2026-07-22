@@ -876,6 +876,15 @@ def test_native_packages_include_minimal_settings_runtime_dependencies(tmp_path:
         assert ("fcitx5" in control.split("Depends:", 1)[1].splitlines()[0]) == includes_fcitx
         assert ("Requires:       ibus" in spec) == includes_ibus
         assert ("Requires:       fcitx5" in spec) == includes_fcitx
+        assert "ibus-rime" not in control
+        assert "ibus-rime" not in spec
+        assert "ibus-rime" not in pkgbuild
+        for dependency in ("librime1", "librime-bin", "librime-data", "rime-data-luna-pinyin"):
+            assert (dependency in control) == includes_ibus
+        for dependency in ("librime", "librime-tools", "brise"):
+            assert (dependency in spec) == includes_ibus
+        for dependency in ("librime", "librime-data"):
+            assert (dependency in pkgbuild) == includes_ibus
 
 def test_release_builder_removes_non_artifact_files_from_python_output(
     monkeypatch: pytest.MonkeyPatch,
@@ -1097,9 +1106,10 @@ def test_release_packages_are_offline_but_require_complete_prebuilt_runtimes():
     assert '"$wheel_count" -ge 12' in smoke
     for required in ("onnxruntime", "sentencepiece", "funasr_onnx"):
         assert required in smoke
-    for optional in ("pyrime", "torch", "transformers", "socksio"):
-        assert optional in smoke
-    assert "non-core wheel leaked into package" in smoke
+    for dependency in ("pyrime", "torch", "transformers", "socksio"):
+        assert dependency in smoke
+    assert "IBus runtime wheel missing" in smoke
+    assert "IBus-only wheel leaked into Fcitx package" in smoke
 
     release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
     assert release.count("name: native-streaming-linux-x86_64") >= 4
@@ -1109,6 +1119,14 @@ def test_release_packages_are_offline_but_require_complete_prebuilt_runtimes():
     assert "audit-built-package.sh" in release
     assert "PyGObject==3.50.2" in release
     assert release.count("PyGObject==3.56.3") >= 2
+    assert "pyrime==0.2.2" not in release
+    assert "VOCOTYPE_PYRIME_SPEC" not in release
+    assert release.count("wheelhouse-fcitx5") >= 6
+    assert release.count("wheelhouse-ibus") >= 6
+    assert "librime-bin librime-data rime-data-luna-pinyin" in release
+    assert "librime librime-tools brise" in release
+    assert "python-gobject gtk3 ibus librime librime-data" in release
+    assert "ibus-rime" not in release
     assert release.count("for flavor in universal ibus fcitx5") >= 3
     assert '${package_name}_${debian_version}-*_amd64.deb' in release
     assert '${package_name}-${rpm_version}-${rpm_release}*.x86_64.rpm' in release
@@ -1204,10 +1222,14 @@ def test_wheelhouse_builder_uses_locked_core_runtime_only():
     assert "'/^[Pp]y[Gg][Oo]bject==/d'" in source
     assert "torch" not in source
     assert "pyrime" not in source
+    assert "wcwidth" not in source
+    assert "VOCOTYPE_BASE_WHEELHOUSE_DIR" in source
     assert "--wheel-dir" in source
     assert "audit-wheelhouse.py" in source
     assert "must pin one exact version" in source
     assert "PyGObject==3.50.2" in source
+    assert "VOCOTYPE_PYRIME_SPEC" not in source
+    assert "--flavor" in source
     runtime = (ROOT / "installers/runtime-common.sh").read_text(encoding="utf-8")
     assert '--no-index --find-links "$wheelhouse"' in runtime
     assert "--only-binary=:all:" in runtime
@@ -1398,14 +1420,13 @@ def test_release_candidate_versions_sort_before_formal_versions():
         assert result.returncode == 0
 
 
-def test_core_wheelhouse_matches_default_runtime_subset(tmp_path: Path):
+def _write_common_runtime_wheels(root: Path) -> None:
     required = {
         "funasr_onnx": "0.4.2-py3-none-any",
         "jieba": "0.42.1-py3-none-any",
         "modelscope": "1.30.0-py3-none-any",
         "numpy": "1.26.4-cp312-cp312-linux_x86_64",
         "onnxruntime": "1.23.2-cp312-cp312-linux_x86_64",
-        "PyGObject": "3.50.2-cp312-cp312-linux_x86_64",
         "PyYAML": "6.0.3-cp312-cp312-linux_x86_64",
         "scipy": "1.16.3-cp312-cp312-linux_x86_64",
         "sentencepiece": "0.2.1-cp312-cp312-linux_x86_64",
@@ -1415,33 +1436,76 @@ def test_core_wheelhouse_matches_default_runtime_subset(tmp_path: Path):
     }
     for name, suffix in required.items():
         version = suffix.split("-", 1)[0]
-        _write_minimal_wheel(tmp_path / f"{name}-{suffix}.whl", name, version)
-    result = _run(
+        _write_minimal_wheel(root / f"{name}-{suffix}.whl", name, version)
+
+
+def test_wheelhouse_audit_enforces_framework_profiles(tmp_path: Path):
+    fcitx = tmp_path / "fcitx5"
+    ibus = tmp_path / "ibus"
+    fcitx.mkdir()
+    ibus.mkdir()
+    _write_common_runtime_wheels(fcitx)
+    _write_common_runtime_wheels(ibus)
+
+    fcitx_result = _run(
         sys.executable,
         "packaging/tools/audit-wheelhouse.py",
-        str(tmp_path),
+        str(fcitx),
+        "--flavor",
+        "fcitx5",
+    )
+    assert fcitx_result.returncode == 0, fcitx_result.stdout + fcitx_result.stderr
+
+    for name, suffix in {
+        "PyGObject": "3.50.2-cp312-cp312-linux_x86_64",
+        "pycairo": "1.29.0-cp312-cp312-linux_x86_64",
+    }.items():
+        version = suffix.split("-", 1)[0]
+        _write_minimal_wheel(ibus / f"{name}-{suffix}.whl", name, version)
+    ibus_result = _run(
+        sys.executable,
+        "packaging/tools/audit-wheelhouse.py",
+        str(ibus),
+        "--flavor",
+        "ibus",
         "--expected-pygobject-version",
         "3.50.2",
     )
-    assert result.returncode == 0, result.stdout + result.stderr
+    assert ibus_result.returncode == 0, ibus_result.stdout + ibus_result.stderr
 
-    _write_minimal_wheel(tmp_path / "torch-2.9.1-cp312-cp312-linux_x86_64.whl", "torch", "2.9.1")
-    leaked = _run(
+    leaked = fcitx / "pyrime-0.2.2-cp312-cp312-linux_x86_64.whl"
+    _write_minimal_wheel(leaked, "pyrime", "0.2.2")
+    rejected = _run(
         sys.executable,
         "packaging/tools/audit-wheelhouse.py",
-        str(tmp_path),
+        str(fcitx),
+        "--flavor",
+        "fcitx5",
     )
-    assert leaked.returncode != 0
-    assert "optional backend wheels leaked into core package" in leaked.stderr
+    assert rejected.returncode != 0
+    assert "forbidden wheels present for flavor=fcitx5" in rejected.stderr
 
-    (tmp_path / "torch-2.9.1-cp312-cp312-linux_x86_64.whl").unlink()
-    protobuf = tmp_path / "protobuf-6.33.2-cp39-abi3-manylinux2014_x86_64.whl"
+    leaked.unlink()
+    (ibus / "PyGObject-3.50.2-cp312-cp312-linux_x86_64.whl").unlink()
+    missing = _run(
+        sys.executable,
+        "packaging/tools/audit-wheelhouse.py",
+        str(ibus),
+        "--flavor",
+        "ibus",
+    )
+    assert missing.returncode != 0
+    assert "required wheels missing for flavor=ibus: pygobject" in missing.stderr
+
+    protobuf = fcitx / "protobuf-6.33.2-cp39-abi3-manylinux2014_x86_64.whl"
     _write_minimal_wheel(protobuf, "protobuf", "6.33.2")
     protobuf.write_bytes(protobuf.read_bytes()[:32])
     corrupted = _run(
         sys.executable,
         "packaging/tools/audit-wheelhouse.py",
-        str(tmp_path),
+        str(fcitx),
+        "--flavor",
+        "fcitx5",
     )
     assert corrupted.returncode != 0
     assert "invalid wheel archive" in corrupted.stderr
@@ -1449,10 +1513,13 @@ def test_core_wheelhouse_matches_default_runtime_subset(tmp_path: Path):
     smoke = (ROOT / "packaging/tests/smoke-binary-runtime.sh").read_text(
         encoding="utf-8"
     )
-    assert 'for optional in ("torch", "transformers", "socksio", "pyrime")' in smoke
+    assert "PACKAGE_RIME_KEYBOARD_OK" in smoke
+    assert "rime_runtime.py" in smoke
+    assert "--schema luna_pinyin --key n" in smoke
+    assert "PACKAGE_FCITX_PRIVATE_RUNTIME_MINIMAL_OK" in smoke
     runtime = (ROOT / "installers/runtime-common.sh").read_text(encoding="utf-8")
     optional_body = runtime.split("install_binary_packages()", 1)[1].split(
         "install_native_streaming_bundle()", 1
     )[0]
-    assert 'links=(--find-links "$wheelhouse")' in optional_body
+    assert 'repository_args=(--no-index --find-links "$wheelhouse")' in optional_body
     assert "--only-binary" in optional_body

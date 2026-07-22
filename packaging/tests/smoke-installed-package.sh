@@ -164,20 +164,43 @@ echo "PACKAGE_STREAMING_RUNTIME_OK launcher=$streaming_launcher elf=$streaming_w
 wheelhouse=/usr/share/vocotype/wheelhouse
 check_path "$wheelhouse"
 check_path /usr/share/vocotype/.wheelhouse.sha256
-python3 /usr/share/vocotype/packaging/tools/audit-wheelhouse.py "$wheelhouse"
+python3 /usr/share/vocotype/packaging/tools/audit-wheelhouse.py \
+  "$wheelhouse" --flavor "$flavor"
 (cd /usr/share/vocotype && sha256sum -c .wheelhouse.sha256)
 wheel_count=$(find "$wheelhouse" -maxdepth 1 -type f -name '*.whl' | wc -l)
 [[ "$wheel_count" -ge 12 ]] || { echo "incomplete wheelhouse: $wheel_count" >&2; exit 1; }
-for normalized in funasr_onnx jieba modelscope numpy onnxruntime PyGObject PyYAML scipy sentencepiece sounddevice soundfile WeTextProcessing; do
+for normalized in funasr_onnx jieba modelscope numpy onnxruntime PyYAML scipy sentencepiece sounddevice soundfile WeTextProcessing; do
   find "$wheelhouse" -maxdepth 1 -type f -iname "${normalized//-/_}-*.whl" -print -quit | grep -q . || {
     echo "required wheel missing: $normalized" >&2; exit 1;
   }
 done
-for excluded in torch transformers socksio pyrime; do
+for excluded in torch transformers socksio pyrime wcwidth; do
   if find "$wheelhouse" -maxdepth 1 -type f -iname "${excluded}-*.whl" -print -quit | grep -q .; then
-    echo "non-core wheel leaked into package: $excluded" >&2; exit 1
+    echo "forbidden wheel present: $excluded" >&2; exit 1
   fi
 done
+if [[ "$includes_ibus" == true ]]; then
+  for required in PyGObject pycairo; do
+    find "$wheelhouse" -maxdepth 1 -type f -iname "${required//-/_}-*.whl" -print -quit | grep -q . || {
+      echo "IBus runtime wheel missing: $required" >&2; exit 1;
+    }
+  done
+  check_path /usr/share/vocotype/ibus/rime_runtime.py
+else
+  for excluded in PyGObject pycairo; do
+    if find "$wheelhouse" -maxdepth 1 -type f -iname "${excluded//-/_}-*.whl" -print -quit | grep -q .; then
+      echo "IBus-only wheel leaked into Fcitx package: $excluded" >&2; exit 1
+    fi
+  done
+  if grep -Eiq '^[[:space:]]*PyGObject([<>=!~]|$)' /usr/share/vocotype/runtime-requirements.txt; then
+    echo 'IBus-only requirement leaked into Fcitx package' >&2
+    exit 1
+  fi
+fi
+if grep -Eiq '^[[:space:]]*(pyrime|wcwidth)([<>=!~]|$)' /usr/share/vocotype/runtime-requirements.txt; then
+  echo 'obsolete Rime Python binding requirement leaked into package' >&2
+  exit 1
+fi
 if find "$wheelhouse" -maxdepth 1 -type f ! -name '*.whl' -print -quit | grep -q .; then
   echo 'non-wheel file present in wheelhouse' >&2; exit 1
 fi
@@ -186,7 +209,7 @@ echo "PACKAGE_WHEELHOUSE_OK $wheel_count"
 grep -Fq 'PYTHONDONTWRITEBYTECODE=1' /usr/bin/vocotype-settings
 settings_runtime=$(VOCOTYPE_SETTINGS_PROBE_ONLY=1 /usr/bin/vocotype-settings)
 case "$settings_runtime" in
-  SETTINGS_RUNTIME_OK\ *) ;;
+  "SETTINGS_RUNTIME_OK "*) ;;
   *) echo "settings launcher runtime probe failed: $settings_runtime" >&2; exit 1 ;;
 esac
 echo "$settings_runtime"

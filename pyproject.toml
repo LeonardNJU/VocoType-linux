@@ -36,16 +36,6 @@ dependencies = [
   "modelscope==1.30.0",
 ]
 
-[project.optional-dependencies]
-# Rime 拼音输入集成（可选）
-rime = [
-  "pyrime>=0.2.1",
-]
-# 完整功能（语音 + 拼音）
-full = [
-  "pyrime>=0.2.1",
-]
-
 [project.urls]
 Homepage = "https://vocotype-linux.lsamc.website"
 Repository = "https://github.com/LeonardNJU/VocoType-linux"

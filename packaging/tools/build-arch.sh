@@ -19,7 +19,7 @@ base="$work/release/VocoType-linux-$VERSION.tar.gz"
 archive="$work/VocoType-linux-$ARCH_VERSION.tar.gz"
 python3 "$ROOT/packaging/tools/prepare-complete-source.py" \
   --source "$base" --native-bundle "$BUNDLE" --wheelhouse "$WHEELHOUSE" \
-  --output "$archive"
+  --flavor "$FLAVOR" --output "$archive"
 sha=$(sha256sum "$archive" | awk '{print $1}')
 python3 "$ROOT/packaging/tools/render-package-metadata.py" \
   --format arch --flavor "$FLAVOR" \

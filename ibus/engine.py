@@ -19,7 +19,7 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 
 import numpy as np
 
@@ -38,9 +38,7 @@ from app.ibus_compat import build_capability_flags
 from app.slm_polisher import SLMPolisher
 from app.streaming_asr import StreamingASRProcess, StreamingAudioChunker
 from app.voice_edit import KeyAction, SurroundingSnapshot
-
-if TYPE_CHECKING:
-    from pyrime.session import Session as RimeSession
+from ibus.rime_runtime import RimeSession, get_runtime, librime_available
 
 logger = logging.getLogger(__name__)
 
@@ -197,11 +195,10 @@ class VoCoTypeEngine(IBus.Engine):
         # ASR服务使用类级共享实例
         self._native_sample_rate = CONFIGURED_SAMPLE_RATE
 
-        # Rime 集成（使用 pyrime 直接调用 librime）
-        # 如果未安装 pyrime，则禁用 Rime 集成
+        # Rime 集成：项目内 ctypes 适配层直接调用系统 librime。
         self._rime_session: Optional[RimeSession] = None
         self._rime_available = self._check_rime_available()
-        self._rime_enabled = self._rime_available  # 只有 pyrime 可用时才启用
+        self._rime_enabled = self._rime_available
         self._rime_init_lock = threading.Lock()
         self._client_capabilities = 0
         self._window_context_cache = "window=unavailable(reason=not-collected)"
@@ -219,13 +216,11 @@ class VoCoTypeEngine(IBus.Engine):
             )
 
     def _check_rime_available(self) -> bool:
-        """检查 pyrime 是否可用"""
-        try:
-            import pyrime
-            return True
-        except ImportError:
-            logger.info("pyrime 未安装，Rime 集成功能将被禁用")
-            return False
+        """检查系统 librime C API 是否可用。"""
+        available = librime_available()
+        if not available:
+            logger.info("librime 不可用，Rime 集成功能将被禁用")
+        return available
 
     def _format_capabilities(self, caps: Optional[int] = None) -> str:
         value = int(self._client_capabilities if caps is None else caps)
@@ -467,8 +462,8 @@ class VoCoTypeEngine(IBus.Engine):
     # 默认 schema：朙月拼音，librime 自带
     DEFAULT_RIME_SCHEMA = "luna_pinyin"
 
-    def _init_rime_session(self):
-        """初始化 Rime Session（懒加载）"""
+    def _init_rime_session(self) -> bool:
+        """初始化一个使用项目内 ctypes 适配层的 Rime session。"""
         if self._rime_session is not None:
             return True
 
@@ -476,154 +471,94 @@ class VoCoTypeEngine(IBus.Engine):
             if self._rime_session is not None:
                 return True
 
-            api = None
-            session_id = None
-            session = None
+            session: RimeSession | None = None
             session_tracked = False
             try:
-                # 确保日志目录存在
                 log_dir = Path.home() / ".local" / "share" / "vocotype" / "rime"
                 log_dir.mkdir(parents=True, exist_ok=True)
 
-                from pyrime.api import Traits, API
-                from pyrime.session import Session
-                from pyrime.ime import Context
-
-                # 按优先级选择用户目录
-                # 1. 优先使用有 default.yaml 的用户目录（用户自定义配置）
-                # 2. 否则使用 ibus-rime 目录（如果存在）
-                # 3. 最后使用 vocotype 目录
                 vocotype_user_dir = Path.home() / ".config" / "vocotype" / "rime"
                 ibus_rime_user = Path.home() / ".config" / "ibus" / "rime"
 
-                if (ibus_rime_user / "default.yaml").exists():
-                    user_data_dir = ibus_rime_user
-                elif (vocotype_user_dir / "default.yaml").exists():
+                def deployed(directory: Path) -> bool:
+                    return (directory / "build/default.yaml").is_file()
+
+                # VoCoType owns and deploys its isolated schema configuration.
+                # Fall back to an existing IBus Rime workspace for source installs.
+                if deployed(vocotype_user_dir):
                     user_data_dir = vocotype_user_dir
-                elif ibus_rime_user.exists():
+                elif deployed(ibus_rime_user):
                     user_data_dir = ibus_rime_user
                 else:
-                    user_data_dir = vocotype_user_dir
-                    user_data_dir.mkdir(parents=True, exist_ok=True)
+                    logger.error("找不到已部署的 Rime 用户数据，请重新运行设置中心安装")
+                    return False
 
-                # 查找共享数据目录
-                shared_dirs = [
-                    Path("/usr/share/rime-data"),
-                    Path("/usr/local/share/rime-data"),
-                ]
-                shared_data_dir = next((d for d in shared_dirs if d.exists()), None)
+                shared_data_dir = next(
+                    (
+                        directory
+                        for directory in (
+                            Path("/usr/share/rime-data"),
+                            Path("/usr/local/share/rime-data"),
+                        )
+                        if (directory / "default.yaml").is_file()
+                    ),
+                    None,
+                )
                 if shared_data_dir is None:
                     logger.error("找不到 Rime 共享数据目录")
                     return False
 
-                # 验证至少有一个 default.yaml 可用（用户或系统）
-                if not (user_data_dir / "default.yaml").exists() and \
-                   not (shared_data_dir / "default.yaml").exists():
-                    logger.error("找不到 Rime 配置文件（用户和系统目录都缺少 default.yaml）")
-                    return False
-
-                # 仅在使用 vocotype 目录时创建符号链接
-                if user_data_dir == vocotype_user_dir:
-                    for subdir in ["build", "lua", "cn_dicts", "en_dicts", "opencc", "others"]:
-                        link_path = user_data_dir / subdir
-                        if link_path.exists() or link_path.is_symlink():
-                            continue
-                        # 优先 ibus-rime 用户目录
-                        target_path = ibus_rime_user / subdir
-                        if not target_path.exists():
-                            target_path = shared_data_dir / subdir
-                        if target_path.exists():
-                            try:
-                                link_path.symlink_to(target_path)
-                                logger.debug("创建 %s 符号链接: %s -> %s", subdir, link_path, target_path)
-                            except OSError as e:
-                                logger.warning("创建 %s 符号链接失败: %s", subdir, e)
-
-                # 注意：pyrime 编译版本中 user_data_dir 和 log_dir 字段位置与 .pyi 存根相反。
-                # 实测：传入 user_data_dir 的值被 librime 用作 log_dir，
-                #       传入 log_dir 的值被 librime 用作 user_data_dir（读取 schema/build）。
-                # 因此这里交换两个字段，使 librime 能正确读取用户配置目录中的 schema 和 build。
-                traits = Traits(
-                    shared_data_dir=str(shared_data_dir),
-                    user_data_dir=str(log_dir),      # pyrime bug: 此值实为 librime log_dir
-                    log_dir=str(user_data_dir),       # pyrime bug: 此值实为 librime user_data_dir
-                    distribution_name="VoCoType",
-                    distribution_code_name="vocotype",
-                    distribution_version="1.0",
-                    app_name="rime.vocotype",
+                runtime = get_runtime(
+                    shared_data_dir=shared_data_dir,
+                    user_data_dir=user_data_dir,
+                    log_dir=log_dir,
+                    distribution_version="3",
                 )
-
-                logger.info("Rime traits: shared=%s, user=%s, log=%s",
-                           shared_data_dir, user_data_dir, log_dir)
-
-                # 每个engine实例创建自己的session（避免共享状态问题）
-                # Traits.__post_init__ 已完成 setup+initialize，不重复调用
-                api = API()
-                logger.info("Rime API 创建 (addr=%s)", api.address)
-                session_id = api.create_session()
-
-                # 跟踪活跃session（用于调试）
+                session = runtime.create_session()
+                session_id = session.id
                 with self._session_lock:
                     self._active_sessions.add(session_id)
                     session_tracked = True
-                    logger.info("Session ID: %s created, active sessions: %d",
-                               session_id, len(self._active_sessions))
+                    logger.info(
+                        "Rime session %s created, active sessions: %d",
+                        session_id,
+                        len(self._active_sessions),
+                    )
 
-                # 创建 Session 对象
-                session = Session(traits=traits, api=api, id=session_id)
+                preferred_schema = (
+                    self._get_preferred_rime_schema(user_data_dir)
+                    or self.DEFAULT_RIME_SCHEMA
+                )
+                if not session.select_schema(preferred_schema):
+                    if (
+                        preferred_schema == self.DEFAULT_RIME_SCHEMA
+                        or not session.select_schema(self.DEFAULT_RIME_SCHEMA)
+                    ):
+                        raise RuntimeError(
+                            f"无法选择 Rime schema: {preferred_schema}"
+                        )
+                    preferred_schema = self.DEFAULT_RIME_SCHEMA
 
-                # 获取当前schema（处理可能的编码问题）
-                try:
-                    schema = session.get_current_schema()
-                    # 如果返回的是字节串，尝试解码
-                    if isinstance(schema, bytes):
-                        try:
-                            schema = schema.decode('utf-8')
-                        except UnicodeDecodeError:
-                            schema = schema.decode('gbk', errors='ignore')
-                    logger.info("Rime Session 已创建，schema: %s", schema)
-                except Exception as e:
-                    logger.warning("获取当前schema失败: %s，使用默认值", e)
-                    schema = None
-
-                # 避免调用 get_schema_list（部分环境可能触发 librime 崩溃）
-                preferred_schema = self._get_preferred_rime_schema(user_data_dir)
-                if preferred_schema:
-                    try:
-                        logger.info("尝试使用用户配置的方案: %s", preferred_schema)
-                        session.select_schema(preferred_schema)
-                    except Exception as exc:
-                        logger.warning("选择用户方案失败: %s", exc)
-                elif schema in (None, "", ".default"):
-                    try:
-                        logger.info("使用默认方案: %s", self.DEFAULT_RIME_SCHEMA)
-                        session.select_schema(self.DEFAULT_RIME_SCHEMA)
-                    except Exception as exc:
-                        logger.warning("选择默认方案失败: %s", exc)
-
-                try:
-                    logger.info("当前 schema: %s", session.get_current_schema())
-                except Exception:
-                    pass
+                logger.info(
+                    "Rime session ready: shared=%s user=%s schema=%s",
+                    shared_data_dir,
+                    user_data_dir,
+                    session.get_current_schema(),
+                )
                 self._rime_session = session
                 return True
-
             except Exception as exc:
-                logger.error("初始化 Rime Session 失败: %s", exc)
-                if api is not None and session_id is not None:
+                logger.error("初始化 Rime session 失败: %s", exc)
+                if session is not None:
                     try:
-                        api.destroy_session(session_id)
+                        session.close()
                     except Exception as cleanup_exc:
                         logger.warning("清理失败的 Rime session 失败: %s", cleanup_exc)
-                if session_tracked and session_id is not None:
-                    with self._session_lock:
-                        self._active_sessions.discard(session_id)
-                        logger.info("Session ID: %s removed after init failure, active sessions: %d",
-                                   session_id, len(self._active_sessions))
+                    if session_tracked:
+                        with self._session_lock:
+                            self._active_sessions.discard(session.id)
                 self._rime_session = None
-                import traceback
-                traceback.print_exc()
-                self._rime_enabled = False  # Disable RIME on failure
+                self._rime_enabled = False
                 return False
 
     def do_enable(self):
@@ -669,8 +604,7 @@ class VoCoTypeEngine(IBus.Engine):
             try:
                 self._rime_session.clear_composition()
                 session_id = self._rime_session.id
-                api = self._rime_session.api
-                api.destroy_session(session_id)
+                self._rime_session.close()
 
                 # 从活跃session中移除
                 with self._session_lock:
@@ -701,8 +635,7 @@ class VoCoTypeEngine(IBus.Engine):
         if self._rime_session:
             try:
                 session_id = self._rime_session.id
-                api = self._rime_session.api
-                api.destroy_session(session_id)
+                self._rime_session.close()
 
                 # 从活跃session中移除
                 with self._session_lock:
@@ -1344,7 +1277,7 @@ class VoCoTypeEngine(IBus.Engine):
             return False
 
     def _forward_key_to_rime(self, keyval, keycode, state) -> bool:
-        """将按键事件转发给 Rime（使用 pyrime）"""
+        """将按键事件转发给系统 librime。"""
         if not self._rime_enabled:
             logger.info("Rime 未启用，按键不处理")
             return False
