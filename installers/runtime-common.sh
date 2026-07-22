@@ -76,6 +76,93 @@ escape_sed_replacement() {
     printf '%s' "$value"
 }
 
+refresh_user_desktop_database() {
+    if command -v update-desktop-database >/dev/null 2>&1; then
+        update-desktop-database "$HOME/.local/share/applications" >/dev/null 2>&1 || true
+    fi
+}
+
+install_settings_launcher() {
+    local project_dir="$1"
+    local install_dir="$2"
+    local preferred_python="$3"
+    local system_prefix="${VOCOTYPE_SYSTEM_PREFIX:-/usr}"
+    local user_launcher="$HOME/.local/bin/vocotype-settings"
+    local user_desktop="$HOME/.local/share/applications/io.github.LeonardNJU.VoCoType.Settings.desktop"
+    local system_launcher="$system_prefix/bin/vocotype-settings"
+
+    mkdir -p \
+        "$HOME/.local/bin" \
+        "$HOME/.local/share/applications" \
+        "$HOME/.local/share/icons/hicolor/192x192/apps"
+
+    # Native packages own the canonical launcher and desktop file. Remove any
+    # user-level launcher left by an older source installer, because ~/.local/bin
+    # normally shadows /usr/bin and would otherwise force the private ASR Python
+    # to start the GTK application without distro PyGObject.
+    if { [ -f "$project_dir/.system-package" ] || \
+         [ -f "$system_prefix/share/vocotype/.system-package" ]; } && \
+       [ -x "$system_launcher" ]; then
+        rm -f "$user_launcher" "$user_desktop"
+        refresh_user_desktop_database
+        echo "✓ 使用原生软件包设置中心入口: $system_launcher"
+        return 0
+    fi
+
+    local python_sed install_sed project_sed
+    python_sed=$(escape_sed_replacement "$preferred_python")
+    install_sed=$(escape_sed_replacement "$install_dir")
+    project_sed=$(escape_sed_replacement "$project_dir")
+    cat > "$user_launcher" <<'LAUNCHER'
+#!/usr/bin/env bash
+set -euo pipefail
+PREFERRED_INSTALL_DIR="VOCOTYPE_INSTALL_DIR"
+PREFERRED_PYTHON="VOCOTYPE_PYTHON"
+export VOCOTYPE_PROJECT_DIR="VOCOTYPE_PROJECT_DIR_VALUE"
+
+run_settings() {
+    local install_dir="$1"
+    local python_bin="$2"
+    shift 2
+    [ -f "$install_dir/settings_center/application.py" ] || return 1
+    if [[ "$python_bin" == */* ]]; then
+        [ -x "$python_bin" ] || return 1
+    else
+        command -v "$python_bin" >/dev/null 2>&1 || return 1
+    fi
+    if ! PYTHONPATH="$install_dir${PYTHONPATH:+:$PYTHONPATH}" \
+        "$python_bin" -c 'import settings_center.application' >/dev/null 2>&1; then
+        return 1
+    fi
+    export PYTHONPATH="$install_dir${PYTHONPATH:+:$PYTHONPATH}"
+    exec "$python_bin" -m settings_center.application "$@"
+}
+
+# GTK belongs to the distro Python. Probe it first, then fall back to a private
+# runtime only when that runtime can import the complete settings application.
+run_settings "$PREFERRED_INSTALL_DIR" python3 "$@"
+run_settings "$PREFERRED_INSTALL_DIR" "$PREFERRED_PYTHON" "$@"
+run_settings "$HOME/.local/share/vocotype-fcitx5" python3 "$@"
+run_settings "$HOME/.local/share/vocotype-fcitx5" "$HOME/.local/share/vocotype-fcitx5/.venv/bin/python" "$@"
+run_settings "$HOME/.local/share/vocotype" python3 "$@"
+run_settings "$HOME/.local/share/vocotype" "$HOME/.local/share/vocotype/.venv/bin/python" "$@"
+
+echo "VoCoType Settings could not find a Python interpreter able to import GTK 3, PyGObject, PyYAML, NumPy, and the settings modules." >&2
+exit 78
+LAUNCHER
+    sed -i "s|VOCOTYPE_PYTHON|$python_sed|g" "$user_launcher"
+    sed -i "s|VOCOTYPE_INSTALL_DIR|$install_sed|g" "$user_launcher"
+    sed -i "s|VOCOTYPE_PROJECT_DIR_VALUE|$project_sed|g" "$user_launcher"
+    chmod +x "$user_launcher"
+    sed "s|Exec=vocotype-settings|Exec=$user_launcher|" \
+        "$project_dir/data/applications/io.github.LeonardNJU.VoCoType.Settings.desktop" > \
+        "$user_desktop"
+    cp "$project_dir/site/icon-192.png" \
+       "$HOME/.local/share/icons/hicolor/192x192/apps/vocotype.png"
+    refresh_user_desktop_database
+    echo "✓ 设置中心已安装，可运行: vocotype-settings"
+}
+
 
 emit_install_progress() {
     local percent="$1"

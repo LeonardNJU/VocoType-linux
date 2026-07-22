@@ -473,47 +473,7 @@ sed -i "s|VOCOTYPE_PYTHON|$PYTHON_SED|g" "$LIBEXEC_DIR/ibus-engine-vocotype"
 chmod +x "$LIBEXEC_DIR/ibus-engine-vocotype"
 
 # 安装统一图形设置中心入口
-mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications" "$HOME/.local/share/icons/hicolor/192x192/apps"
-cat > "$HOME/.local/bin/vocotype-settings" << 'SETTINGS_LAUNCHER'
-#!/bin/bash
-PREFERRED_INSTALL_DIR="VOCOTYPE_INSTALL_DIR"
-PREFERRED_PYTHON="VOCOTYPE_PYTHON"
-export VOCOTYPE_PROJECT_DIR="VOCOTYPE_PROJECT_DIR_VALUE"
-
-run_settings() {
-    local install_dir="$1"
-    local python_bin="$2"
-    shift 2
-    [ -f "$install_dir/settings_center/application.py" ] || return 1
-    if [[ "$python_bin" == */* ]]; then
-        [ -x "$python_bin" ] || return 1
-    else
-        command -v "$python_bin" >/dev/null 2>&1 || return 1
-    fi
-    export PYTHONPATH="$install_dir${PYTHONPATH:+:$PYTHONPATH}"
-    exec "$python_bin" -m settings_center.application "$@"
-}
-
-run_settings "$PREFERRED_INSTALL_DIR" "$PREFERRED_PYTHON" "$@"
-run_settings "$HOME/.local/share/vocotype-fcitx5" "$HOME/.local/share/vocotype-fcitx5/.venv/bin/python" "$@"
-run_settings "$HOME/.local/share/vocotype" "$HOME/.local/share/vocotype/.venv/bin/python" "$@"
-
-echo "VoCoType 设置中心运行时不存在，请重新安装或修复。" >&2
-exit 1
-SETTINGS_LAUNCHER
-sed -i "s|VOCOTYPE_PYTHON|$PYTHON_SED|g" "$HOME/.local/bin/vocotype-settings"
-INSTALL_DIR_SED=$(escape_sed_replacement "$INSTALL_DIR")
-sed -i "s|VOCOTYPE_INSTALL_DIR|$INSTALL_DIR_SED|g" "$HOME/.local/bin/vocotype-settings"
-sed -i "s|VOCOTYPE_PROJECT_DIR_VALUE|$PROJECT_DIR_SED|g" "$HOME/.local/bin/vocotype-settings"
-chmod +x "$HOME/.local/bin/vocotype-settings"
-sed "s|Exec=vocotype-settings|Exec=$HOME/.local/bin/vocotype-settings|" \
-    "$PROJECT_DIR/data/applications/io.github.LeonardNJU.VoCoType.Settings.desktop" > \
-    "$HOME/.local/share/applications/io.github.LeonardNJU.VoCoType.Settings.desktop"
-cp "$PROJECT_DIR/site/icon-192.png" "$HOME/.local/share/icons/hicolor/192x192/apps/vocotype.png"
-if command -v update-desktop-database >/dev/null 2>&1; then
-    update-desktop-database "$HOME/.local/share/applications" >/dev/null 2>&1 || true
-fi
-echo "✓ 图形设置中心已安装，可运行: vocotype-settings"
+install_settings_launcher "$PROJECT_DIR" "$INSTALL_DIR" "$PYTHON"
 
 # 5. 配置 Rime 集成（如果启用）
 if [ "$ENABLE_RIME" = "1" ]; then

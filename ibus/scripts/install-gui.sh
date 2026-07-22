@@ -151,43 +151,6 @@ rime_runtime_available() {
     [[ -f /usr/share/rime-data/default.yaml || -f /usr/local/share/rime-data/default.yaml ]]
 }
 
-install_settings_launcher() {
-    mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications" "$HOME/.local/share/icons/hicolor/192x192/apps"
-    local python_sed install_sed project_sed
-    python_sed=$(escape_sed_replacement "$PYTHON")
-    install_sed=$(escape_sed_replacement "$INSTALL_DIR")
-    project_sed=$(escape_sed_replacement "$PROJECT_DIR")
-    cat > "$HOME/.local/bin/vocotype-settings" <<'LAUNCHER'
-#!/bin/bash
-PREFERRED_INSTALL_DIR="VOCOTYPE_INSTALL_DIR"
-PREFERRED_PYTHON="VOCOTYPE_PYTHON"
-export VOCOTYPE_PROJECT_DIR="VOCOTYPE_PROJECT_DIR_VALUE"
-run_settings() {
-    local install_dir="$1" python_bin="$2"
-    shift 2
-    [[ -f "$install_dir/settings_center/application.py" ]] || return 1
-    [[ "$python_bin" != */* ]] || [[ -x "$python_bin" ]] || return 1
-    [[ "$python_bin" == */* ]] || command -v "$python_bin" >/dev/null 2>&1 || return 1
-    export PYTHONPATH="$install_dir${PYTHONPATH:+:$PYTHONPATH}"
-    exec "$python_bin" -m settings_center.application "$@"
-}
-run_settings "$PREFERRED_INSTALL_DIR" "$PREFERRED_PYTHON" "$@"
-run_settings "$HOME/.local/share/vocotype-fcitx5" "$HOME/.local/share/vocotype-fcitx5/.venv/bin/python" "$@"
-run_settings "$HOME/.local/share/vocotype" "$HOME/.local/share/vocotype/.venv/bin/python" "$@"
-echo "VoCoType 设置中心运行时不存在，请重新安装或修复。" >&2
-exit 1
-LAUNCHER
-    sed -i "s|VOCOTYPE_PYTHON|$python_sed|g" "$HOME/.local/bin/vocotype-settings"
-    sed -i "s|VOCOTYPE_INSTALL_DIR|$install_sed|g" "$HOME/.local/bin/vocotype-settings"
-    sed -i "s|VOCOTYPE_PROJECT_DIR_VALUE|$project_sed|g" "$HOME/.local/bin/vocotype-settings"
-    chmod +x "$HOME/.local/bin/vocotype-settings"
-    sed "s|Exec=vocotype-settings|Exec=$HOME/.local/bin/vocotype-settings|" \
-        "$PROJECT_DIR/data/applications/io.github.LeonardNJU.VoCoType.Settings.desktop" > \
-        "$HOME/.local/share/applications/io.github.LeonardNJU.VoCoType.Settings.desktop"
-    cp "$PROJECT_DIR/site/icon-192.png" "$HOME/.local/share/icons/hicolor/192x192/apps/vocotype.png"
-    command -v update-desktop-database >/dev/null 2>&1 && \
-        update-desktop-database "$HOME/.local/share/applications" >/dev/null 2>&1 || true
-}
 
 echo "=== VoCoType IBus 图形安装后端 ==="
 emit_install_progress 2 "准备安装 VoCoType（IBus）"

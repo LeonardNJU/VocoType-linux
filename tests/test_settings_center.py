@@ -1049,15 +1049,23 @@ def test_installers_have_gui_noninteractive_paths_without_terminal_password_prom
         "--non-interactive",
         "--preserve-config",
         'cp -r "$PROJECT_DIR/settings_center"',
-        'vocotype-settings',
-        'io.github.LeonardNJU.VoCoType.Settings.desktop',
         'OpenAI-compatible API',
-        'VOCOTYPE_PROJECT_DIR',
         '--install-system-deps',
         'pkexec',
         'pkexec --disable-internal-agent',
+        'install_settings_launcher "$PROJECT_DIR" "$INSTALL_DIR" "$PYTHON"',
     ):
         assert fragment in script
+
+    shared_runtime = Path("installers/runtime-common.sh").read_text(encoding="utf-8")
+    for fragment in (
+        'vocotype-settings',
+        'io.github.LeonardNJU.VoCoType.Settings.desktop',
+        'VOCOTYPE_PROJECT_DIR',
+        'import settings_center.application',
+        'rm -f "$user_launcher" "$user_desktop"',
+    ):
+        assert fragment in shared_runtime
 
     ibus_gui = Path("ibus/scripts/install-gui.sh").read_text(encoding="utf-8")
     assert ibus_gui.count("pkexec --disable-internal-agent") == 2

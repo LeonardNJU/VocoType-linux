@@ -254,3 +254,105 @@ def test_native_streaming_bundle_helper_is_shared_and_installs_private_runtime(t
     installed = home / ".local/lib/vocotype-streaming"
     assert (installed / "bin/vocotype-streaming-worker").stat().st_mode & 0o100
     assert (installed / "lib/libfunasr.so").read_bytes() == b"local-runtime"
+
+
+def test_native_package_install_removes_stale_user_settings_launcher(tmp_path: Path):
+    library = ROOT / "installers/runtime-common.sh"
+    home = tmp_path / "home"
+    project = tmp_path / "project"
+    system = tmp_path / "system"
+    install_dir = home / ".local/share/vocotype-fcitx5"
+    user_launcher = home / ".local/bin/vocotype-settings"
+    user_desktop = (
+        home
+        / ".local/share/applications/io.github.LeonardNJU.VoCoType.Settings.desktop"
+    )
+    for path in (project, install_dir, user_launcher.parent, user_desktop.parent):
+        path.mkdir(parents=True, exist_ok=True)
+    (project / ".system-package").write_text(
+        "managed-by=native-package\n", encoding="utf-8"
+    )
+    system_launcher = system / "bin/vocotype-settings"
+    system_launcher.parent.mkdir(parents=True)
+    system_launcher.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    system_launcher.chmod(0o755)
+    user_launcher.write_text("legacy private-python launcher\n", encoding="utf-8")
+    user_desktop.write_text("Exec=/legacy/vocotype-settings\n", encoding="utf-8")
+
+    env = os.environ.copy()
+    env.update({"HOME": str(home), "VOCOTYPE_SYSTEM_PREFIX": str(system)})
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f'source "{library}"; install_settings_launcher '
+            f'"{project}" "{install_dir}" "{sys.executable}"',
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "使用原生软件包设置中心入口" in result.stdout
+    assert not user_launcher.exists()
+    assert not user_desktop.exists()
+
+
+def test_source_settings_launcher_probes_distro_python_before_private_runtime(
+    tmp_path: Path,
+):
+    library = ROOT / "installers/runtime-common.sh"
+    home = tmp_path / "home"
+    project = tmp_path / "project"
+    install_dir = home / ".local/share/vocotype-fcitx5"
+    (project / "data/applications").mkdir(parents=True)
+    (project / "site").mkdir(parents=True)
+    (install_dir / "settings_center").mkdir(parents=True)
+    (project / "data/applications/io.github.LeonardNJU.VoCoType.Settings.desktop").write_text(
+        "[Desktop Entry]\nExec=vocotype-settings\n", encoding="utf-8"
+    )
+    (project / "site/icon-192.png").write_bytes(b"png")
+    (install_dir / "settings_center/application.py").write_text("", encoding="utf-8")
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "HOME": str(home),
+            "VOCOTYPE_SYSTEM_PREFIX": str(tmp_path / "no-system-package"),
+        }
+    )
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f'source "{library}"; install_settings_launcher '
+            f'"{project}" "{install_dir}" "/private/python"',
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    launcher = home / ".local/bin/vocotype-settings"
+    source = launcher.read_text(encoding="utf-8")
+    assert source.index('run_settings "$PREFERRED_INSTALL_DIR" python3') < source.index(
+        'run_settings "$PREFERRED_INSTALL_DIR" "$PREFERRED_PYTHON"'
+    )
+    assert "import settings_center.application" in source
+    assert "set -euo pipefail" in source
+
+
+def test_all_installers_use_shared_settings_launcher_helper():
+    shared = (ROOT / "installers/runtime-common.sh").read_text(encoding="utf-8")
+    assert shared.count("install_settings_launcher()") == 1
+    for relative in (
+        "fcitx5/scripts/install.sh",
+        "ibus/scripts/install.sh",
+        "ibus/scripts/install-gui.sh",
+    ):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        assert 'source "$PROJECT_DIR/installers/runtime-common.sh"' in source
+        assert "install_settings_launcher()" not in source
+        assert "install_settings_launcher" in source
