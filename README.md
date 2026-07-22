@@ -1,5 +1,9 @@
 # VoCoType Linux
 
+<p align="center">
+  <img src="site/og-image.png" alt="VoCoType Linux — 按住 F9 说话，松开即可输入文字" width="100%">
+</p>
+
 <p align="center"><strong>按住 F9 说话，松开即可输入文字。</strong></p>
 
 <p align="center">
