@@ -17,6 +17,14 @@ struct ServerConfig {
   int request_timeout_ms = 2000;
 };
 
+struct NormalizationConfig {
+  bool enabled = true;
+  bool compact_dates = true;
+  bool compact_times = true;
+  bool compact_distances = true;
+  bool currency_symbols = true;
+};
+
 struct OfflineAsrConfig {
   bool enabled = false;
   std::string worker_path;
@@ -60,6 +68,10 @@ struct SlmConfig {
   std::string endpoint = "http://127.0.0.1:18080/v1/chat/completions";
   std::string model = "Qwen/Qwen3.5-0.8B";
   int timeout_ms = 20000;
+  bool remote_stream = true;
+  int stream_idle_timeout_ms = 20000;
+  int transport_timeout_ms = 0;
+  int remote_max_tokens = 0;
   int min_chars = 8;
   int max_tokens = 128;
   double temperature = 0.0;
@@ -77,6 +89,7 @@ struct SlmConfig {
 struct AppConfig {
   ServerConfig server;
   OfflineAsrConfig offline_asr;
+  NormalizationConfig normalization;
   StreamingAsrConfig streaming_asr;
   SlmConfig slm;
   Json raw = Json::object();

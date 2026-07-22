@@ -1,6 +1,9 @@
 # VoCoType IBus
 
 VoCoType 的 IBus 集成同时提供离线语音输入、语音编辑和普通 Rime 键盘输入。
+打包安装默认由 Python/GObject 输入法壳按需启动 `vocotype-core`；最终 ASR、
+实时预览、ITN、术语规范化、SSE 润色和语音编辑计划均在 C++ core 中执行。
+`VOCOTYPE_BACKEND=python` 可显式回退旧 inference 路径。
 
 ## 功能
 
@@ -13,13 +16,11 @@ VoCoType 不启动或管理本地语言模型。Ollama、llama.cpp、vLLM、局�
 
 ## Rime 架构
 
-IBus 版本使用：
+IBus 版本分成两条链路：
 
 ```text
-ibus/engine.py
-→ ibus/rime_runtime.py
-→ Python 标准库 ctypes
-→ 系统 librime
+语音：ibus/engine.py → app/native_core_client.py → vocotype-core
+键盘：ibus/engine.py → ibus/rime_runtime.py → ctypes → 系统 librime
 ```
 
 不需要 `pyrime`，也不会在用户机器上编译任何 Rime Python binding。适配层同时支持 Ubuntu 22.04 的传统直接 C API，以及当前 Fedora/Arch 的 `rime_get_api` 函数表。
@@ -62,8 +63,8 @@ bash installers/launch-settings.sh
 
 在“概览与安装”中选择 IBus，并保持“集成 Rime 拼音”启用。安装器会：
 
-1. 创建隔离的 Python 3.12 语音运行环境；
-2. 从安装包内 wheelhouse 离线安装二进制依赖；
+1. 创建 IBus/GObject、录音和可选 Rime 所需的隔离 Python 环境；
+2. 安装并校验 native core 与两个 FunASR worker；
 3. 下载并校验 ASR/VAD/标点模型；
 4. 部署选择的 Rime schema；
 5. 创建真实 librime session，发送普通按键并验证 preedit；

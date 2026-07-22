@@ -63,6 +63,14 @@ Json default_config_json() {
            {"startup_timeout_s", 30},
            {"request_timeout_s", 120},
        }},
+      {"normalization",
+       {
+           {"enabled", true},
+           {"compact_dates", true},
+           {"compact_times", true},
+           {"compact_distances", true},
+           {"currency_symbols", true},
+       }},
       {"asr_streaming",
        {
            {"enabled", false},
@@ -85,6 +93,10 @@ Json default_config_json() {
            {"endpoint", "http://127.0.0.1:18080/v1/chat/completions"},
            {"model", "Qwen/Qwen3.5-0.8B"},
            {"timeout_ms", 20000},
+           {"remote_stream", true},
+           {"stream_idle_timeout_ms", 20000},
+           {"transport_timeout_ms", 0},
+           {"remote_max_tokens", 0},
            {"min_chars", 8},
            {"max_tokens", 128},
            {"temperature", 0.0},
@@ -143,6 +155,19 @@ AppConfig parse_config(const Json &value) {
   config.server.request_timeout_ms =
       std::max(100, value_or<int>(core, "request_timeout_ms",
                                   config.server.request_timeout_ms));
+
+  const Json normalization = merged.value("normalization", Json::object());
+  config.normalization.enabled =
+      value_or<bool>(normalization, "enabled", config.normalization.enabled);
+  config.normalization.compact_dates = value_or<bool>(
+      normalization, "compact_dates", config.normalization.compact_dates);
+  config.normalization.compact_times = value_or<bool>(
+      normalization, "compact_times", config.normalization.compact_times);
+  config.normalization.compact_distances =
+      value_or<bool>(normalization, "compact_distances",
+                     config.normalization.compact_distances);
+  config.normalization.currency_symbols = value_or<bool>(
+      normalization, "currency_symbols", config.normalization.currency_symbols);
 
   const Json streaming = merged.value("asr_streaming", Json::object());
   config.streaming_asr.enabled =
@@ -223,6 +248,16 @@ AppConfig parse_config(const Json &value) {
   config.slm.model = value_or<std::string>(slm, "model", config.slm.model);
   config.slm.timeout_ms =
       std::max(100, value_or<int>(slm, "timeout_ms", config.slm.timeout_ms));
+  config.slm.remote_stream =
+      value_or<bool>(slm, "remote_stream", config.slm.remote_stream);
+  config.slm.stream_idle_timeout_ms =
+      std::max(50, value_or<int>(slm, "stream_idle_timeout_ms",
+                                 config.slm.stream_idle_timeout_ms));
+  config.slm.transport_timeout_ms =
+      std::max(0, value_or<int>(slm, "transport_timeout_ms",
+                                config.slm.transport_timeout_ms));
+  config.slm.remote_max_tokens = std::max(
+      0, value_or<int>(slm, "remote_max_tokens", config.slm.remote_max_tokens));
   config.slm.min_chars =
       std::max(0, value_or<int>(slm, "min_chars", config.slm.min_chars));
   config.slm.max_tokens =

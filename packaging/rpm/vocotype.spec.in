@@ -20,7 +20,7 @@ Requires:       curl
 VoCoType provides push-to-talk offline speech input, terminology handling,
 inverse text normalization, and optional AI polishing through an
 OpenAI-compatible API. This flavor installs the @TITLE@ integration,
-an opt-in native C++ core, native ASR runtime, and a distro-compatible Python wheelhouse.
+the default native C++ core and native ASR runtime, and a distro-compatible Python wheelhouse.
 
 %prep
 %autosetup -n VocoType-linux-@SOURCE_VERSION@

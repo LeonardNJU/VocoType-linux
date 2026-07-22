@@ -1066,12 +1066,13 @@ def test_fcitx_module_uses_apis_available_since_fcitx_5014():
 
 
 
-def test_fcitx_backend_launcher_keeps_python_default_and_exposes_native_opt_in():
+def test_fcitx_backend_launcher_prefers_native_and_keeps_python_fallback():
     source = (ROOT / "packaging/bin/vocotype-fcitx5-backend").read_text(
         encoding="utf-8"
     )
-    assert '${VOCOTYPE_BACKEND:-python}' in source
-    assert "cpp|native" in source
+    assert '${VOCOTYPE_BACKEND:-auto}' in source
+    assert "python|legacy" in source
+    assert 'auto|cpp|native|""' in source
     assert 'exec "$core" --enable-final-asr "$@"' in source
     assert 'fcitx5/backend/fcitx5_server.py' in source
 

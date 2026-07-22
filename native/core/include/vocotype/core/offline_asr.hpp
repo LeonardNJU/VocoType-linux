@@ -6,12 +6,14 @@
 
 #include "vocotype/core/config.hpp"
 #include "vocotype/core/json_line_worker.hpp"
+#include "vocotype/core/text_normalizer.hpp"
 
 namespace vocotype::core {
 
 class OfflineAsrProcess {
 public:
-  explicit OfflineAsrProcess(OfflineAsrConfig config);
+  OfflineAsrProcess(OfflineAsrConfig config,
+                    NormalizationConfig normalization = {});
   OfflineAsrProcess(const OfflineAsrProcess &) = delete;
   OfflineAsrProcess &operator=(const OfflineAsrProcess &) = delete;
 
@@ -19,6 +21,9 @@ public:
   [[nodiscard]] bool ready() noexcept;
   [[nodiscard]] Json initialize();
   [[nodiscard]] Json transcribe(const Json &request);
+  [[nodiscard]] std::string normalize_text(const std::string &text);
+  [[nodiscard]] std::string
+  build_native_hotwords(const std::string &extra = "");
 
 private:
   [[nodiscard]] Json ensure_worker();
@@ -29,6 +34,7 @@ private:
   [[nodiscard]] std::vector<std::string> worker_arguments() const;
 
   OfflineAsrConfig config_;
+  TextNormalizer normalizer_;
   JsonLineWorker worker_;
 };
 

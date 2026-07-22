@@ -60,8 +60,9 @@ Json error_response(const std::string &error) {
 
 } // namespace
 
-OfflineAsrProcess::OfflineAsrProcess(OfflineAsrConfig config)
-    : config_(std::move(config)) {}
+OfflineAsrProcess::OfflineAsrProcess(OfflineAsrConfig config,
+                                     NormalizationConfig normalization)
+    : config_(std::move(config)), normalizer_(normalization) {}
 
 bool OfflineAsrProcess::enabled() const noexcept { return config_.enabled; }
 
@@ -188,14 +189,34 @@ Json OfflineAsrProcess::transcribe(const Json &request) {
   if (!started.value("success", false)) {
     return started;
   }
-  return worker_.request(
+  const std::string requested_hotwords =
+      request.value("hotwords", config_.hotword);
+  const std::string native_hotwords =
+      normalizer_.build_native_hotwords(requested_hotwords);
+  Json result = worker_.request(
       {{"type", "transcribe"},
        {"audio_path",
         std::filesystem::canonical(expand_user_path(audio_path)).string()},
-       {"hotwords", request.value("hotwords", config_.hotword)},
+       {"hotwords", native_hotwords},
        {"sampling_rate", request.value("sampling_rate", 16000)},
        {"itn", request.value("itn", config_.itn)}},
       config_.request_timeout_ms);
+  if (result.value("success", false)) {
+    const std::string raw_text =
+        result.value("raw_text", result.value("text", std::string()));
+    result["raw_text"] = raw_text;
+    result["text"] = normalizer_.normalize(result.value("text", raw_text));
+    result["hotwords"] = native_hotwords;
+  }
+  return result;
+}
+
+std::string OfflineAsrProcess::normalize_text(const std::string &text) {
+  return normalizer_.normalize(text);
+}
+
+std::string OfflineAsrProcess::build_native_hotwords(const std::string &extra) {
+  return normalizer_.build_native_hotwords(extra);
 }
 
 } // namespace vocotype::core

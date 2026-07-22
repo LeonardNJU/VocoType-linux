@@ -6,7 +6,8 @@ namespace vocotype::core {
 
 CoreDispatcher::CoreDispatcher(AppConfig config)
     : config_(std::move(config)), slm_(config_.slm),
-      offline_asr_(config_.offline_asr), streaming_asr_(config_.streaming_asr),
+      offline_asr_(config_.offline_asr, config_.normalization),
+      streaming_asr_(config_.streaming_asr),
       transcription_tasks_(offline_asr_, slm_), voice_edit_planner_(slm_),
       voice_edit_tasks_(offline_asr_, voice_edit_planner_) {
   if (offline_asr_.enabled()) {
@@ -36,6 +37,8 @@ Json CoreDispatcher::dispatch(const Json &request) const {
          {
              {"ipc", true},
              {"slm_non_streaming", true},
+             {"slm_streaming", true},
+             {"slm_remote_stream", slm_.remote_stream()},
              {"slm_enabled", slm_.enabled()},
              {"final_asr", offline_asr_.enabled()},
              {"final_asr_ready", offline_asr_.ready()},
@@ -54,6 +57,13 @@ Json CoreDispatcher::dispatch(const Json &request) const {
   }
   if (type == "asr_preview_close") {
     return streaming_asr_.close_session(request);
+  }
+  if (type == "normalize_text") {
+    const std::string text = request.value("text", "");
+    return {{"success", true},
+            {"text", offline_asr_.normalize_text(text)},
+            {"hotwords", offline_asr_.build_native_hotwords(
+                             request.value("hotwords", std::string()))}};
   }
   if (type == "polish_text") {
     const std::string text = request.value("text", "");

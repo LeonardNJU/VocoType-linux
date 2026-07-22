@@ -24,7 +24,7 @@
     sudo pacman -U ./vocotype-linux-*.pkg.tar.zst
     ```
 
-v3 Release 同时提供通用版、IBus 专用版和 Fcitx 5 专用版。三者都包含预编译 2-pass native runtime 和发行版兼容 Python wheelhouse；专用版只安装所选输入法 integration 及其系统依赖。包管理器事务不下载模型或修改用户配置，设置中心只创建 Python 3.12 用户环境并按需下载模型。AI 功能只调用用户配置的 OpenAI-compatible API，不在本机启动模型。
+v3 Release 同时提供通用版、IBus 专用版和 Fcitx 5 专用版。三者都包含预编译 native C++ core、最终/实时两个 FunASR worker 和发行版兼容 Python wheelhouse；专用版只安装所选输入法 integration 及其系统依赖。包管理器事务不下载模型或修改用户配置，设置中心只创建 Python 3.12 用户环境并按需下载模型。AI 功能只调用用户配置的 OpenAI-compatible API，不在本机启动模型。
 
 ## 在图形界面中完成初始化
 

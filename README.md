@@ -64,7 +64,7 @@ sudo pacman -U ./vocotype-linux-*.pkg.tar.zst
 3. 点击安装 / 修复；
 4. 在 **Playground** 中选择麦克风，完成录音、回放和识别测试。
 
-Release 提供三种完整安装包：通用版、IBus 专用版和 Fcitx 5 专用版。每款都包含对应 integration、2-pass native worker、私有 ONNX Runtime / FunASR 动态库和锁定 Python 运行依赖；用户机器只创建 Python 3.12 环境并下载模型，不运行 CMake、GCC、Clang 或源码构建。AI 润色与语音编辑统一连接 OpenAI-compatible API；端点可位于本机、局域网或云端，VoCoType 不启动或管理模型进程。
+Release 提供三种完整安装包：通用版、IBus 专用版和 Fcitx 5 专用版。每款都包含默认启用的 native C++ core、两个 FunASR worker、私有 ONNX Runtime / FunASR 动态库，以及输入法壳和设置中心所需的锁定 Python 依赖；用户机器只创建 Python 3.12 环境并下载模型，不运行 CMake、GCC、Clang 或源码构建。AI 润色与语音编辑统一连接 OpenAI-compatible API；端点可位于本机、局域网或云端，VoCoType 不启动或管理模型进程。
 
 ### 2. 从源码启动图形安装器
 

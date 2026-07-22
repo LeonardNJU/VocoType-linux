@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.0.0-beta.2] - 2026-07-22
 
+### Added
+
+- Completed the native C++ speech backend: deterministic ITN, terminology YAML canonicalization/protection/hotwords, compact written styles, and OpenAI-compatible SSE delta delivery now match the existing product behavior.
+- IBus now shares `vocotype-core` for final ASR, online preview, Shift+F9 polishing, and voice-edit planning while retaining only its GObject/Rime/recording shell in Python.
+
+### Changed
+
+- Packaged Fcitx 5 and IBus installations now prefer the native core by default. `VOCOTYPE_BACKEND=python` remains an explicit rollback path, while `VOCOTYPE_BACKEND=cpp` requires native availability.
+
 ### Fixed
 
 - The native `vocotype-settings` launcher now selects a distro Python only after it can import the complete GTK settings application. On Arch, it no longer picks an unrelated Python 3.12 installation that cannot import the distro `python-gobject` package.

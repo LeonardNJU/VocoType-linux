@@ -49,6 +49,37 @@ struct TranscriptionTaskManager::Task {
     add_event_locked("status", status_text);
   }
 
+  bool accept_stream_event(const SlmStreamEvent &stream_event) {
+    std::lock_guard lock(mutex);
+    if (cancelled || status != "running") {
+      return false;
+    }
+    if (stream_event.kind == "heartbeat" || stream_event.kind == "final" ||
+        stream_event.kind == "error") {
+      return true;
+    }
+    if (stream_event.kind == "status") {
+      add_event_locked("status", stream_event.text);
+      return true;
+    }
+    if (stream_event.kind == "delta") {
+      ++seq;
+      const std::string full_preview = stream_event.preview.empty()
+                                           ? preview + stream_event.text
+                                           : stream_event.preview;
+      events.push_back({{"seq", seq},
+                        {"kind", "delta"},
+                        {"text", stream_event.text},
+                        {"preview", full_preview}});
+      preview = full_preview;
+      if (events.size() > 200U) {
+        events.erase(events.begin(),
+                     events.begin() + static_cast<long>(events.size() - 200U));
+      }
+    }
+    return true;
+  }
+
   void set_original(const std::string &value) {
     std::lock_guard lock(mutex);
     if (!cancelled) {
@@ -295,7 +326,13 @@ void TranscriptionTaskManager::run_task(const std::shared_ptr<Task> &task,
       request.contains("enable_thinking")
           ? std::optional<bool>(request.value("enable_thinking", false))
           : std::nullopt;
-  const PolishResult polished = slm_.polish(original, enable_thinking);
+  const PolishResult polished =
+      slm_.remote_stream()
+          ? slm_.stream_polish(original, enable_thinking,
+                               [task](const SlmStreamEvent &event) {
+                                 return task->accept_stream_event(event);
+                               })
+          : slm_.polish(original, enable_thinking);
   if (task->is_cancelled()) {
     return;
   }

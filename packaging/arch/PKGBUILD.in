@@ -2,7 +2,7 @@
 pkgname=@PACKAGE_NAME@
 pkgver=@VERSION@
 pkgrel=1
-pkgdesc="@SUMMARY@"
+pkgdesc="@SUMMARY@ with native C++ speech core"
 arch=('x86_64')
 options=('!debug' '!strip')
 url="https://github.com/LeonardNJU/VocoType-linux"

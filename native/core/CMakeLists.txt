@@ -14,6 +14,7 @@ add_library(vocotype_core_lib
     src/server.cpp
     src/slm_client.cpp
     src/streaming_asr.cpp
+    src/text_normalizer.cpp
     src/transcription_tasks.cpp
     src/voice_edit.cpp
     src/voice_edit_tasks.cpp

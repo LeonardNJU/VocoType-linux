@@ -35,6 +35,7 @@ from app.audio_utils import (
 )
 from app.config import DEFAULT_CONFIG, load_config
 from app.ibus_compat import build_capability_flags
+from app.native_core_client import NativeCoreClient, NativeCoreError
 from app.slm_polisher import SLMPolisher
 from app.streaming_asr import StreamingASRProcess, StreamingAudioChunker
 from app.voice_edit import KeyAction, SurroundingSnapshot
@@ -61,10 +62,15 @@ LONG_RECORDING_ANIMATION_FRAMES = (
 AUDIO_DEVICE, CONFIGURED_SAMPLE_RATE = load_audio_config()
 
 
+def ibus_config_path() -> Path:
+    """Return the GUI-managed IBus runtime configuration path."""
+    config_path = os.environ.get("VOCOTYPE_IBUS_CONFIG", DEFAULT_IBUS_CONFIG_PATH)
+    return Path(config_path).expanduser()
+
+
 def load_ibus_config() -> dict:
     """Load IBus runtime config with safe fallback."""
-    config_path = os.environ.get("VOCOTYPE_IBUS_CONFIG", DEFAULT_IBUS_CONFIG_PATH)
-    expanded_path = os.path.expanduser(config_path)
+    expanded_path = str(ibus_config_path())
     if not os.path.exists(expanded_path):
         return dict(DEFAULT_CONFIG)
 
@@ -180,14 +186,28 @@ class VoCoTypeEngine(IBus.Engine):
         self._has_focus = False
         self._replace_capability_state = "unknown"  # unknown/supported/unsupported
 
-        # 运行配置（用于长句模式）
+        # 运行配置与后端选择。已安装 native core 时默认使用 C++；
+        # VOCOTYPE_BACKEND=python 可显式回退旧 Python ASR/SLM 路径。
+        self._ibus_config_path = ibus_config_path()
+        self._using_native_core = NativeCoreClient.should_use_native(
+            self._ibus_config_path
+        )
+        self._native_core = (
+            NativeCoreClient(config_path=self._ibus_config_path)
+            if self._using_native_core
+            else None
+        )
         self._runtime_config = load_ibus_config()
         self._asr_options = dict(self._runtime_config.get("asr", {}))
         self._asr_options["normalization"] = dict(
             self._runtime_config.get("normalization", {})
         )
         self._slm_polisher = SLMPolisher(self._runtime_config.get("slm", {}))
-        logger.info("IBus SLM 长句润色: enabled=%s", self._slm_polisher.enabled)
+        logger.info(
+            "IBus backend=%s SLM enabled=%s",
+            "cpp" if self._using_native_core else "python",
+            self._slm_polisher.enabled,
+        )
         self._configure_recording_limits(self._runtime_config)
         self._configure_streaming_asr(self._runtime_config)
         self._configure_panel_style(self._runtime_config)
@@ -667,7 +687,28 @@ class VoCoTypeEngine(IBus.Engine):
         self.hide_lookup_table()
 
     def _ensure_asr_ready(self):
-        """确保共享ASR服务器已初始化（懒加载）"""
+        """Ensure either the native core or legacy shared ASR is ready."""
+        if self._using_native_core:
+            client = self._native_core
+            if client is None:
+                return False
+            if client.ping():
+                return True
+
+            def init_native_core():
+                try:
+                    client.ensure_running()
+                    logger.info("IBus 原生 core 已就绪")
+                except Exception as exc:  # noqa: BLE001
+                    logger.error("IBus 原生 core 初始化失败: %s", exc)
+
+            threading.Thread(
+                target=init_native_core,
+                daemon=True,
+                name="VoCoTypeIBusNativeCoreInit",
+            ).start()
+            return False
+
         cls = type(self)
         if cls._shared_asr_server is not None and cls._shared_asr_ready.is_set():
             return True
@@ -739,6 +780,7 @@ class VoCoTypeEngine(IBus.Engine):
                 logger.info("FunASR共享实例已释放")
             except Exception as exc:
                 logger.warning("释放FunASR共享实例失败: %s", exc)
+        NativeCoreClient.close_all()
 
     def do_process_key_event(self, keyval, keycode, state):
         """处理按键事件"""
@@ -952,6 +994,9 @@ class VoCoTypeEngine(IBus.Engine):
     def _configure_streaming_asr(self, config: dict) -> None:
         cfg = dict(config.get("asr_streaming", {}) or {})
         enabled = bool(cfg.get("enabled", False))
+        if self._using_native_core:
+            self._streaming_enabled = enabled
+            return
         config_key = json.dumps(cfg, ensure_ascii=False, sort_keys=True)
         cls = type(self)
         with cls._shared_streaming_lock:
@@ -973,9 +1018,12 @@ class VoCoTypeEngine(IBus.Engine):
     def _start_streaming_preview(self, sample_rate: int) -> None:
         if not self._streaming_enabled or self._recording_edit_mode:
             return
-        cls = type(self)
-        with cls._shared_streaming_lock:
-            model = cls._shared_streaming_asr
+        if self._using_native_core:
+            model = self._native_core
+        else:
+            cls = type(self)
+            with cls._shared_streaming_lock:
+                model = cls._shared_streaming_asr
         if model is None:
             return
 
@@ -1081,6 +1129,12 @@ class VoCoTypeEngine(IBus.Engine):
             latest.get("normalization", {})
         )
         self._slm_polisher = SLMPolisher(latest.get("slm", {}))
+        if self._using_native_core and self._native_core is not None:
+            threading.Thread(
+                target=self._restart_native_core_after_config_change,
+                daemon=True,
+                name="VoCoTypeIBusNativeCoreReload",
+            ).start()
         self._configure_recording_limits(latest)
         self._configure_streaming_asr(latest)
         self._configure_panel_style(latest)
@@ -1091,6 +1145,16 @@ class VoCoTypeEngine(IBus.Engine):
             self._asr_options["normalization"].get("enabled", True),
             self._min_recording_ms,
         )
+
+    def _restart_native_core_after_config_change(self) -> None:
+        client = self._native_core
+        if client is None:
+            return
+        try:
+            client.restart()
+            logger.info("IBus 原生 core 已按新配置重启")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("IBus 原生 core 配置重载失败: %s", exc)
 
     def _start_voice_edit_recording(self):
         """Ctrl+F9: 开始语音编辑（先验证 surrounding 能力）"""
@@ -1526,6 +1590,158 @@ class VoCoTypeEngine(IBus.Engine):
             self._edit_snapshot = None
         logger.info("录音已停止")
 
+    def _render_native_polish_events(self, events: list[dict]) -> None:
+        for event in events:
+            kind = str(event.get("kind", ""))
+            if kind == "status":
+                text = str(event.get("text", ""))
+                if text:
+                    GLib.idle_add(self._update_preedit, text)
+            elif kind == "delta":
+                preview = str(event.get("preview", event.get("text", "")))
+                if preview:
+                    GLib.idle_add(self._update_preedit, preview)
+
+    def _apply_native_edit_result(
+        self,
+        result: dict,
+        snapshot: SurroundingSnapshot,
+    ) -> None:
+        if not result.get("success"):
+            GLib.idle_add(
+                self._show_nonintrusive_error,
+                str(result.get("error", "语音编辑失败")),
+            )
+            return
+        mode = str(result.get("mode", "no_op"))
+        hint = str(result.get("hint", ""))
+        if mode == "key_actions":
+            try:
+                actions = tuple(
+                    KeyAction.from_mapping(item)
+                    for item in result.get("key_actions", [])
+                )
+            except Exception as exc:  # noqa: BLE001
+                GLib.idle_add(self._show_nonintrusive_error, str(exc))
+                return
+            GLib.idle_add(
+                self._run_key_actions,
+                actions,
+                hint,
+                snapshot,
+            )
+            return
+        if mode == "replace":
+            GLib.idle_add(
+                self._replace_surrounding_text,
+                str(result.get("new_text", snapshot.text)),
+                snapshot.text,
+                snapshot.cursor_pos,
+                bool(result.get("record_history", True)),
+                hint,
+            )
+            return
+        if hint:
+            GLib.idle_add(self._show_hint, hint, 1600)
+        else:
+            GLib.idle_add(self._clear_auxiliary_text)
+
+    def _run_native_core_pipeline(
+        self,
+        temp_path: str,
+        *,
+        long_mode: bool,
+        edit_mode: bool,
+        edit_snapshot: Optional[SurroundingSnapshot],
+    ) -> None:
+        client = self._native_core
+        if client is None:
+            raise NativeCoreError("native core client is unavailable")
+
+        if edit_mode:
+            if edit_snapshot is None:
+                raise NativeCoreError("编辑上下文获取失败，请重试")
+            started = client.start_edit(
+                temp_path,
+                snapshot={
+                    "text": edit_snapshot.text,
+                    "cursor_pos": edit_snapshot.cursor_pos,
+                    "anchor_pos": edit_snapshot.anchor_pos,
+                    "selected_text": edit_snapshot.selected_text,
+                },
+                supports_surrounding=self._supports_surrounding_text(),
+                replace_state=self._replace_capability_state,
+            )
+            task_id = str(started.get("task_id", ""))
+            while task_id:
+                if not self._is_engine_active():
+                    client.cancel_edit(task_id)
+                    return
+                poll = client.poll_edit(task_id)
+                status = str(poll.get("status", "running"))
+                phase = str(poll.get("phase", "asr"))
+                if phase == "editing":
+                    GLib.idle_add(
+                        self._update_auxiliary_status,
+                        "✨ 正在理解并规划编辑...",
+                    )
+                if status == "running":
+                    time.sleep(0.04)
+                    continue
+                if status == "final":
+                    self._apply_native_edit_result(
+                        dict(poll.get("result", {}) or {}),
+                        edit_snapshot,
+                    )
+                    return
+                if status == "cancelled":
+                    return
+                raise NativeCoreError(str(poll.get("error", "语音编辑失败")))
+            raise NativeCoreError("native edit task did not return a task_id")
+
+        if long_mode:
+            slm_config = dict(self._runtime_config.get("slm", {}) or {})
+            started = client.start_transcription(
+                temp_path,
+                long_mode=True,
+                polish_min_chars=int(slm_config.get("min_chars", 8) or 8),
+                enable_thinking=bool(slm_config.get("enable_thinking", False)),
+            )
+            task_id = str(started.get("task_id", ""))
+            after_seq = 0
+            while task_id:
+                if not self._is_engine_active():
+                    client.cancel_transcription(task_id)
+                    return
+                poll = client.poll_transcription(task_id, after_seq)
+                after_seq = int(poll.get("last_seq", after_seq) or after_seq)
+                events = list(poll.get("events", []) or [])
+                self._render_native_polish_events(events)
+                status = str(poll.get("status", "running"))
+                if status == "running":
+                    time.sleep(0.04)
+                    continue
+                if status == "final":
+                    final_text = str(poll.get("final_text", "")).strip()
+                    if final_text:
+                        GLib.idle_add(self._commit_text, final_text)
+                    else:
+                        GLib.idle_add(self._clear_preedit)
+                    return
+                if status == "cancelled":
+                    return
+                raise NativeCoreError(str(poll.get("error", "SLM 调用失败")))
+            raise NativeCoreError("native transcription task did not return a task_id")
+
+        result = client.transcribe(temp_path, long_mode=False)
+        if not result.get("success"):
+            raise NativeCoreError(str(result.get("error", "ASR 识别失败")))
+        text = str(result.get("text", "")).strip()
+        if text and self._is_engine_active():
+            GLib.idle_add(self._commit_text, text)
+        else:
+            GLib.idle_add(self._clear_preedit)
+
     def _stop_and_transcribe(self):
         """停止录音并转录"""
         if not self._is_recording:
@@ -1612,7 +1828,16 @@ class VoCoTypeEngine(IBus.Engine):
                     write_wav(Path(temp_path), audio_16k.tobytes(), SAMPLE_RATE)
 
                 try:
-                    # 等待共享ASR就绪
+                    if self._using_native_core:
+                        self._run_native_core_pipeline(
+                            temp_path,
+                            long_mode=long_mode,
+                            edit_mode=edit_mode,
+                            edit_snapshot=edit_snapshot,
+                        )
+                        return
+
+                    # Legacy Python backend fallback.
                     cls = type(self)
                     if not cls._shared_asr_ready.wait(timeout=30):
                         with cls._shared_asr_lock:

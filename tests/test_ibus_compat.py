@@ -53,7 +53,11 @@ def test_ibus_online_preview_is_preedit_only_and_offline_asr_remains_final():
     assert "self._update_preedit(self._recording_status_text())" in status_body
     assert "self._update_auxiliary_status(self._streaming_preview_text)" in status_body
     assert "commit_text" not in preview_body
-    assert "asr_server.transcribe_audio(" in final_body
+    assert "self._run_native_core_pipeline(" in final_body
+    assert "client.transcribe(temp_path" in source
+    assert "client.start_transcription(" in source
+    assert "client.start_edit(" in source
+    assert "asr_server.transcribe_audio(" in final_body  # explicit Python fallback
     assert "audio_data = np.concatenate(self._audio_frames)" in final_body
 
 
@@ -110,3 +114,22 @@ def test_ibus_slm_key_plans_cover_navigation_and_recheck_snapshot():
     assert "plan.key_actions" in plan_call
     assert "plan.hint" in plan_call
     assert "edit_snapshot" in plan_call
+
+
+def test_ibus_prefers_native_core_and_retains_explicit_python_fallback():
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "ibus/engine.py").read_text(
+        encoding="utf-8"
+    )
+    client = (
+        Path(__file__).resolve().parents[1] / "app/native_core_client.py"
+    ).read_text(encoding="utf-8")
+    assert "NativeCoreClient.should_use_native" in source
+    assert "VOCOTYPE_BACKEND" in client
+    assert 'return "python"' in client
+    assert 'return "auto"' in client
+    assert "client.ensure_running()" in source
+    assert "model = self._native_core" in source
+    assert "NativeCoreClient.close_all()" in source
+    assert "StreamingASRProcess(cfg)" in source  # legacy fallback remains available

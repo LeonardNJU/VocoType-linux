@@ -20,6 +20,7 @@
 #include "vocotype/core/config.hpp"
 #include "vocotype/core/dispatcher.hpp"
 #include "vocotype/core/server.hpp"
+#include "vocotype/core/text_normalizer.hpp"
 #include "vocotype/core/voice_edit.hpp"
 
 namespace {
@@ -27,6 +28,7 @@ namespace {
 using vocotype::core::AppConfig;
 using vocotype::core::CoreDispatcher;
 using vocotype::core::Json;
+using vocotype::core::TextNormalizer;
 using vocotype::core::UnixJsonServer;
 using vocotype::core::VoiceEditPlanner;
 
@@ -202,6 +204,247 @@ private:
   std::jthread thread_;
 };
 
+class FakeSseServer {
+public:
+  explicit FakeSseServer(std::vector<std::string> events)
+      : events_(std::move(events)) {
+    listener_ = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (listener_ < 0) {
+      throw std::runtime_error("failed to create fake SSE listener");
+    }
+    const int enabled = 1;
+    (void)::setsockopt(listener_, SOL_SOCKET, SO_REUSEADDR, &enabled,
+                       sizeof(enabled));
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = 0;
+    if (::bind(listener_, reinterpret_cast<sockaddr *>(&address),
+               sizeof(address)) != 0 ||
+        ::listen(listener_, 4) != 0) {
+      ::close(listener_);
+      listener_ = -1;
+      throw std::runtime_error("failed to bind fake SSE listener");
+    }
+    socklen_t size = sizeof(address);
+    if (::getsockname(listener_, reinterpret_cast<sockaddr *>(&address),
+                      &size) != 0) {
+      ::close(listener_);
+      listener_ = -1;
+      throw std::runtime_error("failed to read fake SSE port");
+    }
+    port_ = ntohs(address.sin_port);
+    thread_ = std::jthread([this](std::stop_token stop) { serve(stop); });
+  }
+
+  FakeSseServer(const FakeSseServer &) = delete;
+  FakeSseServer &operator=(const FakeSseServer &) = delete;
+
+  ~FakeSseServer() {
+    thread_.request_stop();
+    if (listener_ >= 0) {
+      ::close(listener_);
+      listener_ = -1;
+    }
+  }
+
+  [[nodiscard]] std::string endpoint() const {
+    return "http://127.0.0.1:" + std::to_string(port_) + "/v1/chat/completions";
+  }
+
+  [[nodiscard]] Json request_payload() const {
+    std::lock_guard lock(request_mutex_);
+    return request_payload_;
+  }
+
+private:
+  static void send_all(int descriptor, const std::string &payload) {
+    std::size_t offset = 0;
+    while (offset < payload.size()) {
+      const ssize_t count = ::send(descriptor, payload.data() + offset,
+                                   payload.size() - offset, MSG_NOSIGNAL);
+      if (count <= 0) {
+        return;
+      }
+      offset += static_cast<std::size_t>(count);
+    }
+  }
+
+  static std::string read_request(int descriptor) {
+    std::string request;
+    char buffer[4096];
+    while (true) {
+      const ssize_t count = ::recv(descriptor, buffer, sizeof(buffer), 0);
+      if (count <= 0) {
+        return request;
+      }
+      request.append(buffer, static_cast<std::size_t>(count));
+      const std::size_t header_end = request.find("\r\n\r\n");
+      if (header_end == std::string::npos) {
+        continue;
+      }
+      const std::string key = "Content-Length:";
+      const std::size_t start = request.find(key);
+      std::size_t length = 0;
+      if (start != std::string::npos) {
+        const std::size_t value_start = start + key.size();
+        const std::size_t end = request.find("\r\n", value_start);
+        length = static_cast<std::size_t>(
+            std::stoull(request.substr(value_start, end - value_start)));
+      }
+      if (request.size() >= header_end + 4U + length) {
+        return request;
+      }
+    }
+  }
+
+  void serve(std::stop_token stop) {
+    while (!stop.stop_requested()) {
+      pollfd descriptor{listener_, POLLIN, 0};
+      const int ready = ::poll(&descriptor, 1, 50);
+      if (ready <= 0 || (descriptor.revents & POLLIN) == 0) {
+        continue;
+      }
+      const int client = ::accept(listener_, nullptr, nullptr);
+      if (client < 0) {
+        continue;
+      }
+      const std::string request = read_request(client);
+      const std::size_t body_start = request.find("\r\n\r\n");
+      if (body_start != std::string::npos) {
+        try {
+          Json payload = Json::parse(request.substr(body_start + 4U));
+          std::lock_guard lock(request_mutex_);
+          request_payload_ = std::move(payload);
+        } catch (const Json::exception &) {
+        }
+      }
+      send_all(client, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
+                       "Cache-Control: no-cache\r\nConnection: close\r\n\r\n");
+      for (const std::string &event : events_) {
+        if (stop.stop_requested()) {
+          break;
+        }
+        send_all(client, event);
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      }
+      ::close(client);
+      return;
+    }
+  }
+
+  std::vector<std::string> events_;
+  int listener_ = -1;
+  unsigned short port_ = 0;
+  mutable std::mutex request_mutex_;
+  Json request_payload_ = Json::object();
+  std::jthread thread_;
+};
+
+void test_text_normalizer() {
+  const char *previous_terms = std::getenv("VOCOTYPE_TERMS_FILE");
+  const std::string saved_terms =
+      previous_terms == nullptr ? "" : previous_terms;
+  const bool had_terms = previous_terms != nullptr;
+  const std::filesystem::path root =
+      std::filesystem::temp_directory_path() /
+      ("vocotype-normalizer-" + std::to_string(::getpid()));
+  const std::filesystem::path terms = root / "terms.yaml";
+  std::filesystem::create_directories(root);
+  ::setenv("VOCOTYPE_TERMS_FILE", terms.c_str(), 1);
+
+  try {
+    TextNormalizer normalizer;
+    require(normalizer.normalize("系统还有二百五十六台机器") ==
+                "系统还有256台机器",
+            "native quantity ITN failed");
+    require(normalizer.normalize("下午三点二十分开会") == "15:20开会",
+            "native compact time failed");
+    require(normalizer.normalize("二零二六年五月十一号") == "2026/05/11",
+            "native compact date failed");
+    require(normalizer.normalize("跑了三百二十米") == "跑了320m",
+            "native compact distance failed");
+    require(normalizer.normalize("价格是二百五十六元") == "价格是¥256",
+            "native currency style failed");
+    require(normalizer.normalize("三十而立") == "三十而立",
+            "fixed phrase was rewritten");
+    require(normalizer.normalize("一二三四五六七一共七个。") ==
+                "1234567一共7个。",
+            "digit sequence context failed");
+
+    vocotype::core::NormalizationConfig disabled;
+    disabled.enabled = false;
+    TextNormalizer no_itn(disabled);
+    require(no_itn.normalize("二百五十六台") == "二百五十六台",
+            "normalization master switch was ignored");
+
+    {
+      std::ofstream output(terms);
+      output << R"(terms:
+  - canonical: README
+    aliases: [read me, readme]
+  - canonical: README.md
+    aliases: [read me点md, README文件]
+    hotwords: [README, README, too long hotword]
+  - canonical: Ghostty
+    aliases: [ghostty, 鬼斯提]
+    hotword: true
+  - canonical: 一百米计划
+    aliases: [hundred meter plan]
+    protect: true
+protect:
+  - 三体问题
+)";
+    }
+    require(normalizer.normalize("read me点md 和 GHOSTTY") ==
+                "README.md 和 Ghostty",
+            "term longest-match or case folding failed");
+    require(normalizer.normalize("nobody readme") == "nobody README",
+            "ASCII term boundary handling failed");
+    require(normalizer.normalize("hundred meter plan有二百五十六台机器") ==
+                "一百米计划有256台机器",
+            "term protection did not survive ITN");
+    require(normalizer.normalize("三体问题有三个变量") == "三体问题有3个变量",
+            "explicit term protection covered adjacent count");
+    require(normalizer.build_native_hotwords("VoCoType Ghostty") ==
+                "README Ghostty VoCoType",
+            "native term hotword filtering or deduplication failed");
+
+    {
+      std::ofstream output(terms);
+      output << "terms: [\n";
+    }
+    require(normalizer.normalize("鬼斯提") == "Ghostty",
+            "invalid terms reload discarded the previous lexicon");
+
+    {
+      std::ofstream output(terms);
+      output << R"(replace:
+  NodeJS: [node js]
+protect:
+  - 一加手机
+)";
+    }
+    require(normalizer.normalize("node js和一加手机") == "NodeJS和一加手机",
+            "legacy replace/protect terms format failed");
+  } catch (...) {
+    if (had_terms) {
+      ::setenv("VOCOTYPE_TERMS_FILE", saved_terms.c_str(), 1);
+    } else {
+      ::unsetenv("VOCOTYPE_TERMS_FILE");
+    }
+    std::filesystem::remove_all(root);
+    throw;
+  }
+
+  if (had_terms) {
+    ::setenv("VOCOTYPE_TERMS_FILE", saved_terms.c_str(), 1);
+  } else {
+    ::unsetenv("VOCOTYPE_TERMS_FILE");
+  }
+  std::filesystem::remove_all(root);
+}
+
 void test_voice_edit_plan_validation() {
   const Json replace = VoiceEditPlanner::validate_model_output(
       "```json\n{\"mode\":\"replace\",\"new_text\":\"修改后文本\","
@@ -249,6 +492,7 @@ void test_config_merge() {
         {{"native_enabled", true},
          {"intra_op_num_threads", 4},
          {"hotword", "VoCoType"}}},
+       {"normalization", {{"compact_times", false}}},
        {"asr_streaming",
         {{"enabled", true},
          {"intra_op_num_threads", 3},
@@ -263,6 +507,10 @@ void test_config_merge() {
           "offline ASR thread override was lost");
   require(config.offline_asr.hotword == "VoCoType",
           "offline ASR hotword override was lost");
+  require(!config.normalization.compact_times,
+          "normalization style override was lost");
+  require(config.normalization.compact_dates,
+          "normalization default was not preserved");
   require(config.streaming_asr.enabled,
           "streaming ASR enabled override was lost");
   require(config.streaming_asr.threads == 3,
@@ -669,6 +917,107 @@ void test_socket_voice_edit(const std::filesystem::path &worker_path) {
   std::filesystem::remove_all(root);
 }
 
+void test_streaming_slm(const std::filesystem::path &worker_path) {
+  FakeSseServer api({
+      ": keepalive\n\n",
+      "data: {\"choices\":[{\"delta\":{\"content\":\"Thinking Process: "
+      "hidden\"}}]}\n\n",
+      "data: {\"choices\":[{\"delta\":{\"content\":\"\\nFinal Answer: "
+      "润\"}}]}\n\n",
+      "data: {\"choices\":[{\"delta\":{\"content\":\"色结果\"}}]}\n\n",
+      "data: [DONE]\n\n",
+  });
+  const std::filesystem::path root =
+      std::filesystem::temp_directory_path() /
+      ("vocotype-sse-" + std::to_string(::getpid()));
+  const std::filesystem::path model_dir = root / "model";
+  const std::filesystem::path audio_path = root / "stream.wav";
+  std::filesystem::create_directories(model_dir);
+  {
+    std::ofstream audio(audio_path, std::ios::binary);
+    audio << "RIFFstream";
+  }
+
+  AppConfig config = vocotype::core::parse_config(Json::object());
+  config.offline_asr.enabled = true;
+  config.offline_asr.worker_path = worker_path.string();
+  config.offline_asr.model_dir = model_dir.string();
+  config.offline_asr.use_vad = false;
+  config.offline_asr.use_punc = false;
+  config.offline_asr.startup_timeout_ms = 2000;
+  config.offline_asr.request_timeout_ms = 1000;
+  config.slm.enabled = true;
+  config.slm.remote_stream = true;
+  config.slm.endpoint = api.endpoint();
+  config.slm.model = "fake-stream-model";
+  config.slm.stream_idle_timeout_ms = 2000;
+  config.slm.transport_timeout_ms = 5000;
+  config.slm.min_chars = 1;
+
+  {
+    CoreDispatcher dispatcher(config);
+    const Json capabilities = dispatcher.dispatch({{"type", "capabilities"}});
+    require(capabilities["features"].value("slm_streaming", false),
+            "SLM streaming capability was not exposed");
+    require(capabilities["features"].value("slm_remote_stream", false),
+            "configured remote streaming capability was lost");
+
+    const Json started =
+        dispatcher.dispatch({{"type", "transcribe_start"},
+                             {"audio_path", audio_path.string()},
+                             {"long_mode", true},
+                             {"enable_thinking", true}});
+    require(started.value("success", false),
+            "SSE transcription task did not start");
+    const std::string task_id = started.value("task_id", "");
+
+    Json poll;
+    for (int attempt = 0; attempt < 200; ++attempt) {
+      poll = dispatcher.dispatch(
+          {{"type", "polish_poll"}, {"task_id", task_id}, {"after_seq", 0}});
+      if (poll.value("status", "") != "running") {
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    require(poll.value("status", "") == "final",
+            "SSE transcription task did not finish");
+    require(poll.value("final_text", "") == "润色结果",
+            "SSE final answer marker was not stripped");
+    require(poll.value("preview", "") == "润色结果",
+            "SSE cumulative preview is incorrect");
+    bool saw_first_delta = false;
+    bool saw_second_delta = false;
+    for (const Json &event : poll["events"]) {
+      require(event.dump().find("hidden") == std::string::npos,
+              "thinking content leaked into poll events");
+      if (event.value("kind", "") == "delta" &&
+          event.value("text", "") == "润" &&
+          event.value("preview", "") == "润") {
+        saw_first_delta = true;
+      }
+      if (event.value("kind", "") == "delta" &&
+          event.value("text", "") == "色结果" &&
+          event.value("preview", "") == "润色结果") {
+        saw_second_delta = true;
+      }
+    }
+    require(saw_first_delta && saw_second_delta,
+            "SSE delta events were not preserved in polish_poll");
+    require(!std::filesystem::exists(audio_path),
+            "SSE task recording was not removed");
+
+    const Json payload = api.request_payload();
+    require(payload.value("stream", false),
+            "native SLM did not request a streamed completion");
+    require(payload.value("enable_thinking", false),
+            "per-request thinking setting was not forwarded");
+    require(!payload.contains("max_tokens"),
+            "remote_max_tokens=0 should omit the token limit");
+  }
+  std::filesystem::remove_all(root);
+}
+
 void test_streaming_asr(const std::filesystem::path &worker_path) {
   const std::filesystem::path model_dir =
       std::filesystem::temp_directory_path() /
@@ -829,13 +1178,19 @@ int main(int argc, char **argv) {
       throw std::runtime_error(
           "fake streaming and offline worker paths are required");
     }
+    const std::string isolated_terms = "/tmp/vocotype-core-tests-no-terms-" +
+                                       std::to_string(::getpid()) + ".yaml";
+    std::filesystem::remove(isolated_terms);
+    ::setenv("VOCOTYPE_TERMS_FILE", isolated_terms.c_str(), 1);
     test_config_merge();
+    test_text_normalizer();
     test_voice_edit_plan_validation();
     test_dispatcher();
     test_offline_asr(argv[2]);
     test_socket_offline(argv[2]);
     test_voice_edit_disabled(argv[2]);
     test_socket_voice_edit(argv[2]);
+    test_streaming_slm(argv[2]);
     test_streaming_asr(argv[1]);
     test_socket_streaming(argv[1]);
     test_socket_server();

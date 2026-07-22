@@ -6,7 +6,7 @@ VoCoType 按职责划分目录。不要重新创建一个容纳所有用途的�
 app/                 共享语音识别、标准化、术语和 AI 运行时
 settings_center/     GTK 设置、安装、卸载、Doctor 与反馈 UI
 ibus/                IBus 引擎、数据和该 integration 的生命周期入口
-fcitx5/              Fcitx 5 module、Python backend、IPC 与生命周期入口
+fcitx5/              Fcitx 5 module、legacy Python fallback 与 IPC 入口
 installers/          两套 integration 共用的安装/卸载实现和运行时辅助
 packaging/
   manifests/         原生包运行时源码清单
