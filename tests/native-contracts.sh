@@ -185,14 +185,19 @@ rg -Fq 'strip --strip-unneeded "$private_dir/vocotype-core"' \
 rg -Fq 'override_dh_dwz:' packaging/debian/rules || \
   fail "Debian packaging may rewrite the checksummed private runtime"
 for workflow in .github/workflows/ci.yml .github/workflows/release.yml; do
-  rg -Fq 'packaging/tools/find-rpm-package.sh' "$workflow" || \
-    fail "$workflow does not reuse the RPM metadata lookup helper"
+  rg -Fq 'packaging/tests/validate-rpm-flavors.sh' "$workflow" || \
+    fail "$workflow does not reuse the Bash RPM validation driver"
   if rg -Fq "rpm -qp --qf '%{NAME}'" "$workflow"; then
     fail "$workflow duplicates RPM metadata lookup logic"
   fi
 done
-test -x packaging/tools/find-rpm-package.sh || \
-  fail "RPM metadata lookup helper is missing or not executable"
+for helper in \
+  packaging/tools/find-rpm-package.sh \
+  packaging/tests/validate-rpm-flavors.sh; do
+  test -x "$helper" || fail "$helper is missing or not executable"
+done
+rg -Fq 'RPM_ALL_FLAVORS_VALIDATION_OK' packaging/tests/validate-rpm-flavors.sh || \
+  fail "RPM validation driver lacks an explicit completion marker"
 rg -Fq "! -name '*.src.rpm'" packaging/tools/find-rpm-package.sh || \
   fail "RPM metadata lookup helper does not exclude source RPM archives"
 

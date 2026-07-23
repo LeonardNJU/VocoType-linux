@@ -180,18 +180,7 @@ jobs:
             packaging/tools/build-rpm.sh dist/packages "$flavor"
           done
       - name: Install and validate every RPM flavor
-        run: |
-          . packaging/tools/package-common.sh
-          for flavor in universal ibus fcitx5; do
-            package_name=$(vocotype_flavor_field "$flavor" package_name)
-            package=$(packaging/tools/find-rpm-package.sh dist/packages "$package_name")
-            packaging/tests/audit-built-package.sh "$package" "${{ needs.validate-version.outputs.version }}" "$flavor"
-            dnf install -y "$package"
-            packaging/tests/smoke-installed-package.sh "${{ needs.validate-version.outputs.version }}" "$flavor"
-            packaging/tests/smoke-binary-runtime.sh
-            dnf remove -y "$package_name"
-            packaging/tests/smoke-removed-package.sh
-          done
+        run: packaging/tests/validate-rpm-flavors.sh dist/packages
       - uses: actions/upload-artifact@v7
         with:
           name: rpm
