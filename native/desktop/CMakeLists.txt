@@ -36,6 +36,7 @@ endif()
 add_library(vocotype_desktop_common
     src/audio.cpp
     src/config.cpp
+    src/fcitx_profile.cpp
     src/ipc.cpp
     src/recorder_process.cpp
     src/wav.cpp

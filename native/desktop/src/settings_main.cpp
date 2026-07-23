@@ -1,5 +1,6 @@
 #include "vocotype/desktop/audio.hpp"
 #include "vocotype/desktop/config.hpp"
+#include "vocotype/desktop/fcitx_profile.hpp"
 #include "vocotype/desktop/ipc.hpp"
 #include "vocotype/desktop/settings_ui.hpp"
 #include "vocotype/desktop/wav.hpp"
@@ -150,6 +151,9 @@ std::string yaml_scalar_value(const std::filesystem::path &path,
                               const std::string &fallback);
 void update_rime_schema(const std::string &schema);
 std::string selected_framework(const SettingsWindow &window);
+vocotype::desktop::FcitxAddonState
+query_fcitx_addon_state(const std::string &name, std::string *details = nullptr);
+Json restart_fcitx_with_vocotype();
 std::string doctor_report();
 
 struct IdleClosure {
@@ -541,6 +545,34 @@ bool restart_core_for_settings() {
       socket, vocotype::desktop::runtime_config_path(), 45000);
 }
 
+bool fcitx_module_installed() {
+  const auto home = vocotype::desktop::home_path();
+  for (const auto &candidate :
+       {home / ".local/lib/fcitx5/vocotype.so",
+        std::filesystem::path("/usr/lib/fcitx5/vocotype.so"),
+        std::filesystem::path("/usr/lib64/fcitx5/vocotype.so")}) {
+    if (std::filesystem::is_regular_file(candidate))
+      return true;
+  }
+  std::error_code error;
+  for (std::filesystem::directory_iterator iterator(
+           "/usr/lib", std::filesystem::directory_options::skip_permission_denied,
+           error),
+       end;
+       iterator != end; iterator.increment(error)) {
+    if (error) {
+      error.clear();
+      continue;
+    }
+    if (!iterator->is_directory(error))
+      continue;
+    if (std::filesystem::is_regular_file(iterator->path() /
+                                         "fcitx5/vocotype.so"))
+      return true;
+  }
+  return false;
+}
+
 bool framework_installed(const std::string &framework) {
   const auto home = vocotype::desktop::home_path();
   if (framework == "ibus") {
@@ -549,10 +581,11 @@ bool framework_installed(const std::string &framework) {
            std::filesystem::is_regular_file(
                home / ".local/libexec/ibus-engine-vocotype");
   }
-  return (std::filesystem::is_regular_file(home /
-                                           ".local/lib/fcitx5/vocotype.so") ||
-          std::filesystem::is_regular_file("/usr/lib/fcitx5/vocotype.so") ||
-          std::filesystem::is_regular_file("/usr/lib64/fcitx5/vocotype.so"));
+  const bool addon = std::filesystem::is_regular_file(
+                         home / ".local/share/fcitx5/addon/vocotype.conf") ||
+                     std::filesystem::is_regular_file(
+                         "/usr/share/fcitx5/addon/vocotype.conf");
+  return fcitx_module_installed() && addon;
 }
 
 std::string selected_framework(const SettingsWindow &window) {
@@ -594,6 +627,11 @@ void refresh_overview(SettingsWindow &window) {
   const bool core_ready = vocotype::desktop::native_core_ready();
   const bool ibus_installed = framework_installed("ibus");
   const bool fcitx_installed = framework_installed("fcitx5");
+  const auto fcitx_state =
+      fcitx_installed ? query_fcitx_addon_state("vocotype")
+                      : vocotype::desktop::FcitxAddonState::missing;
+  const bool fcitx_enabled =
+      fcitx_state == vocotype::desktop::FcitxAddonState::enabled;
   const bool package_present =
       std::filesystem::is_regular_file("/usr/share/vocotype/.system-package");
   const std::string core = vocotype::desktop::find_executable(
@@ -627,25 +665,44 @@ void refresh_overview(SettingsWindow &window) {
     set_label(window.ibus_choice_status, ibus_installed
                                              ? "✅ 已为当前用户安装"
                                              : "○ 尚未安装，可选择后执行安装");
-  if (window.fcitx_choice_status)
-    set_label(window.fcitx_choice_status, fcitx_installed
-                                              ? "✅ 已安装全局 Module"
-                                              : "○ 尚未安装，可选择后执行安装");
+  if (window.fcitx_choice_status) {
+    const std::string status =
+        !fcitx_installed
+            ? "○ 尚未安装，可选择后执行安装"
+            : fcitx_enabled
+                  ? "✅ 全局 Module 已安装且 addon 已启用"
+                  : fcitx_state == vocotype::desktop::FcitxAddonState::disabled
+                        ? "⚠️ 全局 Module 已安装，但 addon 被禁用"
+                        : "⚠️ 全局 Module 已安装，当前实例尚未加载 addon";
+    set_label(window.fcitx_choice_status, status);
+  }
   if (window.ibus_install_status)
     set_label(window.ibus_install_status,
               ibus_installed
                   ? "✅ VoCoType（IBus）安装完整；可在系统输入源中添加。"
                   : "○ 尚未安装 VoCoType（IBus）。");
-  if (window.fcitx_install_status)
-    set_label(window.fcitx_install_status,
-              fcitx_installed
-                  ? "✅ VoCoType（Fcitx 5）Module 已安装；无需添加输入源。"
-                  : "○ 尚未安装 VoCoType（Fcitx 5）。");
+  if (window.fcitx_install_status) {
+    const std::string status =
+        !fcitx_installed
+            ? "○ 尚未安装 VoCoType（Fcitx 5）。"
+            : fcitx_enabled
+                  ? "✅ VoCoType（Fcitx 5）addon 已安装并启用；无需添加输入源。"
+                  : fcitx_state == vocotype::desktop::FcitxAddonState::disabled
+                        ? "⚠️ VoCoType addon 已安装但被禁用；点击安装 / 修复可自动启用。"
+                        : "⚠️ 文件已安装，但当前 Fcitx 实例尚未发现 addon。";
+    set_label(window.fcitx_install_status, status);
+  }
 
   std::ostringstream summary;
   summary << "Core：" << (core_ready ? "运行中" : "按需启动") << "；IBus："
           << (ibus_installed ? "已安装" : "未安装") << "；Fcitx 5："
-          << (fcitx_installed ? "已安装" : "未安装");
+          << (!fcitx_installed
+                  ? "未安装"
+                  : fcitx_enabled
+                        ? "已启用"
+                        : fcitx_state == vocotype::desktop::FcitxAddonState::disabled
+                              ? "已安装但禁用"
+                              : "已安装待加载");
   if (window.overview_summary)
     set_label(window.overview_summary, summary.str());
   if (window.overview_status)
@@ -787,6 +844,100 @@ Json run_command(const std::vector<std::string> &arguments) {
   return {{"success", success},
           {"output", output},
           {"error", success ? "" : output}};
+}
+
+
+constexpr const char *kFcitxService = "org.fcitx.Fcitx5";
+constexpr const char *kFcitxControllerPath = "/controller";
+constexpr const char *kFcitxControllerInterface = "org.fcitx.Fcitx.Controller1";
+
+std::filesystem::path fcitx_profile_path() {
+  const char *xdg = std::getenv("XDG_CONFIG_HOME");
+  const auto config_root =
+      xdg && *xdg ? std::filesystem::path(xdg)
+                  : vocotype::desktop::home_path() / ".config";
+  return config_root / "fcitx5/profile";
+}
+
+vocotype::desktop::FcitxAddonState
+query_fcitx_addon_state(const std::string &name, std::string *details) {
+  const Json result = run_command(
+      {"busctl", "--user", "--json=short", "call", kFcitxService,
+       kFcitxControllerPath, kFcitxControllerInterface, "GetAddons"});
+  if (!result.value("success", false)) {
+    if (details)
+      *details = result.value("error", "无法查询 Fcitx D-Bus");
+    return vocotype::desktop::FcitxAddonState::unavailable;
+  }
+  try {
+    const auto states = vocotype::desktop::parse_fcitx_addon_states(
+        Json::parse(result.value("output", "")));
+    if (!states) {
+      if (details)
+        *details = "GetAddons 返回结构不完整";
+      return vocotype::desktop::FcitxAddonState::unavailable;
+    }
+    const auto found = states->find(name);
+    if (found == states->end()) {
+      if (details)
+        *details = "当前 Fcitx 实例未发现 addon=" + name;
+      return vocotype::desktop::FcitxAddonState::missing;
+    }
+    if (details)
+      *details = found->second ? "addon 已启用" : "addon 已发现但被禁用";
+    return found->second ? vocotype::desktop::FcitxAddonState::enabled
+                         : vocotype::desktop::FcitxAddonState::disabled;
+  } catch (const std::exception &error) {
+    if (details)
+      *details = std::string("无法解析 GetAddons：") + error.what();
+    return vocotype::desktop::FcitxAddonState::unavailable;
+  }
+}
+
+bool set_fcitx_addon_enabled(const std::string &name, bool enabled,
+                             std::string *details = nullptr) {
+  const Json result = run_command(
+      {"busctl", "--user", "call", kFcitxService, kFcitxControllerPath,
+       kFcitxControllerInterface, "SetAddonsState", "a(sb)", "1", name,
+       enabled ? "true" : "false"});
+  if (details)
+    *details = result.value("success", false)
+                   ? "addon 状态已更新"
+                   : result.value("error", "无法更新 addon 状态");
+  return result.value("success", false);
+}
+
+Json restart_fcitx_with_vocotype() {
+  Json restart = run_command({"fcitx5-remote", "-r"});
+  if (!restart.value("success", false))
+    restart = run_command({"fcitx5", "-r", "-d"});
+  if (!restart.value("success", false))
+    return {{"success", false},
+            {"error", restart.value("error", "无法重启 Fcitx 5")}};
+
+  bool enable_attempted = false;
+  std::string details;
+  for (int attempt = 0; attempt < 60; ++attempt) {
+    const auto state = query_fcitx_addon_state("vocotype", &details);
+    if (state == vocotype::desktop::FcitxAddonState::enabled)
+      return {{"success", true}, {"state", "enabled"}};
+    if (state == vocotype::desktop::FcitxAddonState::disabled &&
+        !enable_attempted) {
+      enable_attempted = true;
+      if (!set_fcitx_addon_enabled("vocotype", true, &details))
+        return {{"success", false}, {"error", details}};
+      restart = run_command({"fcitx5-remote", "-r"});
+      if (!restart.value("success", false))
+        restart = run_command({"fcitx5", "-r", "-d"});
+      if (!restart.value("success", false))
+        return {{"success", false},
+                {"error", "addon 已启用，但再次重启 Fcitx 失败：" +
+                              restart.value("error", "unknown")}};
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  return {{"success", false},
+          {"error", "等待 Fcitx 5 加载 VoCoType addon 超时：" + details}};
 }
 
 std::string file_text(const std::filesystem::path &path);
@@ -1445,7 +1596,7 @@ GtkWidget *build_overview(SettingsWindow &window) {
               g_object_get_data(G_OBJECT(button), "vocotype-framework"));
           Json result = framework == "ibus"
                             ? run_command({"ibus", "restart"})
-                            : run_command({"fcitx5-remote", "-r"});
+                            : restart_fcitx_with_vocotype();
           set_label(self->overview_status,
                     result.value("success", false)
                         ? "✓ 输入法框架已请求重启"
@@ -2512,6 +2663,25 @@ std::string doctor_report() {
         integrity.value("success", false)
             ? "所有已安装 ELF/共享库 checksum 正确"
             : integrity.value("error", integrity.value("output", "校验失败")));
+  if (framework_installed("fcitx5")) {
+    std::string addon_details;
+    const auto addon_state = query_fcitx_addon_state("vocotype", &addon_details);
+    check("Fcitx addon 已启用",
+          addon_state == vocotype::desktop::FcitxAddonState::enabled,
+          std::string(vocotype::desktop::fcitx_addon_state_name(addon_state)) +
+              " — " + addon_details);
+    const auto references =
+        vocotype::desktop::legacy_fcitx_profile_references(fcitx_profile_path());
+    std::ostringstream legacy_details;
+    for (std::size_t index = 0; index < references.size(); ++index) {
+      if (index)
+        legacy_details << ", ";
+      legacy_details << references[index];
+    }
+    check("旧版 Fcitx profile 条目", references.empty(),
+          references.empty() ? "未发现 DefaultIM=vocotype 或 Name=vocotype"
+                             : legacy_details.str());
+  }
   bool python_runtime = false;
   DIR *directory = opendir("/proc");
   if (directory) {
@@ -3037,7 +3207,8 @@ void activate(GtkApplication *application, gpointer user_data) {
       save, "clicked", G_CALLBACK(+[](SettingsWindow *self) {
         try {
           save_config(*self);
-          (void)run_command({"fcitx5-remote", "-r"});
+          if (framework_installed("fcitx5"))
+            (void)restart_fcitx_with_vocotype();
           const bool ready = restart_core_for_settings();
           show_settings_message(
               *self, GTK_MESSAGE_INFO, "设置已保存",
@@ -3092,6 +3263,57 @@ void activate(GtkApplication *application, gpointer user_data) {
 } // namespace
 
 int main(int argc, char **argv) {
+  if (argc >= 2 && std::string(argv[1]) == "--repair-fcitx-profile") {
+    try {
+      const std::filesystem::path profile =
+          argc >= 3 ? std::filesystem::path(argv[2]) : fcitx_profile_path();
+      const auto result =
+          vocotype::desktop::migrate_legacy_fcitx_profile(profile);
+      Json restored = Json::array();
+      for (const auto &[group, fallback] : result.restored_defaults)
+        restored.push_back({{"group", group}, {"default", fallback}});
+      std::cout << Json{{"success", true},
+                        {"changed", result.changed},
+                        {"profile", result.profile.string()},
+                        {"backup", result.backup.string()},
+                        {"removed_entries", result.removed_entries},
+                        {"restored_defaults", restored}}
+                       .dump()
+                << std::endl;
+      return 0;
+    } catch (const std::exception &error) {
+      std::cerr << Json{{"success", false}, {"error", error.what()}}.dump()
+                << std::endl;
+      return 1;
+    }
+  }
+  if (argc >= 2 && std::string(argv[1]) == "--fcitx-addon-state") {
+    const std::string name = argc >= 3 ? argv[2] : "vocotype";
+    std::string details;
+    const auto state = query_fcitx_addon_state(name, &details);
+    std::cout << vocotype::desktop::fcitx_addon_state_name(state) << std::endl;
+    switch (state) {
+    case vocotype::desktop::FcitxAddonState::enabled:
+      return 0;
+    case vocotype::desktop::FcitxAddonState::disabled:
+      return 10;
+    case vocotype::desktop::FcitxAddonState::missing:
+      return 11;
+    case vocotype::desktop::FcitxAddonState::unavailable:
+      std::cerr << details << std::endl;
+      return 12;
+    }
+  }
+  if (argc >= 2 && std::string(argv[1]) == "--enable-fcitx-addon") {
+    const std::string name = argc >= 3 ? argv[2] : "vocotype";
+    std::string details;
+    if (set_fcitx_addon_enabled(name, true, &details)) {
+      std::cout << details << std::endl;
+      return 0;
+    }
+    std::cerr << details << std::endl;
+    return 1;
+  }
   const bool probing = std::getenv("VOCOTYPE_SETTINGS_UI_PROBE") != nullptr;
   GtkApplication *application = gtk_application_new(
       "io.github.LeonardNJU.VoCoType.Settings",

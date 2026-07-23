@@ -123,6 +123,66 @@ resolve_system_binary() {
   return 1
 }
 
+settings_binary() {
+  if [[ "$SOURCE_MODE" == true && -x "$NATIVE_BIN/vocotype-settings" ]]; then
+    printf '%s\n' "$NATIVE_BIN/vocotype-settings"
+    return 0
+  fi
+  resolve_system_binary vocotype-settings
+}
+
+migrate_legacy_fcitx_profile() {
+  local settings
+  settings=$(settings_binary) || {
+    echo "native settings helper is missing; cannot migrate the Fcitx profile" >&2
+    return 1
+  }
+  "$settings" --repair-fcitx-profile
+}
+
+verify_fcitx_addon_enabled() {
+  local settings state rc attempt enabled_once=false
+  settings=$(settings_binary) || {
+    echo "native settings helper is missing; cannot verify the Fcitx addon" >&2
+    return 1
+  }
+  if [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
+    log "Fcitx addon verification deferred because no graphical session is available."
+    return 0
+  fi
+  if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]]; then
+    log "Fcitx addon verification deferred because no user D-Bus is available."
+    return 0
+  fi
+
+  for attempt in $(seq 1 80); do
+    if state=$("$settings" --fcitx-addon-state vocotype 2>&1); then
+      log "✓ Fcitx discovered and enabled the VoCoType addon."
+      return 0
+    else
+      rc=$?
+    fi
+    case "$rc" in
+      10)
+        if [[ "$enabled_once" == false ]]; then
+          log "VoCoType addon is installed but disabled; enabling it through Fcitx D-Bus…"
+          "$settings" --enable-fcitx-addon vocotype
+          enabled_once=true
+          restart_fcitx_desktop
+        fi
+        ;;
+      11|12) ;;
+      *)
+        echo "unexpected Fcitx addon probe failure (exit=$rc): $state" >&2
+        return 1
+        ;;
+    esac
+    sleep 0.1
+  done
+  echo "Fcitx did not load an enabled VoCoType addon after repair: $state" >&2
+  return 1
+}
+
 build_source_runtime() {
   install_deps
   if [[ ! -x "$PROJECT_DIR/native/streaming_worker/build/bundle/bin/vocotype-core" ]]; then
@@ -277,12 +337,14 @@ EOF_SERVICE
       "$HOME/.local/share/fcitx5/addon/vocotype.conf"
     echo "✓ Installed the Fcitx module in the user prefix; no root privilege was required."
   fi
+  migrate_legacy_fcitx_profile
   if manager_available; then
     manager_user daemon-reload
     manager_user enable vocotype-fcitx5-backend.service >/dev/null
     manager_user restart vocotype-fcitx5-backend.service
   fi
   restart_fcitx_desktop
+  verify_fcitx_addon_enabled
 }
 
 install_ibus() {

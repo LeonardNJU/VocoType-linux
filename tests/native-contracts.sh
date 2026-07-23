@@ -81,6 +81,13 @@ rg -Fq 'gtk_widget_set_visible(window.rime_schema_row, ibus)' "$settings" || \
   fail "IBus Rime schema is not conditional"
 rg -Fq 'gtk_widget_set_visible(window.fcitx_composing_row, !ibus)' "$settings" || \
   fail "Fcitx-specific controls are not conditional"
+for token in \
+  'parse_fcitx_addon_states' 'SetAddonsState' '--repair-fcitx-profile' \
+  'migrate_legacy_fcitx_profile' 'legacy_fcitx_profile_references' \
+  '.vocotype-backup' 'verify_fcitx_addon_enabled'; do
+  rg -Fq -- "$token" native/desktop installers/install-native-user.sh || \
+    fail "Issue #4 Fcitx repair capability missing: $token"
+done
 
 # Core lifecycle must use the persistent user service when installed. A
 # settings window must never replace it with a parent-bound temporary child.
