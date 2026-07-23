@@ -22,29 +22,33 @@ case "$package" in
   *.deb)
     expected_manager=apt
     package_dependencies=$(dpkg-deb -f "$package" Depends)
+    package_provides=
     dpkg-deb -x "$package" "$work/root"
     ;;
   *.rpm)
     expected_manager=dnf
     package_dependencies=$(rpm -qp --requires "$package")
+    package_provides=$(rpm -qp --provides "$package")
     mkdir -p "$work/root"
     (cd "$work/root" && rpm2cpio "$package" | cpio -idm --quiet)
     ;;
   *.pkg.tar.*)
     expected_manager=pacman
     package_dependencies=$(bsdtar -xOf "$package" .PKGINFO | sed -n 's/^depend = //p')
+    package_provides=
     mkdir -p "$work/root"
     bsdtar -xf "$package" -C "$work/root"
     ;;
   *) echo "unsupported package archive" >&2; exit 2 ;;
 esac
 
-if grep -Eqi '(^|[^[:alnum:]-])lib?yaml-cpp([0-9.-]|$)' <<<"$package_dependencies"; then
-  echo "package metadata depends on distribution yaml-cpp ABI" >&2
-  printf '%s
-' "$package_dependencies" >&2
-  exit 1
-fi
+requires_file="$work/package-requires"
+provides_file="$work/package-provides"
+printf '%s
+' "$package_dependencies" >"$requires_file"
+printf '%s
+' "$package_provides" >"$provides_file"
+"$(dirname "$0")/check-yaml-package-dependencies.sh"   "$expected_manager" "$requires_file" "$provides_file"
 
 marker="$work/root/usr/share/vocotype/.system-package"
 test -f "$marker"

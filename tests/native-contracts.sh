@@ -294,12 +294,37 @@ for path in \
     fail "distribution yaml-cpp dependency remains in $path"
   fi
 done
-for token in \
-  'package metadata depends on distribution yaml-cpp ABI' \
-  'settings center depends on distribution yaml-cpp ABI'; do
-  rg -Fq "$token" packaging/tests/audit-built-package.sh || \
-    fail "built-package audit is missing yaml-cpp regression: $token"
-done
+yaml_audit=packaging/tests/check-yaml-package-dependencies.sh
+test -x "$yaml_audit" || fail "manager-aware yaml-cpp package audit is missing"
+yaml_test_dir=$(mktemp -d)
+trap 'rm -rf "$yaml_test_dir"' EXIT
+printf '%s
+' 'libyaml-cpp0.7 (>= 0.7)' >"$yaml_test_dir/requires"
+if "$yaml_audit" apt "$yaml_test_dir/requires"; then
+  fail "Debian system yaml-cpp dependency was accepted"
+fi
+printf '%s
+' 'yaml-cpp' >"$yaml_test_dir/requires"
+if "$yaml_audit" pacman "$yaml_test_dir/requires"; then
+  fail "Arch system yaml-cpp dependency was accepted"
+fi
+printf '%s
+' 'yaml-cpp >= 0.8' >"$yaml_test_dir/requires"
+if "$yaml_audit" dnf "$yaml_test_dir/requires"; then
+  fail "RPM system yaml-cpp package dependency was accepted"
+fi
+printf '%s
+' 'libyaml-cpp.so.0.6()(64bit)' >"$yaml_test_dir/requires"
+: >"$yaml_test_dir/provides"
+if "$yaml_audit" dnf "$yaml_test_dir/requires" "$yaml_test_dir/provides"; then
+  fail "RPM unprovided private yaml-cpp SONAME was accepted"
+fi
+cp "$yaml_test_dir/requires" "$yaml_test_dir/provides"
+"$yaml_audit" dnf "$yaml_test_dir/requires" "$yaml_test_dir/provides" || \
+  fail "RPM self-provided private yaml-cpp SONAME was rejected"
+rg -Fq 'settings center depends on distribution yaml-cpp ABI' \
+  packaging/tests/audit-built-package.sh || \
+  fail "settings ELF yaml-cpp regression audit is missing"
 
 # Ubuntu 22.04 ships GLib 2.72, before G_APPLICATION_DEFAULT_FLAGS was
 # introduced. The native settings app must retain the older zero-flags path.

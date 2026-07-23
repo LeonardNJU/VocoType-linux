@@ -35,6 +35,7 @@ for required in \
   feedback_service/CMakeLists.txt feedback_service/src/main.cpp \
   installers/install-native-user.sh packaging/tools/stage-system-package.sh \
   flake.nix flake.lock nix/package.nix tests/hotkey-settings.sh \
+  packaging/tests/check-yaml-package-dependencies.sh \
   docs/getting-started/nix.md docs/guides/shortcuts.md; do
   expected="VocoType-linux-$VERSION/$required"
   [[ -n ${members[$expected]+x} ]] || {
