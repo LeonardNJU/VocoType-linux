@@ -35,6 +35,7 @@ No unreleased changes.
 - Removed clipboard injection fallbacks and internal `del=? sur=1` capability diagnostics from the user-facing Fcitx panel.
 - Fixed the native Core lifecycle so settings, Fcitx, and IBus reuse the persistent user service when available. Settings no longer kill the service and fork a parent-bound temporary Core; Fcitx automatically starts the service and retries F9 when the socket is missing.
 - Fixed settings startup with Beta3/legacy configurations that stored switches as numeric `0/1` values instead of JSON booleans.
+- Fixed native Core parsing of legacy boolean settings. Numeric/string values such as `asr_streaming.enabled = 1` and `slm.enabled = 1` no longer silently fall back to disabled, so enabling 2-pass now starts the online worker and produces live partial text.
 
 ### Removed
 

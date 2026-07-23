@@ -1,6 +1,7 @@
 #include "vocotype/core/config.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <fstream>
 #include <stdexcept>
@@ -22,6 +23,36 @@ T value_or(const Json &object, const char *key, T fallback) {
   } catch (const Json::exception &) {
     return fallback;
   }
+}
+
+bool bool_value_or(const Json &object, const char *key, bool fallback) {
+  if (!object.is_object()) {
+    return fallback;
+  }
+  const auto found = object.find(key);
+  if (found == object.end() || found->is_null()) {
+    return fallback;
+  }
+  if (found->is_boolean()) {
+    return found->get<bool>();
+  }
+  if (found->is_number_integer() || found->is_number_unsigned()) {
+    return found->get<long long>() != 0;
+  }
+  if (found->is_string()) {
+    std::string value = found->get<std::string>();
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char character) {
+                     return static_cast<char>(std::tolower(character));
+                   });
+    if (value == "true" || value == "1" || value == "yes" || value == "on") {
+      return true;
+    }
+    if (value == "false" || value == "0" || value == "no" || value == "off") {
+      return false;
+    }
+  }
+  return fallback;
 }
 
 std::size_t positive_size(const Json &object, const char *key,
@@ -158,20 +189,20 @@ AppConfig parse_config(const Json &value) {
 
   const Json normalization = merged.value("normalization", Json::object());
   config.normalization.enabled =
-      value_or<bool>(normalization, "enabled", config.normalization.enabled);
-  config.normalization.compact_dates = value_or<bool>(
+      bool_value_or(normalization, "enabled", config.normalization.enabled);
+  config.normalization.compact_dates = bool_value_or(
       normalization, "compact_dates", config.normalization.compact_dates);
-  config.normalization.compact_times = value_or<bool>(
+  config.normalization.compact_times = bool_value_or(
       normalization, "compact_times", config.normalization.compact_times);
   config.normalization.compact_distances =
-      value_or<bool>(normalization, "compact_distances",
-                     config.normalization.compact_distances);
-  config.normalization.currency_symbols = value_or<bool>(
+      bool_value_or(normalization, "compact_distances",
+                    config.normalization.compact_distances);
+  config.normalization.currency_symbols = bool_value_or(
       normalization, "currency_symbols", config.normalization.currency_symbols);
 
   const Json streaming = merged.value("asr_streaming", Json::object());
   config.streaming_asr.enabled =
-      value_or<bool>(streaming, "enabled", config.streaming_asr.enabled);
+      bool_value_or(streaming, "enabled", config.streaming_asr.enabled);
   config.streaming_asr.model =
       value_or<std::string>(streaming, "model", config.streaming_asr.model);
   config.streaming_asr.model_dir =
@@ -212,26 +243,26 @@ AppConfig parse_config(const Json &value) {
 
   const Json asr = merged.value("asr", Json::object());
   config.offline_asr.enabled =
-      value_or<bool>(asr, "native_enabled", config.offline_asr.enabled);
+      bool_value_or(asr, "native_enabled", config.offline_asr.enabled);
   config.offline_asr.worker_path =
       value_or<std::string>(asr, "worker_path", "");
   config.offline_asr.model =
       value_or<std::string>(asr, "model", config.offline_asr.model);
   config.offline_asr.model_dir = value_or<std::string>(asr, "model_dir", "");
   config.offline_asr.use_vad =
-      value_or<bool>(asr, "use_vad", config.offline_asr.use_vad);
+      bool_value_or(asr, "use_vad", config.offline_asr.use_vad);
   config.offline_asr.vad_model =
       value_or<std::string>(asr, "vad_model", config.offline_asr.vad_model);
   config.offline_asr.vad_model_dir =
       value_or<std::string>(asr, "vad_model_dir", "");
   config.offline_asr.use_punc =
-      value_or<bool>(asr, "use_punc", config.offline_asr.use_punc);
+      bool_value_or(asr, "use_punc", config.offline_asr.use_punc);
   config.offline_asr.punc_model =
       value_or<std::string>(asr, "punc_model", config.offline_asr.punc_model);
   config.offline_asr.punc_model_dir =
       value_or<std::string>(asr, "punc_model_dir", "");
   config.offline_asr.hotword = value_or<std::string>(asr, "hotword", "");
-  config.offline_asr.itn = value_or<bool>(asr, "itn", config.offline_asr.itn);
+  config.offline_asr.itn = bool_value_or(asr, "itn", config.offline_asr.itn);
   config.offline_asr.threads =
       std::clamp(value_or<int>(asr, "intra_op_num_threads", 2), 1, 8);
   config.offline_asr.idle_timeout_ms =
@@ -242,14 +273,14 @@ AppConfig parse_config(const Json &value) {
       seconds_to_ms(value_or<double>(asr, "request_timeout_s", 120.0), 120000);
 
   const Json slm = merged.value("slm", Json::object());
-  config.slm.enabled = value_or<bool>(slm, "enabled", config.slm.enabled);
+  config.slm.enabled = bool_value_or(slm, "enabled", config.slm.enabled);
   config.slm.endpoint =
       value_or<std::string>(slm, "endpoint", config.slm.endpoint);
   config.slm.model = value_or<std::string>(slm, "model", config.slm.model);
   config.slm.timeout_ms =
       std::max(100, value_or<int>(slm, "timeout_ms", config.slm.timeout_ms));
   config.slm.remote_stream =
-      value_or<bool>(slm, "remote_stream", config.slm.remote_stream);
+      bool_value_or(slm, "remote_stream", config.slm.remote_stream);
   config.slm.stream_idle_timeout_ms =
       std::max(50, value_or<int>(slm, "stream_idle_timeout_ms",
                                  config.slm.stream_idle_timeout_ms));
@@ -267,9 +298,9 @@ AppConfig parse_config(const Json &value) {
   config.slm.top_p = value_or<double>(slm, "top_p", config.slm.top_p);
   config.slm.top_k = value_or<int>(slm, "top_k", config.slm.top_k);
   config.slm.enable_thinking =
-      value_or<bool>(slm, "enable_thinking", config.slm.enable_thinking);
+      bool_value_or(slm, "enable_thinking", config.slm.enable_thinking);
   config.slm.edit_enabled =
-      value_or<bool>(slm, "edit_enabled", config.slm.edit_enabled);
+      bool_value_or(slm, "edit_enabled", config.slm.edit_enabled);
   config.slm.edit_max_tokens = std::max(
       1, value_or<int>(slm, "edit_max_tokens", config.slm.edit_max_tokens));
   config.slm.api_key = value_or<std::string>(slm, "api_key", "");

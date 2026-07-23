@@ -517,6 +517,27 @@ void test_config_merge() {
           "streaming ASR thread override was lost");
   require(config.streaming_asr.chunk_size[1] == 8,
           "streaming ASR chunk override was lost");
+
+  const AppConfig legacy = vocotype::core::parse_config(
+      {{"asr_streaming", {{"enabled", 1}}},
+       {"asr", {{"native_enabled", "1"}, {"use_punc", 0}}},
+       {"normalization", {{"enabled", "yes"}, {"compact_times", "off"}}},
+       {"slm",
+        {{"enabled", 1},
+         {"remote_stream", "true"},
+         {"enable_thinking", 0},
+         {"edit_enabled", "on"}}}});
+  require(legacy.streaming_asr.enabled,
+          "legacy numeric streaming flag was not accepted");
+  require(legacy.offline_asr.enabled,
+          "legacy string offline-ASR flag was not accepted");
+  require(!legacy.offline_asr.use_punc,
+          "legacy numeric false flag was not accepted");
+  require(legacy.normalization.enabled && !legacy.normalization.compact_times,
+          "legacy normalization booleans were not accepted");
+  require(legacy.slm.enabled && legacy.slm.remote_stream &&
+              !legacy.slm.enable_thinking && legacy.slm.edit_enabled,
+          "legacy SLM booleans were not accepted");
 }
 
 void test_dispatcher() {
