@@ -128,6 +128,9 @@ if git ls-files 'pyproject.toml' 'uv.lock' 'requirements*.txt' | grep -q .; then
 fi
 
 for token in \
+  'VOCOTYPE_SQLITE_TARGET' \
+  'TARGET SQLite3::SQLite3' \
+  'TARGET SQLite::SQLite3' \
   'add_executable(vocotype-feedback' \
   'Boost.Beast' \
   'vocotype-feedback serve' \

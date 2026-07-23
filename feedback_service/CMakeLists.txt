@@ -12,6 +12,17 @@ find_package(SQLite3 REQUIRED)
 find_package(Threads REQUIRED)
 find_package(nlohmann_json 3.11 REQUIRED)
 
+if(TARGET SQLite3::SQLite3)
+  set(VOCOTYPE_SQLITE_TARGET SQLite3::SQLite3)
+elseif(TARGET SQLite::SQLite3)
+  set(VOCOTYPE_SQLITE_TARGET SQLite::SQLite3)
+else()
+  add_library(vocotype_sqlite3 INTERFACE)
+  target_include_directories(vocotype_sqlite3 INTERFACE ${SQLite3_INCLUDE_DIRS})
+  target_link_libraries(vocotype_sqlite3 INTERFACE ${SQLite3_LIBRARIES})
+  set(VOCOTYPE_SQLITE_TARGET vocotype_sqlite3)
+endif()
+
 add_library(vocotype_feedback_lib
   src/service.cpp
 )
@@ -19,7 +30,7 @@ target_include_directories(vocotype_feedback_lib PUBLIC include)
 target_link_libraries(vocotype_feedback_lib
   PUBLIC
     OpenSSL::Crypto
-    SQLite3::SQLite3
+    ${VOCOTYPE_SQLITE_TARGET}
     Threads::Threads
     nlohmann_json::nlohmann_json
 )
