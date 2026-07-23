@@ -1,7 +1,7 @@
 # VoCoType Linux
 
 <p align="center">
-  <img src="site/og-image.png" alt="VoCoType Linux — 按住语音快捷键说话，松开即可输入文字" width="100%">
+  <img src="web/og-image.png" alt="VoCoType Linux — 按住语音快捷键说话，松开即可输入文字" width="100%">
 </p>
 
 <p align="center"><strong>按住语音快捷键说话，松开即可输入文字。</strong></p>
@@ -94,10 +94,10 @@ git clone https://github.com/LeonardNJU/VocoType-linux.git
 cd VocoType-linux
 
 # Fcitx 5
-bash fcitx5/scripts/install.sh --install-system-deps --download-models
+bash scripts/install/fcitx5/install.sh --install-system-deps --download-models
 
 # 或 IBus
-bash ibus/scripts/install.sh --install-system-deps --download-models
+bash scripts/install/ibus/install.sh --install-system-deps --download-models
 ```
 
 安装器会编译 C++ 组件；完成后从应用菜单打开 **VoCoType 设置**。日常运行不需要编译器或 Python。
@@ -121,10 +121,10 @@ NixOS 用户应把 Fcitx flavor 放入 `i18n.inputMethod.fcitx5.addons`，或把
 
 | 集成 | 安装 | 卸载 |
 |---|---|---|
-| IBus | `bash ibus/scripts/install.sh` | `bash ibus/scripts/uninstall.sh` |
-| Fcitx 5 | `bash fcitx5/scripts/install.sh` | `bash fcitx5/scripts/uninstall.sh` |
+| IBus | `bash scripts/install/ibus/install.sh` | `bash scripts/install/ibus/uninstall.sh` |
+| Fcitx 5 | `bash scripts/install/fcitx5/install.sh` | `bash scripts/install/fcitx5/uninstall.sh` |
 
-详细依赖、参数和手动排障请查看 [IBus 文档](ibus/README.md) 与 [Fcitx 5 文档](fcitx5/README.md)。
+详细依赖、参数和手动排障请查看 [IBus 文档](docs/integrations/ibus.md) 与 [Fcitx 5 文档](docs/integrations/fcitx5.md)。
 
 ## 基本使用
 
@@ -232,8 +232,8 @@ AI 功能默认关闭。`Shift+F9` 润色和 `Ctrl+F9` 语音编辑都调用用�
 
 完整的功能配置、输入法集成和排障说明见 [在线文档](https://vocotype-linux.lsamc.website/docs/)，文档源文件仍维护在仓库的 [`docs/`](docs/README.md)。
 
-- [Fcitx 5 安装与排障](fcitx5/README.md)
-- [IBus 安装与排障](ibus/README.md)
+- [Fcitx 5 安装与排障](docs/integrations/fcitx5.md)
+- [IBus 安装与排障](docs/integrations/ibus.md)
 - [语音快捷键录制与冲突检测](docs/guides/shortcuts.md)
 - [Nix 与 NixOS](docs/getting-started/nix.md)
 - [语音编辑兼容性与局限](docs/guides/voice-editing.md)

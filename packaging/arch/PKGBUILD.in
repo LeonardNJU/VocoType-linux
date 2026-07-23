@@ -17,7 +17,7 @@ sha256sums=('@SOURCE_SHA256@')
 
 package() {
   cd "VocoType-linux-${pkgver}"
-  ./packaging/tools/stage-system-package.sh \
+  ./packaging/scripts/stage-system-package.sh \
     --destdir "$pkgdir" \
     --prefix /usr \
     --libdir lib \

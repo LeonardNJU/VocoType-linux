@@ -33,7 +33,7 @@ The installed runtime contains only compiled executables and shared resources.
 # The audited native FunASR/ONNX bundle is injected by release CI.
 
 %install
-./packaging/tools/stage-system-package.sh \
+./packaging/scripts/stage-system-package.sh \
   --destdir "%{buildroot}" \
   --prefix /usr \
   --libdir "%{_lib}" \

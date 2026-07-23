@@ -37,7 +37,7 @@ jobs:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          . packaging/tools/package-common.sh
+          . packaging/scripts/package-common.sh
           version=$(vocotype_version "$PWD")
           tag=$(vocotype_version_field "$version" tag)
           prerelease=$(vocotype_version_field "$version" prerelease)
@@ -70,7 +70,7 @@ jobs:
             build-essential clang cmake curl git patch pkg-config \
             nlohmann-json3-dev libcurl4-openssl-dev binutils
       - name: Build and audit portable native streaming runtime
-        run: packaging/tools/build-native-streaming-release.sh dist/native
+        run: packaging/scripts/build-native-streaming-release.sh dist/native
       - uses: actions/upload-artifact@v7
         with:
           name: native-streaming-linux-x86_64
@@ -103,12 +103,12 @@ jobs:
         run: |
           archive=$(find "$RUNNER_TEMP/native-artifact" -name 'vocotype-native-streaming-*.tar.gz' -print -quit)
           test -n "$archive"
-          packaging/tools/unpack-native-streaming-release.sh "$archive" "$RUNNER_TEMP/native-bundle"
+          packaging/scripts/unpack-native-streaming-release.sh "$archive" "$RUNNER_TEMP/native-bundle"
       - name: Build and validate source release metadata
         run: |
-          packaging/tools/build-source-release.sh \
+          packaging/scripts/build-source-release.sh \
             --expected-version "${{ needs.validate-version.outputs.version }}"
-          packaging/tools/validate-source-release.sh \
+          packaging/scripts/validate-source-release.sh \
             --expected-version "${{ needs.validate-version.outputs.version }}" \
             --expected-commit "$GITHUB_SHA"
       - name: Build all complete Debian flavors
@@ -116,11 +116,11 @@ jobs:
           VOCOTYPE_STREAMING_BUNDLE_DIR: ${{ runner.temp }}/native-bundle
         run: |
           for flavor in universal ibus fcitx5; do
-            packaging/tools/build-deb.sh dist/packages "$flavor"
+            packaging/scripts/build-deb.sh dist/packages "$flavor"
           done
       - name: Install and validate every Debian flavor
         run: |
-          . packaging/tools/package-common.sh
+          . packaging/scripts/package-common.sh
           debian_version=$(vocotype_version_field "${{ needs.validate-version.outputs.version }}" debian)
           for flavor in universal ibus fcitx5; do
             package_name=$(vocotype_flavor_field "$flavor" package_name)
@@ -171,13 +171,13 @@ jobs:
         run: |
           archive=$(find "$RUNNER_TEMP/native-artifact" -name 'vocotype-native-streaming-*.tar.gz' -print -quit)
           test -n "$archive"
-          packaging/tools/unpack-native-streaming-release.sh "$archive" "$RUNNER_TEMP/native-bundle"
+          packaging/scripts/unpack-native-streaming-release.sh "$archive" "$RUNNER_TEMP/native-bundle"
       - name: Build all complete RPM flavors
         env:
           VOCOTYPE_STREAMING_BUNDLE_DIR: ${{ runner.temp }}/native-bundle
         run: |
           for flavor in universal ibus fcitx5; do
-            packaging/tools/build-rpm.sh dist/packages "$flavor"
+            packaging/scripts/build-rpm.sh dist/packages "$flavor"
           done
       - name: Install and validate every RPM flavor
         run: packaging/tests/validate-rpm-flavors.sh dist/packages
@@ -210,7 +210,7 @@ jobs:
         run: |
           archive=$(find "$RUNNER_TEMP/native-artifact" -name 'vocotype-native-streaming-*.tar.gz' -print -quit)
           test -n "$archive"
-          packaging/tools/unpack-native-streaming-release.sh "$archive" "$RUNNER_TEMP/native-bundle"
+          packaging/scripts/unpack-native-streaming-release.sh "$archive" "$RUNNER_TEMP/native-bundle"
       - name: Build all complete Arch flavors as an unprivileged user
         run: |
           useradd -m builder
@@ -218,11 +218,11 @@ jobs:
           for flavor in universal ibus fcitx5; do
             su builder -c "cd '$GITHUB_WORKSPACE' && \
               VOCOTYPE_STREAMING_BUNDLE_DIR='$RUNNER_TEMP/native-bundle' \
-              packaging/tools/build-arch.sh dist/packages '$flavor'"
+              packaging/scripts/build-arch.sh dist/packages '$flavor'"
           done
       - name: Install and validate every Arch flavor
         run: |
-          . packaging/tools/package-common.sh
+          . packaging/scripts/package-common.sh
           arch_version=$(vocotype_version_field "${{ needs.validate-version.outputs.version }}" arch)
           for flavor in universal ibus fcitx5; do
             package_name=$(vocotype_flavor_field "$flavor" package_name)
@@ -253,7 +253,7 @@ jobs:
           merge-multiple: true
       - name: Collect installer-only GitHub Release assets
         run: |
-          packaging/tools/collect-release-assets.sh \
+          packaging/scripts/collect-release-assets.sh \
             assets final-assets --installers-only
       - name: Write installer checksums
         run: |
@@ -265,7 +265,7 @@ jobs:
           )
       - name: Validate the exact downloadable asset set
         run: |
-          packaging/tools/validate-final-release-assets.sh final-assets \
+          packaging/scripts/validate-final-release-assets.sh final-assets \
             --version "${{ needs.validate-version.outputs.version }}"
       - uses: actions/upload-artifact@v7
         with:
@@ -286,7 +286,7 @@ jobs:
           path: final-assets
       - name: Revalidate the assembled downloadable assets
         run: |
-          packaging/tools/validate-final-release-assets.sh final-assets \
+          packaging/scripts/validate-final-release-assets.sh final-assets \
             --version "${{ needs.validate-version.outputs.version }}"
       - name: Create tag and Release from the tested assets
         env:

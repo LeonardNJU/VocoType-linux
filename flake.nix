@@ -10,7 +10,7 @@
       packagesFor = system:
         let
           pkgs = import nixpkgs { inherit system; };
-          callPackage = flavor: pkgs.callPackage ./nix/package.nix {
+          callPackage = flavor: pkgs.callPackage ./packaging/nix/package.nix {
             inherit flavor;
             source = self;
           };

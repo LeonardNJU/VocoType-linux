@@ -38,4 +38,24 @@ VoCoType 在 IBus 中作为独立输入法引擎运行，适合 GNOME 和默认�
 
 ## 诊断
 
-优先运行设置中心 Doctor，再查看 [常见问题](../troubleshooting/faq.md)。更完整的 surrounding-text 行为、编辑命令和开发参数见仓库的 [IBus 技术文档](https://github.com/LeonardNJU/VocoType-linux/blob/master/ibus/README.md)。
+优先运行设置中心 Doctor，再查看 [常见问题](../troubleshooting/faq.md)。更完整的 surrounding-text 行为、编辑命令和开发参数见仓库的 [IBus 技术文档](https://github.com/LeonardNJU/VocoType-linux/blob/master/docs/integrations/ibus.md)。
+
+## 实现与源码位置
+
+```text
+IBus daemon
+  └─ vocotype-ibus-engine
+       ├─ librime
+       ├─ vocotype-audio-recorder
+       └─ vocotype-core
+```
+
+IBus metadata 位于 `src/integrations/ibus/`；原生 engine 入口与共享桌面运行时位于 `src/desktop/`。Rime 用户数据保存在 `~/.config/vocotype/rime`，不会修改其他 IBus 输入法的数据目录。
+
+需要重新部署 Rime 时运行：
+
+```bash
+vocotype-ibus-engine --deploy-rime
+```
+
+源码构建入口是 `scripts/install/ibus/install.sh`；发行包用户不需要编译器。

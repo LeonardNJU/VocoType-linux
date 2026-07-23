@@ -9,7 +9,7 @@ override_dh_auto_configure:
 override_dh_auto_build:
 	@echo "Using CI-prebuilt native FunASR/ONNX runtime"
 override_dh_auto_install:
-	./packaging/tools/stage-system-package.sh \
+	./packaging/scripts/stage-system-package.sh \
 		--destdir "$(CURDIR)/debian/$(PACKAGE_NAME)" \
 		--prefix /usr \
 		--libdir "lib/$$(dpkg-architecture -qDEB_HOST_MULTIARCH)" \

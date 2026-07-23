@@ -39,7 +39,7 @@ Fcitx 5 Module 不代理普通按键，也不创建自己的 Rime session。因�
 - [休眠或唤醒后的恢复](../troubleshooting/hibernate.md)
 - [常见问题](../troubleshooting/faq.md)
 
-更完整的实现参数与开发说明保留在仓库的 [Fcitx 5 技术文档](https://github.com/LeonardNJU/VocoType-linux/blob/master/fcitx5/README.md)。
+更完整的实现参数与开发说明保留在仓库的 [Fcitx 5 技术文档](https://github.com/LeonardNJU/VocoType-linux/blob/master/docs/integrations/fcitx5.md)。
 
 ## 语音编辑兼容性
 
@@ -48,3 +48,31 @@ Fcitx 5 与 IBus 共用语音编辑的 SLM 计划和本地安全执行器；默�
 标准 GTK/Qt 控件通常可以使用。Chrome、Chromium、Electron 和 VSCode 的 X11 输入法桥目前不提供 surrounding text，因此这些应用中的语音编辑不受支持；普通语音输入不受影响。
 
 完整原因、能力矩阵和 Wayland 边界见 [语音编辑兼容性与局限](../guides/voice-editing.md)。
+
+## 实现与源码位置
+
+```text
+Fcitx 5 event pipeline
+  └─ vocotype.so
+       ├─ vocotype-audio-recorder
+       └─ vocotype-core
+```
+
+Module 源码位于 `src/integrations/fcitx5/`，只拦截已配置的语音快捷键。文本提交仅使用 Fcitx 官方 `InputContext::commitString()` 与 surrounding-text 接口，不使用剪贴板注入。
+
+本地 backend socket：
+
+```text
+/tmp/vocotype-fcitx5.sock
+```
+
+主要用户配置：
+
+```text
+~/.config/vocotype/fcitx5-backend.json
+~/.config/vocotype/audio.conf
+~/.config/vocotype/terms.yaml
+~/.config/fcitx5/conf/vocotype.conf
+```
+
+源码构建入口是 `scripts/install/fcitx5/install.sh`；发行包用户不需要编译器。

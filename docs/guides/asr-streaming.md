@@ -23,7 +23,7 @@ V4 的 DEB、RPM 与 Arch Release 包已经包含预编译的 `vocotype-streamin
 
 Release CI 在 Ubuntu 22.04 上独立构建并审计 portable bundle，检查相对 RUNPATH、未打包动态依赖和许可证。三个发行版软件包消费同一份 CI artifact，并以 `--require-streaming-bundle` 构建；缺少 runtime 时整次 Release 失败。
 
-源码开发者仍可运行 `./native/streaming_worker/build.sh` 生成本地 bundle，但这不是发行包用户的安装步骤。
+源码开发者仍可运行 `./src/workers/funasr/build.sh` 生成本地 bundle，但这不是发行包用户的安装步骤。
 
 ## 开启方式
 

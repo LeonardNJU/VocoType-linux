@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 PACKAGE_DIR=${1:-"$ROOT/dist/packages"}
-. "$ROOT/packaging/tools/package-common.sh"
+. "$ROOT/packaging/scripts/package-common.sh"
 version=$(vocotype_version "$ROOT")
 current_package=
 
@@ -15,7 +15,7 @@ trap 'echo "RPM flavor validation failed at line $LINENO" >&2' ERR
 for flavor in universal ibus fcitx5; do
   package_name=$(vocotype_flavor_field "$flavor" package_name)
   echo "=== VALIDATE RPM flavor=$flavor package=$package_name ==="
-  package=$($ROOT/packaging/tools/find-rpm-package.sh "$PACKAGE_DIR" "$package_name")
+  package=$($ROOT/packaging/scripts/find-rpm-package.sh "$PACKAGE_DIR" "$package_name")
   echo "Selected RPM: $package"
   "$ROOT/packaging/tests/audit-built-package.sh" "$package" "$version" "$flavor"
   dnf install -y "$package"

@@ -25,7 +25,7 @@
 ## Checks
 
 ```bash
-tools/diagnostics/native-doctor.sh
+scripts/diagnostics/native-doctor.sh
 journalctl --user -u vocotype-fcitx5-backend.service -n 100
 ```
 

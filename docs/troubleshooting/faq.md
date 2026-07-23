@@ -5,7 +5,7 @@
 普通识别默认使用 `F9`，但用户可以重新录制。先在 **VoCoType 设置 → 通用设置 → 语音快捷键** 确认当前组合，再运行：
 
 ```bash
-tools/diagnostics/native-doctor.sh
+scripts/diagnostics/native-doctor.sh
 ```
 
 Fcitx 5 用户应确认 `/tmp/vocotype-fcitx5.sock` 由当前用户的 `vocotype-core` 持有，并确认没有旧版 VoCoType Python 进程残留。

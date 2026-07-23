@@ -11,9 +11,9 @@ vocotype-settings
 源码树可先运行对应安装器：
 
 ```bash
-bash fcitx5/scripts/install.sh --install-system-deps --download-models
+bash scripts/install/fcitx5/install.sh --install-system-deps --download-models
 # 或
-bash ibus/scripts/install.sh --install-system-deps --download-models
+bash scripts/install/ibus/install.sh --install-system-deps --download-models
 ```
 
 ## 概览

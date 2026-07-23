@@ -80,20 +80,20 @@ jobs:
             libportaudio2 portaudio19-dev
       - name: Validate scripts and metadata
         run: |
-          find ibus/scripts fcitx5/scripts installers packaging/tools packaging/tests tools/diagnostics \
+          find scripts/install scripts/diagnostics scripts/test packaging/scripts packaging/tests \
             -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
-          tests/native-contracts.sh
+          scripts/test/contracts.sh
       - name: Build source/development staged tree
         run: |
-          packaging/tools/stage-system-package.sh \
+          packaging/scripts/stage-system-package.sh \
             --destdir "$RUNNER_TEMP/vocotype-stage" \
             --build-dir "$RUNNER_TEMP/fcitx-build" \
             --flavor fcitx5 \
             --skip-streaming-bundle
       - name: Build source release
-        run: packaging/tools/build-source-release.sh
+        run: packaging/scripts/build-source-release.sh
       - name: Validate source release
-        run: packaging/tools/validate-source-release.sh
+        run: packaging/scripts/validate-source-release.sh
       - uses: actions/upload-artifact@v7
         with:
           name: vocotype-release-preview
@@ -113,7 +113,7 @@ jobs:
             build-essential clang cmake curl git patch pkg-config \
             nlohmann-json3-dev libcurl4-openssl-dev binutils
       - name: Build and audit portable native runtime
-        run: packaging/tools/build-native-streaming-release.sh dist/native
+        run: packaging/scripts/build-native-streaming-release.sh dist/native
       - uses: actions/upload-artifact@v7
         with:
           name: ci-native-streaming-linux-x86_64
@@ -146,17 +146,17 @@ jobs:
         run: |
           archive=$(find "$RUNNER_TEMP/native-artifact" -name 'vocotype-native-streaming-*.tar.gz' -print -quit)
           test -n "$archive"
-          packaging/tools/unpack-native-streaming-release.sh "$archive" "$RUNNER_TEMP/native-bundle"
+          packaging/scripts/unpack-native-streaming-release.sh "$archive" "$RUNNER_TEMP/native-bundle"
       - name: Build all Debian package flavors
         env:
           VOCOTYPE_STREAMING_BUNDLE_DIR: ${{ runner.temp }}/native-bundle
         run: |
           for flavor in universal ibus fcitx5; do
-            packaging/tools/build-deb.sh dist/packages "$flavor"
+            packaging/scripts/build-deb.sh dist/packages "$flavor"
           done
       - name: Install and validate every Debian flavor
         run: |
-          . packaging/tools/package-common.sh
+          . packaging/scripts/package-common.sh
           version=$(vocotype_version "$PWD")
           debian_version=$(vocotype_version_field "$version" debian)
           for flavor in universal ibus fcitx5; do
@@ -207,13 +207,13 @@ jobs:
         run: |
           archive=$(find "$RUNNER_TEMP/native-artifact" -name 'vocotype-native-streaming-*.tar.gz' -print -quit)
           test -n "$archive"
-          packaging/tools/unpack-native-streaming-release.sh "$archive" "$RUNNER_TEMP/native-bundle"
+          packaging/scripts/unpack-native-streaming-release.sh "$archive" "$RUNNER_TEMP/native-bundle"
       - name: Build all RPM flavors
         env:
           VOCOTYPE_STREAMING_BUNDLE_DIR: ${{ runner.temp }}/native-bundle
         run: |
           for flavor in universal ibus fcitx5; do
-            packaging/tools/build-rpm.sh dist/packages "$flavor"
+            packaging/scripts/build-rpm.sh dist/packages "$flavor"
           done
       - name: Install and validate every RPM flavor
         run: packaging/tests/validate-rpm-flavors.sh dist/packages
@@ -246,7 +246,7 @@ jobs:
         run: |
           archive=$(find "$RUNNER_TEMP/native-artifact" -name 'vocotype-native-streaming-*.tar.gz' -print -quit)
           test -n "$archive"
-          packaging/tools/unpack-native-streaming-release.sh "$archive" "$RUNNER_TEMP/native-bundle"
+          packaging/scripts/unpack-native-streaming-release.sh "$archive" "$RUNNER_TEMP/native-bundle"
       - name: Build all Arch package flavors
         run: |
           useradd -m builder
@@ -254,11 +254,11 @@ jobs:
           for flavor in universal ibus fcitx5; do
             su builder -c "cd '$GITHUB_WORKSPACE' && \
               VOCOTYPE_STREAMING_BUNDLE_DIR='$RUNNER_TEMP/native-bundle' \
-              packaging/tools/build-arch.sh dist/packages '$flavor'"
+              packaging/scripts/build-arch.sh dist/packages '$flavor'"
           done
       - name: Install and validate every Arch flavor
         run: |
-          . packaging/tools/package-common.sh
+          . packaging/scripts/package-common.sh
           version=$(vocotype_version "$PWD")
           arch_version=$(vocotype_version_field "$version" arch)
           for flavor in universal ibus fcitx5; do

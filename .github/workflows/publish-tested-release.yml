@@ -34,7 +34,7 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          . packaging/tools/package-common.sh
+          . packaging/scripts/package-common.sh
           version=$(vocotype_version_from_tag "$RELEASE_TAG")
           canonical_tag=$(vocotype_version_field "$version" tag)
           prerelease=$(vocotype_version_field "$version" prerelease)
@@ -116,7 +116,7 @@ jobs:
 
       - name: Collect installer-only GitHub Release assets
         run: |
-          packaging/tools/collect-release-assets.sh \
+          packaging/scripts/collect-release-assets.sh \
             assets final-assets --installers-only
 
       - name: Write installer checksums
@@ -130,7 +130,7 @@ jobs:
 
       - name: Validate the exact downloadable asset set
         run: |
-          packaging/tools/validate-final-release-assets.sh final-assets \
+          packaging/scripts/validate-final-release-assets.sh final-assets \
             --version "${{ steps.verify.outputs.version }}"
 
       - name: Create prerelease from the already tested immutable tag

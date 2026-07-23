@@ -23,7 +23,7 @@ CLAUDE.md
 *.buildinfo
 .pytest_cache/
 *.py[cod]
-site/docs/
+web/docs/
 
 .cache/
 .tmp/

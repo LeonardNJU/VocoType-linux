@@ -4,10 +4,10 @@ on:
   push:
     branches: [master]
     paths:
-      - "site/**"
+      - "web/**"
       - "docs/**"
-      - "tools/docs_builder.cpp"
-      - "tools/build-static-site.sh"
+      - "scripts/site/docs_builder.cpp"
+      - "scripts/site/build.sh"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -30,7 +30,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
       - name: Build static project site and documentation
-        run: tools/build-static-site.sh build/pages
+        run: scripts/site/build.sh build/pages
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload static site

@@ -30,6 +30,6 @@ FunASR 文本
 
 ## 实现与测试
 
-所有转换位于 `native/core/src/text_normalizer.cpp`，不依赖 Pynini、WeTextProcessing 或 Python FST。C++ 测试覆盖历史 ITN 语料，并与迁移前的 426 个相关用例做过逐项等价校验。
+所有转换位于 `src/core/src/text_normalizer.cpp`，不依赖 Pynini、WeTextProcessing 或 Python FST。C++ 测试覆盖历史 ITN 语料，并与迁移前的 426 个相关用例做过逐项等价校验。
 
 可在 **VoCoType 设置 → ITN** 中实时预览。

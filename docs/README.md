@@ -21,4 +21,4 @@ VoCoType Linux 的完整使用手册。这里集中维护安装、图形配置�
 
 ## 文档与代码同步
 
-文档源文件位于仓库 `docs/`。GitHub Pages 使用编译后的 C++ 静态文档生成器，将 Markdown 与 `site/` 官网资源合并为 HTML；没有另一份需要手工同步的 Wiki，也不需要 Python/MkDocs。
+文档源文件位于仓库 `docs/`。GitHub Pages 使用编译后的 C++ 静态文档生成器，将 Markdown 与 `web/` 官网资源合并为 HTML；没有另一份需要手工同步的 Wiki，也不需要 Python/MkDocs。

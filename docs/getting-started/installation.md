@@ -94,8 +94,8 @@ sudo pacman -U ./vocotype-linux-[0-9]*.pkg.tar.zst
 ```bash
 git clone https://github.com/LeonardNJU/VocoType-linux.git
 cd VocoType-linux
-bash fcitx5/scripts/install.sh --install-system-deps --download-models
-# 或：bash ibus/scripts/install.sh --install-system-deps --download-models
+bash scripts/install/fcitx5/install.sh --install-system-deps --download-models
+# 或：bash scripts/install/ibus/install.sh --install-system-deps --download-models
 ```
 
 源码安装会编译 C++ 组件。完成后可运行 `vocotype-settings`；安装后的日常运行不需要编译器或 Python。
@@ -110,8 +110,8 @@ bash fcitx5/scripts/install.sh --install-system-deps --download-models
 
 | 集成 | 安装 | 卸载 |
 |---|---|---|
-| IBus | `bash ibus/scripts/install.sh` | `bash ibus/scripts/uninstall.sh` |
-| Fcitx 5 | `bash fcitx5/scripts/install.sh` | `bash fcitx5/scripts/uninstall.sh` |
+| IBus | `bash scripts/install/ibus/install.sh` | `bash scripts/install/ibus/uninstall.sh` |
+| Fcitx 5 | `bash scripts/install/fcitx5/install.sh` | `bash scripts/install/fcitx5/uninstall.sh` |
 
 CLI 是兼容入口，不再是普通桌面用户的首选安装方式。
 
