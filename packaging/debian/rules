@@ -19,5 +19,7 @@ override_dh_auto_install:
 		--require-streaming-bundle
 override_dh_auto_test:
 	ctest --test-dir build/debian-$(PACKAGE_FLAVOR)/desktop --output-on-failure || true
+override_dh_dwz:
+	dh_dwz -X/vocotype/
 override_dh_strip:
 	dh_strip -X/vocotype/

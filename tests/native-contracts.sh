@@ -179,10 +179,20 @@ fi
 if rg -Fq 'core_system=' native/streaming_worker/audit_bundle.sh; then
   fail "portable worker audit still has Core-specific system dependencies"
 fi
+rg -Fq 'strip --strip-unneeded "$private_dir/vocotype-core"' \
+  packaging/tools/stage-system-package.sh || \
+  fail "package staging checksums an unstripped target-distribution Core"
+rg -Fq 'override_dh_dwz:' packaging/debian/rules || \
+  fail "Debian packaging may rewrite the checksummed private runtime"
 for workflow in .github/workflows/ci.yml .github/workflows/release.yml; do
-  rg -Fq "rpm -qp --qf '%{NAME}'" "$workflow" || \
-    fail "$workflow selects RPMs by fragile filenames"
+  rg -Fq 'packaging/tools/find-rpm-package.sh' "$workflow" || \
+    fail "$workflow does not reuse the RPM metadata lookup helper"
+  if rg -Fq "rpm -qp --qf '%{NAME}'" "$workflow"; then
+    fail "$workflow duplicates RPM metadata lookup logic"
+  fi
 done
+test -x packaging/tools/find-rpm-package.sh || \
+  fail "RPM metadata lookup helper is missing or not executable"
 
 # Package smoke tests must support both conventional /usr/libexec and the
 # Arch /usr/lib/vocotype helper layout.

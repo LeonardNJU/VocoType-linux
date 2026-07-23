@@ -127,6 +127,9 @@ elif [[ -x "$streaming_bundle/bin/vocotype-streaming-worker" && \
   private_dir="$DESTDIR$runtime_libdir"
   mkdir -p "$private_dir" "$DESTDIR$LIBEXECDIR"
   install -m755 "$CORE_BUILD/vocotype-core" "$private_dir/vocotype-core"
+  if command -v strip >/dev/null 2>&1; then
+    strip --strip-unneeded "$private_dir/vocotype-core"
+  fi
   for worker in vocotype-streaming-worker vocotype-offline-worker; do
     install -m755 "$streaming_bundle/bin/$worker" "$private_dir/$worker"
   done

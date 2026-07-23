@@ -184,14 +184,7 @@ jobs:
           . packaging/tools/package-common.sh
           for flavor in universal ibus fcitx5; do
             package_name=$(vocotype_flavor_field "$flavor" package_name)
-            package=
-            for candidate in dist/packages/*.x86_64.rpm; do
-              test -f "$candidate" || continue
-              test "$(rpm -qp --qf '%{NAME}' "$candidate")" = "$package_name" || continue
-              package=$candidate
-              break
-            done
-            test -n "$package"
+            package=$(packaging/tools/find-rpm-package.sh dist/packages "$package_name")
             packaging/tests/audit-built-package.sh "$package" "${{ needs.validate-version.outputs.version }}" "$flavor"
             dnf install -y "$package"
             packaging/tests/smoke-installed-package.sh "${{ needs.validate-version.outputs.version }}" "$flavor"
