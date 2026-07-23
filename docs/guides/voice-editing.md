@@ -1,6 +1,6 @@
 # 语音编辑：能力、兼容性与局限
 
-`Ctrl+F9` 语音编辑会先读取当前输入框提供的上下文，再识别编辑指令。所有自然语言理解都交给已配置并测活的 SLM：模型结合全文、光标、选区和 ASR 可能产生的同音词错误，返回受限 JSON 编辑计划；IBus 与 Fcitx 5 的本地适配器只负责校验并执行 `replace`、`key_actions` 或 `no_op`。两者的主要差异来自应用向输入法框架暴露上下文的方式。
+语音编辑动作默认使用 `Ctrl+F9`，也可以在设置中心重新录制。触发后会先读取当前输入框提供的上下文，再识别编辑指令。所有自然语言理解都交给已配置并测活的 SLM：模型结合全文、光标、选区和 ASR 可能产生的同音词错误，返回受限 JSON 编辑计划；IBus 与 Fcitx 5 的本地适配器只负责校验并执行 `replace`、`key_actions` 或 `no_op`。两者的主要差异来自应用向输入法框架暴露上下文的方式。
 
 ## 什么是 surrounding text
 
@@ -25,7 +25,7 @@
 
 这使模型能够根据上下文把 ASR 的同音目标映射到正文中真正存在的词。例如指令里识别成近音词时，模型仍可从当前句定位用户想替换的术语。模型输出不会被直接执行：本地校验器会拒绝未知模式、非法按键、非法修饰键、过多动作和非字符串替换文本，并把可选的 `null` 字段规范化为空字符串。
 
-`Ctrl+F9` 因而要求 AI 功能处于已测活状态。配置的 OpenAI-compatible API 会收到 ASR 指令和当前控件提供的 surrounding text、光标与选区；端点可以位于本机或远端。若不希望这些内容离开设备，应自行在本机运行兼容服务，或不要启用语音编辑。
+语音编辑因而要求 AI 功能处于已测活状态。配置的 OpenAI-compatible API 会收到 ASR 指令和当前控件提供的 surrounding text、光标与选区；端点可以位于本机或远端。若不希望这些内容离开设备，应自行在本机运行兼容服务，或不要启用语音编辑。
 
 ## VoCoType 的安全边界
 
@@ -59,7 +59,7 @@ IBus 引擎可以声明自己需要 surrounding text，并从应用收到文本�
 4. **删除能力可能不完整**：应用即使提供文本，也可能拒绝或部分执行 delete-surrounding 请求。
 5. **结果式界面**：IBus 当前以阶段状态和最终结果为主，不提供 Fcitx 5 普通润色使用的逐 token 流式预览。
 
-可使用 `Ctrl+Shift+F9` surrounding-text 探针查看当前应用实际提供的能力、文本范围、光标和选区。
+可使用固定的 `Ctrl+Shift+F9` surrounding-text 探针查看当前应用实际提供的能力、文本范围、光标和选区。
 
 IBus 的官方接口也明确使用 `text + cursor_pos + anchor_pos` 表示 surrounding text 与选区；当 anchor 与 cursor 相同时，可能表示没有选区，也可能表示客户端不支持返回选区。参见 [IBusEngine API](https://ibus.github.io/docs/ibus-1.5/IBusEngine.html)。
 
@@ -84,7 +84,7 @@ GTK 官方文档明确说明：控件可响应 `retrieve-surrounding` 并提供�
 
 Chrome 使用 Chromium；Electron 也基于 Chromium，因此 VSCode 等 Electron 应用在 X11 下继承这一限制。它们可以正常接收输入法提交的文字，但不会通过该桥接层把编辑器正文、光标和选区可靠交给 Fcitx。
 
-因此，当前不保证以下位置的 `Ctrl+F9` 语音编辑：
+因此，当前不保证以下位置的语音编辑（默认 `Ctrl+F9`）：
 
 - Chrome/Chromium 网页输入框和地址栏；
 - VSCode 编辑器；
@@ -131,4 +131,4 @@ VoCoType 不会因为应用兼容性不足而修改未知文本：
 - AI 返回非 JSON、非法模式、`null` 替换文本或越权按键：拒绝计划并保留原文；
 - AI 编辑超过 30 秒：终止等待并提示超时。
 
-普通 `F9` 语音输入不依赖 surrounding text，因此即使 `Ctrl+F9` 编辑不可用，应用通常仍可使用普通语音输入。
+普通语音输入不依赖 surrounding text，因此即使语音编辑不可用，应用通常仍可使用普通识别快捷键。

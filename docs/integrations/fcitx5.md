@@ -1,26 +1,27 @@
 # Fcitx 5 集成
 
-VoCoType 在 Fcitx 5 中是一个**全局 Module**，不是需要切换到的独立输入法。你可以继续使用原有的 Rime、拼音、Mozc 或键盘布局，直接按 `F9` 调用语音输入。
+VoCoType 在 Fcitx 5 中是一个**全局 Module**，不是需要切换到的独立输入法。你可以继续使用原有的 Rime、拼音、Mozc 或键盘布局，通过已配置的语音快捷键调用 VoCoType；普通识别默认是 `F9`。
 
 ## 安装后如何使用
 
 1. 在 **VoCoType 设置** 中安装 / 修复 Fcitx 5 集成；
 2. 重启 Fcitx 5，或注销后重新登录；
 3. 保持当前常用输入法不变；
-4. 在任意输入框中按住 `F9` 录音，松开后识别并提交。
+4. 在任意输入框中按住普通识别快捷键录音，松开后识别并提交。
 
-!!! warning "不要把 VoCoType 添加到输入法列表"
-    当前架构使用 `Category=Module` 全局插件。旧教程中“添加 VoCoType 输入法”的做法已经过时。
+> **注意：不要把 VoCoType 添加到输入法列表。** 当前架构使用 `Category=Module` 全局插件。旧教程中“添加 VoCoType 输入法”的做法已经过时。
 
-## 快捷键
+## 默认快捷键
 
-| 快捷键 | 功能 |
+| 动作 | 默认快捷键 |
 |---|---|
-| `F9` | 本地 ASR，完成后提交文字 |
-| `Shift+F9` | ASR 后执行可选 AI 润色，并显示流式预览 |
-| `Ctrl+F9` | 在应用提供 surrounding text 时执行语音编辑 |
+| 普通识别 | `F9` |
+| AI 润色 | `Shift+F9` |
+| 语音编辑 | `Ctrl+F9` |
 
-当当前输入法仍有未提交的 preedit 或候选列表时，VoCoType 默认不会开始录音，以免破坏正在进行的拼音组合。
+三个动作都可以在 **VoCoType 设置 → 通用设置 → 语音快捷键** 中独立录制。Fcitx Module 使用保存后的按键，不要求主键仍然是 F9。
+
+当前输入法仍有未提交的 preedit 或候选列表时，VoCoType 默认不会开始录音，以免破坏正在进行的拼音组合。
 
 ## 与现有输入法共存
 
@@ -34,16 +35,16 @@ Fcitx 5 Module 不代理普通按键，也不创建自己的 Rime session。因�
 
 优先在 **VoCoType 设置 → 诊断** 中运行 Doctor。针对插件路径、用户服务和 IPC 问题，可继续阅读：
 
-- [Fcitx 5 路径与服务](../troubleshooting/fcitx5-paths.md)
-- [休眠恢复](../troubleshooting/hibernate.md)
+- [Fcitx 5 路径与诊断](../troubleshooting/fcitx5-paths.md)
+- [休眠或唤醒后的恢复](../troubleshooting/hibernate.md)
 - [常见问题](../troubleshooting/faq.md)
 
-更完整的实现参数与开发说明仍保留在仓库的 [Fcitx 5 技术文档](https://github.com/LeonardNJU/VocoType-linux/blob/master/fcitx5/README.md)。
+更完整的实现参数与开发说明保留在仓库的 [Fcitx 5 技术文档](https://github.com/LeonardNJU/VocoType-linux/blob/master/fcitx5/README.md)。
 
 ## 语音编辑兼容性
 
-Fcitx 5 与 IBus 共用 `Ctrl+F9` 的 SLM 编辑计划和本地安全执行器。Module 只使用 Fcitx 正式的 surrounding-text capability、文本快照和删除接口；AI 未启用或应用不提供上下文时会安全拒绝。
+Fcitx 5 与 IBus 共用语音编辑的 SLM 计划和本地安全执行器；默认编辑快捷键为 `Ctrl+F9`。Module 只使用 Fcitx 正式的 surrounding-text capability、文本快照和删除接口；AI 未启用或应用不提供上下文时会安全拒绝。
 
-标准 GTK/Qt 控件通常可以使用。Chrome、Chromium、Electron 和 VSCode 的 X11 输入法桥目前不提供 surrounding text，因此这些应用中的语音编辑不受支持；普通 `F9` 语音输入不受影响。
+标准 GTK/Qt 控件通常可以使用。Chrome、Chromium、Electron 和 VSCode 的 X11 输入法桥目前不提供 surrounding text，因此这些应用中的语音编辑不受支持；普通语音输入不受影响。
 
 完整原因、能力矩阵和 Wayland 边界见 [语音编辑兼容性与局限](../guides/voice-editing.md)。

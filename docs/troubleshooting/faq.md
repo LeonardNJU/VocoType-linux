@@ -1,49 +1,38 @@
 # FAQ
 
-## F9 does nothing
+## 语音快捷键没有反应
 
-Run:
+普通识别默认使用 `F9`，但用户可以重新录制。先在 **VoCoType 设置 → 通用设置 → 语音快捷键** 确认当前组合，再运行：
 
 ```bash
 tools/diagnostics/native-doctor.sh
 ```
 
-Confirm `/tmp/vocotype-fcitx5.sock` is owned by `vocotype-core`, and that no
-VoCoType Python process exists.
+Fcitx 5 用户应确认 `/tmp/vocotype-fcitx5.sock` 由当前用户的 `vocotype-core` 持有，并确认没有旧版 VoCoType Python 进程残留。
 
-## Fcitx has no candidate window
+## Fcitx 没有候选窗口或状态提示
 
-Check the Fcitx process environment:
+检查 Fcitx 进程环境：
 
 ```bash
 pid=$(pgrep -x fcitx5 | head -1)
 tr '\0' '\n' < /proc/$pid/environ | grep -E 'DISPLAY|WAYLAND_DISPLAY'
 ```
 
-If neither variable exists, restart Fcitx through the desktop autostart unit,
-not from SSH or a headless service.
+两项都不存在时，应通过桌面会话重新启动 Fcitx，而不是从 SSH 或无图形服务中启动。
 
-## Ctrl+F9 deletes text but does not insert the replacement
+## 语音编辑删除了文字但没有插入替换内容
 
-Current native versions validate the surrounding snapshot first, then issue
-`deleteSurroundingText` and `commitString` in the same input-method transaction.
-They do not use a delayed surrounding-text cache as deletion acknowledgement.
-Reinstall the latest Fcitx module if this old failure still occurs.
+当前原生版本会先验证 surrounding snapshot，再在同一次输入法事务中调用删除接口和正常文本提交接口，不再把延迟更新的 surrounding-text 缓存当作删除确认。若仍出现旧故障，请重新安装最新 Fcitx Module，并在设置中心运行 Doctor。
 
-## How do I choose a microphone or speaker?
+## 如何选择麦克风或扬声器？
 
-Open **VoCoType Settings → Recognition** for the input device and **Playground**
-for the playback output. Recording, waveform display, playback, and resampling
-all use native PortAudio code.
+在 **VoCoType 设置 → 通用设置** 选择输入设备，在 **Playground** 选择回放设备。录音、波形显示、回放和重采样都使用原生 PortAudio 实现。
 
-## How do I verify models?
+## 如何校验模型？
 
-Use **VoCoType Settings → Overview → Validate and download models**. The native
-model manager pins every required file to an immutable ModelScope revision and
-checks SHA-256 before accepting it.
+使用 **VoCoType 设置 → 概览与安装 → 校验并下载模型**。原生模型管理器固定每个文件的 ModelScope revision，并在接受前检查 SHA-256。
 
-## How do I collect diagnostics?
+## 如何收集诊断信息？
 
-Open **Doctor and Support** in the compiled settings center. It can verify ELF
-integrity, create a redacted support archive, open the support directory, and
-create a GitHub issue.
+打开 **VoCoType 设置 → 诊断**。该页可验证 ELF 完整性、创建脱敏支持包、打开支持目录并创建 GitHub Issue。

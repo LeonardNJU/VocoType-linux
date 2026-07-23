@@ -155,7 +155,14 @@ std::vector<std::string> table_cells(std::string line) {
   return result;
 }
 
-std::string markdown_to_html(const std::string &markdown) {
+bool safe_code_language(std::string_view language) {
+  return std::all_of(language.begin(), language.end(), [](unsigned char ch) {
+    return std::isalnum(ch) != 0 || ch == '-' || ch == '_' || ch == '+';
+  });
+}
+
+std::string markdown_to_html(const std::string &markdown,
+                             const fs::path &source) {
   std::vector<std::string> lines;
   std::istringstream input(markdown);
   std::string line;
@@ -164,6 +171,7 @@ std::string markdown_to_html(const std::string &markdown) {
 
   std::ostringstream output;
   bool code = false;
+  std::size_t code_indent = 0;
   bool unordered = false;
   bool ordered = false;
   bool paragraph = false;
@@ -186,21 +194,45 @@ std::string markdown_to_html(const std::string &markdown) {
 
   for (std::size_t index = 0; index < lines.size(); ++index) {
     line = lines[index];
-    if (line.rfind("```", 0) == 0) {
+    const std::string stripped = trim(line);
+    if (stripped.rfind("```", 0) == 0) {
       close_paragraph();
       close_lists();
       if (!code) {
-        output << "<pre><code>";
+        code_indent = line.find_first_not_of(' ');
+        if (code_indent == std::string::npos)
+          code_indent = 0;
+        const std::string language = trim(stripped.substr(3));
+        if (!language.empty() && !safe_code_language(language)) {
+          throw std::runtime_error(source.string() + ":" +
+                                   std::to_string(index + 1U) +
+                                   ": invalid fenced-code language");
+        }
+        output << "<pre><code";
+        if (!language.empty())
+          output << " class=\"language-" << language << "\"";
+        output << ">";
         code = true;
       } else {
         output << "</code></pre>\n";
         code = false;
+        code_indent = 0;
       }
       continue;
     }
     if (code) {
-      output << escape_html(line) << '\n';
+      std::size_t remove = 0;
+      while (remove < code_indent && remove < line.size() &&
+             line[remove] == ' ')
+        ++remove;
+      output << escape_html(std::string_view(line).substr(remove)) << '\n';
       continue;
+    }
+    if (stripped.rfind("=== ", 0) == 0 || stripped.rfind("!!! ", 0) == 0 ||
+        stripped.rfind("??? ", 0) == 0 || stripped.rfind("::: ", 0) == 0) {
+      throw std::runtime_error(source.string() + ":" +
+                               std::to_string(index + 1U) +
+                               ": unsupported Markdown extension");
     }
     if (index + 1U < lines.size() && line.find('|') != std::string::npos &&
         table_separator(lines[index + 1U])) {
@@ -225,7 +257,6 @@ std::string markdown_to_html(const std::string &markdown) {
         --index;
       continue;
     }
-    const std::string stripped = trim(line);
     if (stripped.empty()) {
       close_paragraph();
       close_lists();
@@ -240,13 +271,6 @@ std::string markdown_to_html(const std::string &markdown) {
     if (stripped.starts_with("<div") || stripped == "</div>" ||
         stripped.starts_with("<!--"))
       continue;
-    if (stripped.rfind("!!! ", 0) == 0) {
-      close_paragraph();
-      close_lists();
-      output << "<aside><strong>" << inline_markup(stripped.substr(4))
-             << "</strong></aside>\n";
-      continue;
-    }
     std::size_t heading = 0;
     while (heading < stripped.size() && stripped[heading] == '#')
       ++heading;
@@ -298,14 +322,16 @@ std::string markdown_to_html(const std::string &markdown) {
     if (!paragraph) {
       output << "<p>";
       paragraph = true;
-    } else
+    } else {
       output << ' ';
+    }
     output << inline_markup(stripped);
   }
   close_paragraph();
   close_lists();
-  if (code)
-    output << "</code></pre>\n";
+  if (code) {
+    throw std::runtime_error(source.string() + ": unclosed fenced code block");
+  }
   return output.str();
 }
 
@@ -315,6 +341,33 @@ struct Document {
   fs::path output;
   std::string title;
 };
+
+void validate_markdown_links(const Document &document,
+                             const std::string &markdown) {
+  const std::regex pattern(R"(\[[^\]]+\]\(([^)]+)\))");
+  for (std::sregex_iterator iterator(markdown.begin(), markdown.end(), pattern),
+       end;
+       iterator != end; ++iterator) {
+    std::string target = (*iterator)[1].str();
+    if (target.empty() || target.front() == '#' || target.front() == '/' ||
+        std::regex_search(target, std::regex(R"(^[A-Za-z][A-Za-z0-9+.-]*:)")))
+      continue;
+    const std::size_t hash = target.find('#');
+    if (hash != std::string::npos)
+      target.erase(hash);
+    const std::size_t query = target.find('?');
+    if (query != std::string::npos)
+      target.erase(query);
+    if (target.empty())
+      continue;
+    const fs::path resolved =
+        (document.source.parent_path() / target).lexically_normal();
+    if (!fs::exists(resolved)) {
+      throw std::runtime_error(document.source.string() +
+                               ": broken relative link: " + target);
+    }
+  }
+}
 
 std::string navigation(const std::vector<Document> &documents,
                        const fs::path &current_output) {
@@ -373,6 +426,8 @@ std::string page_html(const Document &document, const std::string &markdown,
          "border-radius:.7rem;"
          "background:var(--card);border:1px solid "
          "var(--border)}code{font-family:ui-monospace,monospace}"
+         "pre code{display:block;white-space:pre;min-width:max-content;"
+         "font-size:.92rem;line-height:1.55;tab-size:2}"
          "p code,li code{padding:.12rem "
          ".3rem;background:var(--card);border-radius:.3rem}"
          "table{border-collapse:collapse;width:100%;overflow:auto;display:"
@@ -384,7 +439,7 @@ std::string page_html(const Document &document, const std::string &markdown,
          "1rem;background:var(--card)}footer{color:var(--muted);"
          "border-top:1px solid var(--border);padding-top:1rem;margin-top:3rem}"
       << "</style></head><body>" << navigation(documents, document.output)
-      << "<main>" << markdown_to_html(markdown)
+      << "<main>" << markdown_to_html(markdown, document.source)
       << "<footer>Generated by the compiled VoCoType documentation builder. "
          "Source: <a "
          "href=\"https://github.com/LeonardNJU/VocoType-linux/tree/master/"
@@ -426,6 +481,7 @@ int main(int argc, char **argv) {
               });
     for (const auto &document : documents) {
       const std::string markdown = read_text(document.source);
+      validate_markdown_links(document, markdown);
       write_text(output / document.output,
                  page_html(document, markdown, documents));
     }

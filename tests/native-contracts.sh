@@ -171,6 +171,45 @@ if rg -n 'setup-python|mkdocs|requirements-docs|pip install' \
   fail "Python documentation build dependency remains"
 fi
 
+# Documentation must use the compiled renderer's supported Markdown subset and
+# stay synchronized with the configurable-shortcut/native-Rime architecture.
+for token in \
+  'unsupported Markdown extension' \
+  'unclosed fenced code block' \
+  'validate_markdown_links' \
+  'class=\"language-' \
+  'pre code{display:block;white-space:pre'; do
+  rg -Fq "$token" tools/docs_builder.cpp || \
+    fail "compiled documentation renderer is missing: $token"
+done
+for token in \
+  'Static documentation leaked unrendered Markdown syntax' \
+  'vocotype-linux-fcitx5_*.deb' \
+  'vocotype-linux-fcitx5-*.rpm' \
+  'vocotype-linux-fcitx5-*.pkg.tar.zst'; do
+  rg -Fq "$token" tools/build-static-site.sh || \
+    fail "static documentation build gate is missing: $token"
+done
+if rg -n '^(=== |!!! |\?\?\? |:::[[:space:]])' docs; then
+  fail "unsupported Markdown extension remains in documentation sources"
+fi
+for stale in \
+  '由 yaml-cpp 验证' \
+  '通过项目内 `ctypes` 适配层' \
+  '修复版本**: 2.1.3（计划）' \
+  'Recognition → IBus Rime schema'; do
+  if rg -Fq "$stale" docs; then
+    fail "stale documentation remains: $stale"
+  fi
+done
+for token in \
+  '只安装其中一种' \
+  '三个动作都可以在 **VoCoType 设置 → 通用设置 → 语音快捷键** 中独立录制' \
+  '不存在 Python binding 或 `ctypes` 适配层' \
+  'Core 与设置中心共用的原生解析器'; do
+  rg -Fq "$token" docs || fail "current product documentation is missing: $token"
+done
+
 # Package and source installations must compile the Core against the target
 # distribution instead of reusing a portable libcurl-linked Core.
 for lifecycle in packaging/tools/stage-system-package.sh installers/install-native-user.sh; do

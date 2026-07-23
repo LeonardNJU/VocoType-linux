@@ -7,8 +7,9 @@ VoCoType's IBus engine links directly to the system `librime` C API through
 - VoCoType user data: `~/.config/vocotype/rime`
 - Selected schema: `previously_selected_schema` in `~/.config/vocotype/rime/user.yaml`
 
-The schema can be changed in **VoCoType Settings → Recognition → IBus Rime
-schema**. Deploy or repair data with:
+The schema can be changed in **VoCoType Settings → General → IBus: Rime
+input scheme**. The row is shown only when IBus is selected as the lifecycle
+framework. Deploy or repair data with:
 
 ```bash
 vocotype-ibus-engine --deploy-rime

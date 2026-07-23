@@ -34,17 +34,18 @@ bash ibus/scripts/install.sh --install-system-deps --download-models
 - Fcitx 状态面板的 `minimal` / `animated` 样式；
 - 存在未提交预编辑时是否阻止录音；
 - 提交时是否移除尾部句号；
-- IBus 使用的 Rime schema。
+- 三套可录制的语音快捷键及冲突校验；
+- 当前框架专属的高级选项：Fcitx 组合保护或 IBus Rime schema。
 
 保存后配置写入 `~/.config/vocotype/` 和 `~/.config/fcitx5/conf/vocotype.conf`。
 
 ## ITN 与术语
 
-ITN 页直接调用 C++ core 预览数字、日期、时间、距离和金额格式。术语页编辑 `~/.config/vocotype/terms.yaml`，保存前由 yaml-cpp 验证；术语同时参与热词、alias canonicalization 与后续格式保护。
+ITN 页直接调用 C++ core 预览数字、日期、时间、距离和金额格式。术语页编辑 `~/.config/vocotype/terms.yaml`，保存前使用 Core 与设置中心共用的原生解析器验证；术语同时参与热词、alias canonicalization 与后续格式保护。
 
 ## AI 润色与语音编辑
 
-AI 页配置 OpenAI-compatible endpoint、model、API key、超时、最短字符数、SSE、thinking 与 Ctrl+F9 编辑开关。测试请求由 C++ libcurl/SSE 客户端执行，不启动或管理模型进程。
+AI 页配置 OpenAI-compatible endpoint、model、API key、超时、最短字符数、SSE、thinking 与语音编辑开关。默认编辑快捷键是 `Ctrl+F9`，但可在通用设置中重新录制。测试请求由 C++ libcurl/SSE 客户端执行，不启动或管理模型进程。
 
 ## Playground
 

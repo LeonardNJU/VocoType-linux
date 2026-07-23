@@ -17,7 +17,7 @@ VoCoType Linux 的完整使用手册。这里集中维护安装、图形配置�
 2. [图形设置中心](guides/settings-center.md)
 3. 根据桌面环境阅读 [Fcitx 5](integrations/fcitx5.md) 或 [IBus](integrations/ibus.md)
 4. 按需配置 [术语库](guides/terms.md)、[ITN](guides/itn.md)、[实时识别预览](guides/asr-streaming.md) 与 [AI 润色](guides/slm-streaming.md)
-5. 使用 `Ctrl+F9` 前阅读 [语音编辑兼容性与局限](guides/voice-editing.md)
+5. 使用语音编辑（默认 `Ctrl+F9`）前阅读 [语音编辑兼容性与局限](guides/voice-editing.md)
 
 ## 文档与代码同步
 

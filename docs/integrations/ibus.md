@@ -6,17 +6,19 @@ VoCoType 在 IBus 中作为独立输入法引擎运行，适合 GNOME 和默认�
 
 1. 在 **VoCoType 设置** 中安装 / 修复 IBus 集成；
 2. 在系统输入源中添加或选择 VoCoType；
-3. 在任意输入框中按住 `F9` 录音；
-4. 需要修改已有文字时，按住 `Ctrl+F9` 说出编辑命令。
+3. 在任意输入框中按住普通识别快捷键录音，默认是 `F9`；
+4. 需要修改已有文字时，按住语音编辑快捷键说出编辑命令，默认是 `Ctrl+F9`。
 
-## 快捷键
+## 默认快捷键
 
-| 快捷键 | 功能 |
+| 动作 | 默认快捷键 |
 |---|---|
-| `F9` | 本地 ASR，完成后提交文字 |
-| `Shift+F9` | ASR 后执行可选 AI 润色 |
-| `Ctrl+F9` | 读取 surrounding text 并执行语音编辑 |
-| `Ctrl+Shift+F9` | surrounding-text 兼容性诊断探针 |
+| 普通识别 | `F9` |
+| AI 润色 | `Shift+F9` |
+| 语音编辑 | `Ctrl+F9` |
+| surrounding-text 诊断探针 | `Ctrl+Shift+F9` |
+
+前三个动作可以在 **VoCoType 设置 → 通用设置 → 语音快捷键** 中独立录制；诊断探针保持固定组合。
 
 ## 语音编辑示例
 
@@ -32,7 +34,7 @@ VoCoType 在 IBus 中作为独立输入法引擎运行，适合 GNOME 和默认�
 
 ## Rime
 
-需要拼音输入时，VoCoType IBus 会通过项目内 `ctypes` 适配层直接调用系统 `librime`，普通键盘输入与 F9 语音输入共存。配置使用独立的 `~/.config/vocotype/rime`，不会修改其他 IBus 输入法。详见 [Rime 配置](../guides/rime.md)。
+需要拼音输入时，VoCoType IBus 的原生 C++ engine 通过 `rime_get_api()` 直接调用系统 `librime`。不存在 Python binding 或 `ctypes` 适配层。普通键盘输入与语音快捷键共存，配置使用独立的 `~/.config/vocotype/rime`，不会修改其他 IBus 输入法。详见 [Rime 配置](../guides/rime.md)。
 
 ## 诊断
 
