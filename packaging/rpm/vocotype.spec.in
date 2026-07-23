@@ -1,5 +1,9 @@
 %global debug_package %{nil}
 %global __strip /bin/true
+# Fedora's libcurl-full exports CURL_OPENSSL_4 in the ELF but its RPM metadata
+# intentionally provides only the libcurl.so.4 SONAME. Filter that one
+# unsatisfiable auto-require and keep an explicit libcurl-full dependency.
+%global __requires_exclude ^libcurl\.so\.4\(CURL_OPENSSL_4\)\(64bit\)$
 
 Name:           @PACKAGE_NAME@
 Version:        @VERSION@

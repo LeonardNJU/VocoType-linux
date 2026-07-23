@@ -26,7 +26,7 @@ escape_sed() { printf '%s' "$1" | sed -e 's/[&|\\]/\\&/g'; }
 
 case "$FORMAT" in
   debian)
-    build=("debhelper-compat (= 13)" cmake g++ pkg-config libportaudio2-dev libgtk-3-dev libyaml-cpp-dev libcurl4-openssl-dev libssl-dev nlohmann-json3-dev)
+    build=("debhelper-compat (= 13)" cmake g++ pkg-config portaudio19-dev libgtk-3-dev libyaml-cpp-dev libcurl4-openssl-dev libssl-dev nlohmann-json3-dev)
     depends=('${shlibs:Depends}' '${misc:Depends}' libgtk-3-0 libportaudio2)
     [[ "$INCLUDES_IBUS" == true ]] && { build+=(libibus-1.0-dev librime-dev); depends+=(ibus librime1 librime-data rime-data-luna-pinyin); }
     [[ "$INCLUDES_FCITX" == true ]] && { build+=(libfcitx5core-dev); depends+=(fcitx5); }
@@ -50,8 +50,8 @@ case "$FORMAT" in
       'BuildRequires:  yaml-cpp-devel' 'BuildRequires:  libcurl-devel'
       'BuildRequires:  openssl-devel' 'BuildRequires:  nlohmann-json-devel'
     )
-    requires=('Requires:       gtk3' 'Requires:       portaudio' 'Requires:       yaml-cpp')
-    files=('%{_libexecdir}/vocotype-audio-recorder' '%{_libexecdir}/vocotype-model-manager')
+    requires=('Requires:       gtk3' 'Requires:       portaudio' 'Requires:       yaml-cpp' 'Requires:       libcurl-full')
+    files=()
     if [[ "$INCLUDES_IBUS" == true ]]; then
       build+=('BuildRequires:  ibus-devel' 'BuildRequires:  librime-devel')
       requires+=('Requires:       ibus' 'Requires:       librime' 'Requires:       brise')

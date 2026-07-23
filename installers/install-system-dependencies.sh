@@ -7,7 +7,7 @@ case "$ACTION" in fcitx5|fcitx5-source|ibus|ibus-rime|universal) ;; *) echo "Usa
 . /etc/os-release
 keys=" ${ID:-} ${ID_LIKE:-} "
 manager=""
-common_deb=(build-essential cmake pkg-config libportaudio2-dev libgtk-3-dev libyaml-cpp-dev libcurl4-openssl-dev libssl-dev nlohmann-json3-dev)
+common_deb=(build-essential cmake pkg-config portaudio19-dev libgtk-3-dev libyaml-cpp-dev libcurl4-openssl-dev libssl-dev nlohmann-json3-dev)
 common_rpm=(gcc-c++ make cmake pkgconf-pkg-config portaudio-devel gtk3-devel yaml-cpp-devel libcurl-devel openssl-devel nlohmann-json-devel)
 common_arch=(base-devel cmake pkgconf portaudio gtk3 yaml-cpp curl openssl nlohmann-json)
 packages=()

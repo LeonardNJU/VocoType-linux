@@ -156,11 +156,28 @@ fi
 
 # Package smoke tests must support both conventional /usr/libexec and the
 # Arch /usr/lib/vocotype helper layout.
-for package_test in   packaging/tests/audit-built-package.sh   packaging/tests/smoke-installed-package.sh; do
+for package_test in   packaging/tests/audit-built-package.sh   packaging/tests/smoke-installed-package.sh   packaging/tests/smoke-binary-runtime.sh; do
   rg -Fq '/usr/libexec/' "$package_test" ||     fail "$package_test does not support the standard libexec layout"
   rg -Fq '/usr/lib/vocotype/' "$package_test" ||     fail "$package_test does not support the Arch helper layout"
 done
 rg -Fq '/usr/lib64/vocotype' packaging/tests/smoke-removed-package.sh ||   fail "package removal smoke does not check private runtime cleanup"
+
+# Fedora's libcurl package exposes the OpenSSL symbol version in ELF but not
+# as an RPM provide. The spec must filter only that generated requirement and
+# retain an explicit dependency on the full libcurl implementation.
+rg -Fq '__requires_exclude ^libcurl\.so\.4\(CURL_OPENSSL_4\)\(64bit\)$'   packaging/rpm/vocotype.spec.in ||   fail "RPM spec does not filter Fedora's unsatisfiable CURL_OPENSSL_4 auto-require"
+rg -Fq "'Requires:       libcurl-full'" packaging/tools/render-package-metadata.sh ||   fail "RPM metadata does not require Fedora libcurl-full"
+if rg -Fq "files=('%{_libexecdir}/vocotype-audio-recorder'"     packaging/tools/render-package-metadata.sh; then
+  fail "RPM flavor file list duplicates common native helpers"
+fi
+
+# Debian and Ubuntu name the PortAudio development package portaudio19-dev.
+for metadata_source in packaging/tools/render-package-metadata.sh installers/install-system-dependencies.sh; do
+  rg -Fq 'portaudio19-dev' "$metadata_source" ||     fail "$metadata_source does not use the Debian PortAudio development package"
+  if rg -Fq 'libportaudio2-dev' "$metadata_source"; then
+    fail "$metadata_source uses the nonexistent libportaudio2-dev package"
+  fi
+done
 
 # Ubuntu 22.04 ships nlohmann-json 3.10.5 and is a supported build target.
 for cmake_file in native/core/CMakeLists.txt native/desktop/CMakeLists.txt feedback_service/CMakeLists.txt; do
