@@ -21,20 +21,30 @@ runtime_executable() {
 case "$package" in
   *.deb)
     expected_manager=apt
+    package_dependencies=$(dpkg-deb -f "$package" Depends)
     dpkg-deb -x "$package" "$work/root"
     ;;
   *.rpm)
     expected_manager=dnf
+    package_dependencies=$(rpm -qp --requires "$package")
     mkdir -p "$work/root"
     (cd "$work/root" && rpm2cpio "$package" | cpio -idm --quiet)
     ;;
   *.pkg.tar.*)
     expected_manager=pacman
+    package_dependencies=$(bsdtar -xOf "$package" .PKGINFO | sed -n 's/^depend = //p')
     mkdir -p "$work/root"
     bsdtar -xf "$package" -C "$work/root"
     ;;
   *) echo "unsupported package archive" >&2; exit 2 ;;
 esac
+
+if grep -Eqi '(^|[^[:alnum:]-])lib?yaml-cpp([0-9.-]|$)' <<<"$package_dependencies"; then
+  echo "package metadata depends on distribution yaml-cpp ABI" >&2
+  printf '%s
+' "$package_dependencies" >&2
+  exit 1
+fi
 
 marker="$work/root/usr/share/vocotype/.system-package"
 test -f "$marker"
@@ -68,7 +78,12 @@ for executable in vocotype-core vocotype-streaming-worker vocotype-offline-worke
   test -x "$native_dir/$executable"
 done
 
-file "$work/root/usr/bin/vocotype-settings" | grep -q ELF
+settings="$work/root/usr/bin/vocotype-settings"
+file "$settings" | grep -q ELF
+if readelf -d "$settings" | grep -Fq 'libyaml-cpp'; then
+  echo "settings center depends on distribution yaml-cpp ABI" >&2
+  exit 1
+fi
 for executable in vocotype-audio-recorder vocotype-model-manager; do
   resolved=$(runtime_executable "$executable")
   file "$resolved" | grep -q ELF

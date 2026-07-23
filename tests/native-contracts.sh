@@ -256,6 +256,34 @@ for metadata_source in packaging/tools/render-package-metadata.sh installers/ins
   fi
 done
 
+# Settings and package metadata must not bind to a distribution-specific
+# yaml-cpp SONAME. Ubuntu 22.04 builds libyaml-cpp.so.0.7, while newer Ubuntu
+# releases may remove that runtime package. Core and settings share one native
+# parser instead.
+for path in \
+  native/common/include/vocotype/common/terms_yaml.hpp \
+  native/common/src/terms_yaml.cpp; do
+  test -f "$path" || fail "shared terms parser is missing: $path"
+done
+for token in 'parse_terms_yaml_content(content)' 'parse_rime_schema_metadata'; do
+  rg -Fq "$token" native/desktop/src/settings_main.cpp || \
+    fail "settings does not use the shared YAML parser: $token"
+done
+for path in \
+  native/desktop/CMakeLists.txt native/desktop/src/settings_main.cpp \
+  packaging/tools/render-package-metadata.sh nix/package.nix \
+  .github/workflows/ci.yml .github/workflows/release.yml; do
+  if rg -Fq 'yaml-cpp' "$path"; then
+    fail "distribution yaml-cpp dependency remains in $path"
+  fi
+done
+for token in \
+  'package metadata depends on distribution yaml-cpp ABI' \
+  'settings center depends on distribution yaml-cpp ABI'; do
+  rg -Fq "$token" packaging/tests/audit-built-package.sh || \
+    fail "built-package audit is missing yaml-cpp regression: $token"
+done
+
 # Ubuntu 22.04 ships GLib 2.72, before G_APPLICATION_DEFAULT_FLAGS was
 # introduced. The native settings app must retain the older zero-flags path.
 rg -Fq 'GLIB_CHECK_VERSION(2, 74, 0)' native/desktop/src/settings_main.cpp ||   fail "native settings does not gate newer GApplication flags by GLib version"

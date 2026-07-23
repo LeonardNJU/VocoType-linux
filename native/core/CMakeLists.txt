@@ -7,6 +7,7 @@ find_package(CURL REQUIRED)
 find_package(nlohmann_json 3.10 REQUIRED)
 
 add_library(vocotype_core_lib
+    ../common/src/terms_yaml.cpp
     src/config.cpp
     src/dispatcher.cpp
     src/json_line_worker.cpp
@@ -20,7 +21,10 @@ add_library(vocotype_core_lib
     src/voice_edit_tasks.cpp
 )
 
-target_include_directories(vocotype_core_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(vocotype_core_lib PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common/include
+)
 target_compile_features(vocotype_core_lib PUBLIC cxx_std_20)
 target_compile_options(vocotype_core_lib PRIVATE
     -Wall -Wextra -Wpedantic -Wconversion -Wshadow

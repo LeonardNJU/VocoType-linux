@@ -29,6 +29,8 @@ for required in \
   native/desktop/src/model_manager_main.cpp \
   native/desktop/src/hotkey.cpp \
   native/desktop/include/vocotype/desktop/hotkey.hpp \
+  native/common/src/terms_yaml.cpp \
+  native/common/include/vocotype/common/terms_yaml.hpp \
   fcitx5/module/vocotype_module.cpp \
   feedback_service/CMakeLists.txt feedback_service/src/main.cpp \
   installers/install-native-user.sh packaging/tools/stage-system-package.sh \

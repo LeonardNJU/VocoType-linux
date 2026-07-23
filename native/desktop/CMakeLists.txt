@@ -14,12 +14,6 @@ include(GNUInstallDirs)
 find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
 find_package(nlohmann_json 3.10 REQUIRED)
-find_package(yaml-cpp REQUIRED)
-if(TARGET yaml-cpp::yaml-cpp)
-  set(VOCOTYPE_YAML_TARGET yaml-cpp::yaml-cpp)
-else()
-  set(VOCOTYPE_YAML_TARGET yaml-cpp)
-endif()
 find_package(CURL REQUIRED)
 find_package(OpenSSL REQUIRED)
 pkg_check_modules(PORTAUDIO REQUIRED IMPORTED_TARGET portaudio-2.0)
@@ -44,6 +38,7 @@ if(VOCOTYPE_BUILD_RIME)
 endif()
 
 add_library(vocotype_desktop_common
+    ../common/src/terms_yaml.cpp
     src/audio.cpp
     src/config.cpp
     src/fcitx_profile.cpp
@@ -51,7 +46,10 @@ add_library(vocotype_desktop_common
     src/recorder_process.cpp
     src/wav.cpp
 )
-target_include_directories(vocotype_desktop_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(vocotype_desktop_common PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common/include
+)
 target_compile_features(vocotype_desktop_common PUBLIC cxx_std_20)
 target_compile_options(vocotype_desktop_common PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 target_link_libraries(vocotype_desktop_common PUBLIC Threads::Threads nlohmann_json::nlohmann_json PkgConfig::PORTAUDIO ${CMAKE_DL_LIBS})
@@ -68,7 +66,7 @@ if(VOCOTYPE_BUILD_SETTINGS)
     src/settings_ui.cpp
   )
   target_compile_definitions(vocotype-settings PRIVATE VOCOTYPE_VERSION="${VOCOTYPE_VERSION}")
-  target_link_libraries(vocotype-settings PRIVATE vocotype_desktop_common vocotype_desktop_hotkey PkgConfig::GTK3 ${VOCOTYPE_YAML_TARGET} CURL::libcurl)
+  target_link_libraries(vocotype-settings PRIVATE vocotype_desktop_common vocotype_desktop_hotkey PkgConfig::GTK3 CURL::libcurl)
   if(TARGET PkgConfig::GDKX11 AND TARGET PkgConfig::X11)
     target_compile_definitions(vocotype-settings PRIVATE VOCOTYPE_HAVE_GDK_X11=1)
     target_link_libraries(vocotype-settings PRIVATE PkgConfig::GDKX11 PkgConfig::X11)

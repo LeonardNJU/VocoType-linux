@@ -1,3 +1,4 @@
+#include "vocotype/common/terms_yaml.hpp"
 #include "vocotype/desktop/audio.hpp"
 #include "vocotype/desktop/fcitx_profile.hpp"
 #include "vocotype/desktop/hotkey.hpp"
@@ -44,6 +45,55 @@ int main() {
   assert(hotkey_safety_error(parse_hotkey("Alt_R")).empty());
   assert(hotkey_safety_error(parse_hotkey("F8")).empty());
   assert(hotkey_safety_error(parse_hotkey("Ctrl+Shift+F8")).empty());
+
+  const auto terms_document =
+      vocotype::common::parse_terms_yaml_content(R"(terms:
+  - canonical: Ghostty
+    aliases:
+      - 鬼斯提
+      - "ghost ty"
+    hotwords:
+      - Ghostty
+    protect: true
+replace:
+  NodeJS:
+    - node js
+protect:
+  - 一百米计划
+)");
+  assert(terms_document.terms.size() == 2);
+  assert(terms_document.terms[0].canonical == "Ghostty");
+  assert(terms_document.terms[0].aliases.size() == 2);
+  assert(terms_document.terms[0].hotwords.size() == 1);
+  assert(terms_document.terms[1].canonical == "NodeJS");
+  assert(terms_document.terms[1].aliases.size() == 1);
+  assert(terms_document.protected_phrases.size() == 1);
+  bool invalid_terms_rejected = false;
+  try {
+    (void)vocotype::common::parse_terms_yaml_content("terms: [");
+  } catch (const std::exception &) {
+    invalid_terms_rejected = true;
+  }
+  assert(invalid_terms_rejected);
+
+  const auto yaml_test_root =
+      std::filesystem::temp_directory_path() /
+      ("vocotype-yaml-test-" + std::to_string(getpid()));
+  std::filesystem::remove_all(yaml_test_root);
+  std::filesystem::create_directories(yaml_test_root);
+  const auto schema_path = yaml_test_root / "rime_frost.schema.yaml";
+  {
+    std::ofstream output(schema_path);
+    output << "schema:\n"
+              "  schema_id: rime_frost_double_pinyin\n"
+              "  name: '白霜拼音 · 双拼' # display label\n";
+  }
+  const auto schema =
+      vocotype::common::parse_rime_schema_metadata(schema_path, "rime_frost");
+  assert(schema.schema_id == "rime_frost_double_pinyin");
+  assert(schema.name == "白霜拼音 · 双拼");
+  std::filesystem::remove_all(yaml_test_root);
+
   const auto path = create_secure_wav_path();
   write_pcm16_wav(path, source, 16000);
   const auto decoded = read_pcm16_wav(path);

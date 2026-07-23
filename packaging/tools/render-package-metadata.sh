@@ -26,7 +26,7 @@ escape_sed() { printf '%s' "$1" | sed -e 's/[&|\\]/\\&/g'; }
 
 case "$FORMAT" in
   debian)
-    build=("debhelper-compat (= 13)" cmake g++ pkg-config portaudio19-dev libgtk-3-dev libyaml-cpp-dev libcurl4-openssl-dev libssl-dev nlohmann-json3-dev)
+    build=("debhelper-compat (= 13)" cmake g++ pkg-config portaudio19-dev libgtk-3-dev libcurl4-openssl-dev libssl-dev nlohmann-json3-dev)
     depends=('${shlibs:Depends}' '${misc:Depends}' libgtk-3-0 libportaudio2)
     [[ "$INCLUDES_IBUS" == true ]] && { build+=(libibus-1.0-dev librime-dev); depends+=(ibus librime1 librime-data rime-data-luna-pinyin); }
     [[ "$INCLUDES_FCITX" == true ]] && { build+=(libfcitx5core-dev); depends+=(fcitx5); }
@@ -47,10 +47,10 @@ case "$FORMAT" in
       'BuildRequires:  cmake' 'BuildRequires:  gcc-c++'
       'BuildRequires:  pkgconfig' 'BuildRequires:  systemd-rpm-macros'
       'BuildRequires:  portaudio-devel' 'BuildRequires:  gtk3-devel'
-      'BuildRequires:  yaml-cpp-devel' 'BuildRequires:  libcurl-devel'
+      'BuildRequires:  libcurl-devel'
       'BuildRequires:  openssl-devel' 'BuildRequires:  nlohmann-json-devel'
     )
-    requires=('Requires:       gtk3' 'Requires:       portaudio' 'Requires:       yaml-cpp' 'Requires:       libcurl-full')
+    requires=('Requires:       gtk3' 'Requires:       portaudio' 'Requires:       libcurl-full')
     files=()
     if [[ "$INCLUDES_IBUS" == true ]]; then
       build+=('BuildRequires:  ibus-devel' 'BuildRequires:  librime-devel')
@@ -81,7 +81,7 @@ case "$FORMAT" in
     done < "$TEMPLATE"
     ;;
   arch)
-    depends=(gtk3 portaudio yaml-cpp curl openssl)
+    depends=(gtk3 portaudio curl openssl)
     makedepends=(cmake gcc pkgconf nlohmann-json)
     [[ "$INCLUDES_IBUS" == true ]] && depends+=(ibus librime librime-data)
     [[ "$INCLUDES_FCITX" == true ]] && depends+=(fcitx5)

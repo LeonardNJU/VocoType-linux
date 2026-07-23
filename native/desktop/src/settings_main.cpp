@@ -1,3 +1,4 @@
+#include "vocotype/common/terms_yaml.hpp"
 #include "vocotype/desktop/audio.hpp"
 #include "vocotype/desktop/config.hpp"
 #include "vocotype/desktop/fcitx_profile.hpp"
@@ -15,7 +16,6 @@
 #include <X11/Xlib.h>
 #include <gdk/gdkx.h>
 #endif
-#include <yaml-cpp/yaml.h>
 
 #include <algorithm>
 #include <array>
@@ -792,14 +792,10 @@ std::vector<std::pair<std::string, std::string>> discover_rime_schemas() {
         continue;
       std::string id = filename.substr(0, filename.size() - suffix.size());
       std::string name = id;
-      try {
-        const YAML::Node document = YAML::LoadFile(iterator->path().string());
-        if (document["schema"] && document["schema"]["schema_id"])
-          id = document["schema"]["schema_id"].as<std::string>();
-        if (document["schema"] && document["schema"]["name"])
-          name = document["schema"]["name"].as<std::string>();
-      } catch (const std::exception &) {
-      }
+      const auto metadata =
+          vocotype::common::parse_rime_schema_metadata(iterator->path(), id);
+      id = metadata.schema_id;
+      name = metadata.name;
       if (!id.empty())
         schemas[id] = name.empty() ? id : name;
     }
@@ -2642,9 +2638,7 @@ GtkWidget *build_terms(SettingsWindow &window) {
       save, "clicked", G_CALLBACK(+[](SettingsWindow *self) {
         try {
           const std::string content = text_view_text(self->terms);
-          const YAML::Node root = YAML::Load(content);
-          if (!root.IsMap())
-            throw std::runtime_error("YAML 顶层必须是映射");
+          (void)vocotype::common::parse_terms_yaml_content(content);
           write_text_atomic(vocotype::desktop::terms_path(), content);
           set_label(self->terms_status,
                     "✓ 术语库已保存；下一次识别会自动热重载");

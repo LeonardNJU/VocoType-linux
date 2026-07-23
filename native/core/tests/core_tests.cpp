@@ -382,15 +382,25 @@ void test_text_normalizer() {
       std::ofstream output(terms);
       output << R"(terms:
   - canonical: README
-    aliases: [read me, readme]
+    aliases:
+      - read me
+      - readme
   - canonical: README.md
-    aliases: [read me点md, README文件]
-    hotwords: [README, README, too long hotword]
+    aliases:
+      - read me点md
+      - README文件
+    hotwords:
+      - README
+      - README
+      - too long hotword
   - canonical: Ghostty
-    aliases: [ghostty, 鬼斯提]
+    aliases:
+      - ghostty
+      - 鬼斯提
     hotword: true
   - canonical: 一百米计划
-    aliases: [hundred meter plan]
+    aliases:
+      - hundred meter plan
     protect: true
 protect:
   - 三体问题

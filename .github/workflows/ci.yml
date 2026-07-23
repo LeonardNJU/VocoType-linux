@@ -24,7 +24,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential cmake pkg-config ripgrep libfcitx5core-dev nlohmann-json3-dev \
-            libgtk-3-dev libyaml-cpp-dev libcurl4-openssl-dev libssl-dev \
+            libgtk-3-dev libcurl4-openssl-dev libssl-dev \
             libportaudio2 portaudio19-dev libsqlite3-dev libboost-dev
       - name: Run native test suite
         run: make test
@@ -76,7 +76,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             cmake g++ pkg-config ripgrep libfcitx5core-dev nlohmann-json3-dev \
-            libgtk-3-dev libyaml-cpp-dev libcurl4-openssl-dev libssl-dev \
+            libgtk-3-dev libcurl4-openssl-dev libssl-dev \
             libportaudio2 portaudio19-dev
       - name: Validate scripts and metadata
         run: |
@@ -138,7 +138,7 @@ jobs:
           sudo apt-get install -y \
             build-essential debhelper cmake pkg-config \
             libfcitx5core-dev nlohmann-json3-dev libibus-1.0-dev librime-dev \
-            libgtk-3-dev libyaml-cpp-dev libcurl4-openssl-dev libssl-dev \
+            libgtk-3-dev libcurl4-openssl-dev libssl-dev \
             ibus fcitx5 librime-bin librime-data rime-data-luna-pinyin \
             libportaudio2 portaudio19-dev policykit-1 dbus-daemon \
             meson ninja-build
@@ -191,7 +191,7 @@ jobs:
             git rpm-build cmake gcc gcc-c++ \
             pkgconf-pkg-config fcitx5-devel nlohmann-json-devel ibus-devel librime-devel \
             systemd-rpm-macros gtk3 gtk3-devel ibus fcitx5 \
-            librime librime-tools brise yaml-cpp yaml-cpp-devel \
+            librime librime-tools brise \
             libcurl-devel openssl-devel portaudio portaudio-devel polkit dbus-daemon \
             meson ninja-build binutils cpio
       - uses: actions/checkout@v6
@@ -233,7 +233,7 @@ jobs:
         run: |
           pacman -Syu --noconfirm \
             git cmake gcc pkgconf fcitx5 nlohmann-json \
-            gtk3 ibus librime librime-data yaml-cpp curl openssl \
+            gtk3 ibus librime librime-data curl openssl \
             portaudio polkit dbus meson ninja binutils
       - uses: actions/checkout@v6
         with:

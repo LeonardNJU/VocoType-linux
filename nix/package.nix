@@ -17,7 +17,6 @@
   fcitx5,
   librime,
   gtk3,
-  yaml-cpp,
   curl,
   openssl,
   portaudio,
@@ -127,7 +126,6 @@ stdenv.mkDerivation (finalAttrs: {
     nlohmann_json
     openssl
     portaudio
-    yaml-cpp
   ] ++ lib.optionals withIbus [ ibusMinimal librime ]
     ++ lib.optionals withFcitx [ fcitx5 ];
 

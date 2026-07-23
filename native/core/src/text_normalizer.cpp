@@ -1,4 +1,5 @@
 #include "vocotype/core/text_normalizer.hpp"
+#include "vocotype/common/terms_yaml.hpp"
 
 #include <algorithm>
 #include <array>
@@ -156,118 +157,6 @@ UString trim(UView value) {
     --last;
   }
   return UString(value.substr(first, last - first));
-}
-
-std::string trim_ascii(std::string value) {
-  const auto is_space = [](unsigned char ch) {
-    return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n';
-  };
-  const auto first = std::find_if_not(value.begin(), value.end(), [&](char ch) {
-    return is_space(static_cast<unsigned char>(ch));
-  });
-  const auto last =
-      std::find_if_not(value.rbegin(), value.rend(), [&](char ch) {
-        return is_space(static_cast<unsigned char>(ch));
-      }).base();
-  if (first >= last) {
-    return {};
-  }
-  return std::string(first, last);
-}
-
-std::string strip_yaml_comment(const std::string &line) {
-  bool single = false;
-  bool quoted = false;
-  int brackets = 0;
-  for (std::size_t index = 0; index < line.size(); ++index) {
-    const char ch = line[index];
-    if (ch == '\'' && !quoted) {
-      single = !single;
-    } else if (ch == '"' && !single &&
-               (index == 0 || line[index - 1] != '\\')) {
-      quoted = !quoted;
-    } else if (!single && !quoted) {
-      if (ch == '[' || ch == '{') {
-        ++brackets;
-      } else if (ch == ']' || ch == '}') {
-        --brackets;
-      } else if (ch == '#' && brackets == 0 &&
-                 (index == 0 ||
-                  std::isspace(static_cast<unsigned char>(line[index - 1])))) {
-        return line.substr(0, index);
-      }
-    }
-  }
-  return line;
-}
-
-std::string unquote(std::string value) {
-  value = trim_ascii(std::move(value));
-  if (value.size() >= 2U && ((value.front() == '"' && value.back() == '"') ||
-                             (value.front() == '\'' && value.back() == '\''))) {
-    value = value.substr(1, value.size() - 2U);
-  }
-  return trim_ascii(std::move(value));
-}
-
-std::vector<std::string> parse_inline_list(std::string value) {
-  value = trim_ascii(std::move(value));
-  if (value == "[]") {
-    return {};
-  }
-  if (value.size() < 2U || value.front() != '[' || value.back() != ']') {
-    throw std::runtime_error("expected an inline YAML list");
-  }
-  value = value.substr(1, value.size() - 2U);
-  std::vector<std::string> result;
-  std::string current;
-  bool single = false;
-  bool quoted = false;
-  for (std::size_t index = 0; index < value.size(); ++index) {
-    const char ch = value[index];
-    if (ch == '\'' && !quoted) {
-      single = !single;
-      current.push_back(ch);
-      continue;
-    }
-    if (ch == '"' && !single && (index == 0 || value[index - 1] != '\\')) {
-      quoted = !quoted;
-      current.push_back(ch);
-      continue;
-    }
-    if (ch == ',' && !single && !quoted) {
-      const std::string item = unquote(current);
-      if (!item.empty()) {
-        result.push_back(item);
-      }
-      current.clear();
-      continue;
-    }
-    current.push_back(ch);
-  }
-  if (single || quoted) {
-    throw std::runtime_error("unterminated YAML string");
-  }
-  const std::string item = unquote(current);
-  if (!item.empty()) {
-    result.push_back(item);
-  }
-  return result;
-}
-
-std::optional<bool> parse_bool_like(std::string value) {
-  value = trim_ascii(std::move(value));
-  std::transform(
-      value.begin(), value.end(), value.begin(),
-      [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-  if (value == "true" || value == "yes" || value == "on" || value == "1") {
-    return true;
-  }
-  if (value.empty() || value == "false" || value == "no" || value == "off" ||
-      value == "0") {
-    return false;
-  }
-  return std::nullopt;
 }
 
 bool has_whitespace(UView value) {
@@ -479,145 +368,28 @@ Lexicon build_lexicon(std::vector<TermEntry> entries,
 }
 
 Lexicon parse_terms_yaml(const std::filesystem::path &path) {
-  std::ifstream input(path);
-  if (!input) {
-    throw std::runtime_error("cannot open terms file");
-  }
-  enum class Section { none, terms, replace, protect };
-  Section section = Section::none;
+  const vocotype::common::TermsDocument document =
+      vocotype::common::parse_terms_yaml(path);
   std::vector<TermEntry> entries;
-  std::vector<UString> explicit_protected;
-  TermEntry *current = nullptr;
-  std::string line;
-  while (std::getline(input, line)) {
-    line = strip_yaml_comment(line);
-    if (trim_ascii(line).empty()) {
-      continue;
+  entries.reserve(document.terms.size());
+  for (const auto &definition : document.terms) {
+    TermEntry entry;
+    entry.canonical = decode_utf8(definition.canonical);
+    entry.protect = definition.protect;
+    for (const std::string &alias : definition.aliases) {
+      entry.aliases.push_back(decode_utf8(alias));
     }
-    const std::size_t indent = line.find_first_not_of(' ');
-    if (indent == std::string::npos) {
-      continue;
+    for (const std::string &hotword : definition.hotwords) {
+      entry.hotwords.push_back(decode_utf8(hotword));
     }
-    const std::string content = trim_ascii(line.substr(indent));
-    if (indent == 0) {
-      current = nullptr;
-      const std::size_t colon = content.find(':');
-      if (colon == std::string::npos) {
-        throw std::runtime_error("invalid top-level YAML entry");
-      }
-      const std::string key = trim_ascii(content.substr(0, colon));
-      const std::string value = trim_ascii(content.substr(colon + 1));
-      if (key == "terms") {
-        if (!value.empty() && value != "[]") {
-          throw std::runtime_error("terms must be a YAML sequence");
-        }
-        section = Section::terms;
-      } else if (key == "replace") {
-        if (!value.empty() && value != "{}") {
-          throw std::runtime_error("replace must be a YAML mapping");
-        }
-        section = Section::replace;
-      } else if (key == "protect") {
-        if (!value.empty() && value != "[]") {
-          throw std::runtime_error("protect must be a YAML sequence");
-        }
-        section = Section::protect;
-      } else {
-        section = Section::none;
-      }
-      continue;
-    }
-    if (section == Section::terms) {
-      if (indent == 2 && starts_with(decode_utf8(content), U"- ")) {
-        const std::string item = trim_ascii(content.substr(2));
-        const std::size_t colon = item.find(':');
-        if (colon == std::string::npos ||
-            trim_ascii(item.substr(0, colon)) != "canonical") {
-          throw std::runtime_error("term entry must start with canonical");
-        }
-        const std::string canonical = unquote(item.substr(colon + 1));
-        if (canonical.empty()) {
-          throw std::runtime_error("canonical term cannot be empty");
-        }
-        entries.push_back(TermEntry{decode_utf8(canonical)});
-        current = &entries.back();
-        continue;
-      }
-      if (indent < 4 || current == nullptr) {
-        throw std::runtime_error("invalid term entry indentation");
-      }
-      const std::size_t colon = content.find(':');
-      if (colon == std::string::npos) {
-        throw std::runtime_error("invalid term field");
-      }
-      const std::string key = trim_ascii(content.substr(0, colon));
-      const std::string value = trim_ascii(content.substr(colon + 1));
-      if (key == "aliases") {
-        for (const std::string &item : parse_inline_list(value)) {
-          if (!item.empty()) {
-            current->aliases.push_back(decode_utf8(item));
-          }
-        }
-      } else if (key == "protect") {
-        const auto parsed = parse_bool_like(value);
-        if (!parsed.has_value()) {
-          throw std::runtime_error("protect must be boolean");
-        }
-        current->protect = *parsed;
-      } else if (key == "hotword") {
-        const auto parsed = parse_bool_like(value);
-        if (!parsed.has_value()) {
-          throw std::runtime_error("hotword must be boolean");
-        }
-        if (*parsed) {
-          current->hotwords = {current->canonical};
-        } else {
-          current->hotwords.clear();
-        }
-      } else if (key == "hotwords") {
-        current->hotwords.clear();
-        for (const std::string &item : parse_inline_list(value)) {
-          if (!item.empty()) {
-            current->hotwords.push_back(decode_utf8(item));
-          }
-        }
-      }
-      continue;
-    }
-    if (section == Section::replace) {
-      if (indent != 2) {
-        throw std::runtime_error("invalid replace indentation");
-      }
-      const std::size_t colon = content.find(':');
-      if (colon == std::string::npos) {
-        throw std::runtime_error("invalid replace mapping");
-      }
-      const std::string canonical = unquote(content.substr(0, colon));
-      if (canonical.empty()) {
-        throw std::runtime_error("replace canonical cannot be empty");
-      }
-      TermEntry entry;
-      entry.canonical = decode_utf8(canonical);
-      for (const std::string &item :
-           parse_inline_list(content.substr(colon + 1))) {
-        entry.aliases.push_back(decode_utf8(item));
-      }
-      entries.push_back(std::move(entry));
-      continue;
-    }
-    if (section == Section::protect) {
-      if (indent != 2 || content.size() < 2U || content[0] != '-' ||
-          content[1] != ' ') {
-        throw std::runtime_error("invalid protect entry");
-      }
-      const std::string phrase = unquote(content.substr(2));
-      if (phrase.empty()) {
-        throw std::runtime_error("protected phrase cannot be empty");
-      }
-      explicit_protected.push_back(decode_utf8(phrase));
-    }
+    entries.push_back(std::move(entry));
   }
-  return build_lexicon(std::move(entries), std::move(explicit_protected));
+  std::vector<UString> protected_phrases;
+  protected_phrases.reserve(document.protected_phrases.size());
+  for (const std::string &phrase : document.protected_phrases) {
+    protected_phrases.push_back(decode_utf8(phrase));
+  }
+  return build_lexicon(std::move(entries), std::move(protected_phrases));
 }
 
 std::filesystem::path terms_path() {
