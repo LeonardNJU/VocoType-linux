@@ -26,9 +26,14 @@ done < <(tar -tzf "$ARCHIVE")
 for required in \
   VERSION native/core/CMakeLists.txt native/desktop/CMakeLists.txt \
   native/desktop/src/settings_main.cpp native/desktop/src/ibus_main.cpp \
-  native/desktop/src/model_manager_main.cpp fcitx5/module/vocotype_module.cpp \
+  native/desktop/src/model_manager_main.cpp \
+  native/desktop/src/hotkey.cpp \
+  native/desktop/include/vocotype/desktop/hotkey.hpp \
+  fcitx5/module/vocotype_module.cpp \
   feedback_service/CMakeLists.txt feedback_service/src/main.cpp \
-  installers/install-native-user.sh packaging/tools/stage-system-package.sh; do
+  installers/install-native-user.sh packaging/tools/stage-system-package.sh \
+  flake.nix flake.lock nix/package.nix tests/hotkey-settings.sh \
+  docs/getting-started/nix.md docs/guides/shortcuts.md; do
   expected="VocoType-linux-$VERSION/$required"
   [[ -n ${members[$expected]+x} ]] || {
     echo "Missing source member: $required" >&2

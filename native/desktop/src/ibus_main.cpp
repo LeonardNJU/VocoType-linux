@@ -1,4 +1,5 @@
 #include "vocotype/desktop/config.hpp"
+#include "vocotype/desktop/hotkey.hpp"
 #include "vocotype/desktop/ipc.hpp"
 #include "vocotype/desktop/recorder_process.hpp"
 #include "vocotype/desktop/rime_session.hpp"
@@ -19,6 +20,7 @@
 #include <unordered_map>
 #include <utility>
 
+using vocotype::desktop::Hotkey;
 using vocotype::desktop::Json;
 
 #ifndef VOCOTYPE_VERSION
@@ -35,6 +37,17 @@ struct Snapshot {
   guint anchor = 0;
 };
 
+enum class VoiceMode {
+  none,
+  transcribe,
+  polish,
+  edit,
+};
+
+const Hotkey kDefaultTranscribeHotkey = vocotype::desktop::parse_hotkey("F9");
+const Hotkey kDefaultPolishHotkey = vocotype::desktop::parse_hotkey("Shift+F9");
+const Hotkey kDefaultEditHotkey = vocotype::desktop::parse_hotkey("Ctrl+F9");
+
 struct EngineState {
   std::mutex recorder_mutex;
   std::unique_ptr<vocotype::desktop::RecorderProcess> recorder;
@@ -47,6 +60,10 @@ struct EngineState {
   std::chrono::steady_clock::time_point recording_started;
   bool long_mode = false;
   bool edit_mode = false;
+  Hotkey transcribe_hotkey = kDefaultTranscribeHotkey;
+  Hotkey polish_hotkey = kDefaultPolishHotkey;
+  Hotkey edit_hotkey = kDefaultEditHotkey;
+  Hotkey active_hotkey = kDefaultTranscribeHotkey;
   Snapshot snapshot;
   std::string socket = vocotype::desktop::backend_socket_path();
   std::string recorder_path;
@@ -154,6 +171,30 @@ void load_engine_config(EngineState &state) {
       state.polish_timeout_ms = std::max(1000, slm.value("timeout_ms", 20000));
       state.enable_thinking = slm.value("enable_thinking", false);
     }
+    if (config.contains("hotkeys") && config["hotkeys"].is_object()) {
+      const auto &hotkeys = config["hotkeys"];
+      state.transcribe_hotkey = vocotype::desktop::parse_hotkey(
+          hotkeys.value("transcribe", "F9"), kDefaultTranscribeHotkey);
+      state.polish_hotkey = vocotype::desktop::parse_hotkey(
+          hotkeys.value("polish", "Shift+F9"), kDefaultPolishHotkey);
+      state.edit_hotkey = vocotype::desktop::parse_hotkey(
+          hotkeys.value("edit", "Ctrl+F9"), kDefaultEditHotkey);
+      if (!vocotype::desktop::hotkey_safety_error(state.transcribe_hotkey)
+               .empty() ||
+          !vocotype::desktop::hotkey_safety_error(state.polish_hotkey)
+               .empty() ||
+          !vocotype::desktop::hotkey_safety_error(state.edit_hotkey).empty() ||
+          vocotype::desktop::hotkeys_equal(state.transcribe_hotkey,
+                                           state.polish_hotkey) ||
+          vocotype::desktop::hotkeys_equal(state.transcribe_hotkey,
+                                           state.edit_hotkey) ||
+          vocotype::desktop::hotkeys_equal(state.polish_hotkey,
+                                           state.edit_hotkey)) {
+        state.transcribe_hotkey = kDefaultTranscribeHotkey;
+        state.polish_hotkey = kDefaultPolishHotkey;
+        state.edit_hotkey = kDefaultEditHotkey;
+      }
+    }
   } catch (const std::exception &) {
   }
 }
@@ -212,6 +253,23 @@ bool is_switch_hotkey(guint keyval, guint state) {
   return false;
 }
 
+guint hotkey_mask(guint state) {
+  guint result = 0;
+  if (state & IBUS_SHIFT_MASK)
+    result |= GDK_SHIFT_MASK;
+  if (state & IBUS_CONTROL_MASK)
+    result |= GDK_CONTROL_MASK;
+  if (state & IBUS_MOD1_MASK)
+    result |= GDK_MOD1_MASK;
+  if (state & (IBUS_SUPER_MASK | IBUS_MOD4_MASK))
+    result |= GDK_SUPER_MASK;
+  if (state & IBUS_META_MASK)
+    result |= GDK_META_MASK;
+  if (state & IBUS_HYPER_MASK)
+    result |= GDK_HYPER_MASK;
+  return result;
+}
+
 int rime_mask(guint state) {
   int result = 0;
   if (state & IBUS_SHIFT_MASK)
@@ -225,7 +283,8 @@ int rime_mask(guint state) {
   return result;
 }
 
-void start_recording(VocotypeEngine *engine, guint state_mask) {
+void start_recording(VocotypeEngine *engine, VoiceMode mode,
+                     const Hotkey &active_hotkey) {
   auto &state = *engine->state;
   if (state.recording.exchange(true) || state.busy.load())
     return;
@@ -241,8 +300,9 @@ void start_recording(VocotypeEngine *engine, guint state_mask) {
     show_aux(engine, "❌ 原生语音核心启动失败");
     return;
   }
-  state.long_mode = (state_mask & IBUS_SHIFT_MASK) != 0;
-  state.edit_mode = (state_mask & IBUS_CONTROL_MASK) != 0;
+  state.long_mode = mode == VoiceMode::polish;
+  state.edit_mode = mode == VoiceMode::edit;
+  state.active_hotkey = active_hotkey;
   state.snapshot = state.edit_mode ? capture_snapshot(engine) : Snapshot{};
   if (state.edit_mode && !state.snapshot.valid) {
     state.recording.store(false);
@@ -590,18 +650,51 @@ gboolean process_key_event(IBusEngine *base, guint keyval, guint keycode,
   auto *engine = reinterpret_cast<VocotypeEngine *>(base);
   auto &state = *engine->state;
   const bool release = (state_mask & IBUS_RELEASE_MASK) != 0;
-  if (keyval == IBUS_KEY_F9) {
-    if (release)
-      stop_recording(engine);
-    else if (!state.recording.load())
-      start_recording(engine, state_mask);
-    return true;
-  }
-  if (state.recording.load() || state.busy.load()) {
-    if (!release && keyval == IBUS_KEY_Escape)
+  const guint modifiers = hotkey_mask(state_mask & ~IBUS_RELEASE_MASK);
+
+  if (state.recording.load()) {
+    if (vocotype::desktop::hotkey_matches(state.active_hotkey, keyval,
+                                          modifiers)) {
+      if (release)
+        stop_recording(engine);
+      return true;
+    }
+    if (!release && keyval == IBUS_KEY_Escape) {
       cancel_recording(engine);
+      return true;
+    }
     return false;
   }
+  if (state.busy.load()) {
+    if (!release && keyval == IBUS_KEY_Escape) {
+      cancel_recording(engine);
+      return true;
+    }
+    return false;
+  }
+
+  if (!release) {
+    VoiceMode mode = VoiceMode::none;
+    Hotkey matched;
+    if (vocotype::desktop::hotkey_matches(state.edit_hotkey, keyval,
+                                          modifiers)) {
+      mode = VoiceMode::edit;
+      matched = state.edit_hotkey;
+    } else if (vocotype::desktop::hotkey_matches(state.polish_hotkey, keyval,
+                                                 modifiers)) {
+      mode = VoiceMode::polish;
+      matched = state.polish_hotkey;
+    } else if (vocotype::desktop::hotkey_matches(state.transcribe_hotkey,
+                                                 keyval, modifiers)) {
+      mode = VoiceMode::transcribe;
+      matched = state.transcribe_hotkey;
+    }
+    if (mode != VoiceMode::none) {
+      start_recording(engine, mode, matched);
+      return true;
+    }
+  }
+
   if (is_switch_hotkey(keyval, state_mask) || release)
     return false;
   if (!state.rime)
@@ -636,7 +729,9 @@ void engine_disable(IBusEngine *base) {
 }
 
 void engine_focus_in(IBusEngine *base) {
-  reinterpret_cast<VocotypeEngine *>(base)->state->focused.store(true);
+  auto *engine = reinterpret_cast<VocotypeEngine *>(base);
+  load_engine_config(*engine->state);
+  engine->state->focused.store(true);
 }
 
 void engine_focus_out(IBusEngine *base) {
@@ -695,7 +790,8 @@ void print_xml(const char *executable) {
       "<textdomain>vocotype</textdomain><engines><engine><name>vocotype</name>"
       "<language>zh</language><license>GPL</license><author>VoCoType</author>"
       "<layout>default</layout><longname>VoCoType Voice Input</longname>"
-      "<description>Push-to-Talk Voice Input (F9)</description><rank>50</rank>"
+      "<description>Configurable Push-to-Talk Voice "
+      "Input</description><rank>50</rank>"
       "<symbol>🎤</symbol></engine></engines></component>\n",
       executable, VOCOTYPE_VERSION);
 }

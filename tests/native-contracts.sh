@@ -48,7 +48,7 @@ rg -Fq '🎤 语音编辑中...' fcitx5/module/vocotype_module.cpp || \
 if rg -q 'del=|sur=1|active=1|edit_replace_state_' fcitx5/module; then
   fail "voice-edit debug capability probe remains"
 fi
-rg -Uq 'snapshot\.selected_text,\n[[:space:]]+"supported",\n[[:space:]]+true\);' \
+rg -Uq 'snapshot\.selected_text,[[:space:]]*"supported",[[:space:]]*true\);' \
   fcitx5/module/vocotype_module.cpp || \
   fail "valid surrounding context is not advertised as replace-capable"
 
@@ -284,5 +284,85 @@ for format in debian rpm arch; do
     rm -f "$output"
   done
 done
+
+# Recorded shortcuts must be shared by settings, IBus, and Fcitx 5.
+for path in \
+  native/desktop/include/vocotype/desktop/hotkey.hpp \
+  native/desktop/src/hotkey.cpp \
+  tests/hotkey-settings.sh; do
+  test -f "$path" || fail "missing recorded-shortcut component: $path"
+done
+for token in \
+  'hotkey_safety_error' \
+  'hotkey_is_modifier_key' \
+  'GDK_KEY_Alt_R' \
+  '裸字母、数字、标点'; do
+  rg -Fq "$token" native/desktop/src/hotkey.cpp || \
+    fail "hotkey safety contract is missing: $token"
+done
+for token in \
+  'HotkeySlot::transcribe' \
+  'HotkeySlot::polish' \
+  'HotkeySlot::edit' \
+  'capture_hotkey_press' \
+  'external_hotkey_conflict' \
+  'XGrabKey' \
+  'kglobalshortcutsrc' \
+  'org.gnome.desktop.wm.keybindings' \
+  'config["hotkeys"]'; do
+  rg -Fq "$token" native/desktop/src/settings_main.cpp || \
+    fail "settings shortcut recorder/conflict contract is missing: $token"
+done
+for token in 'PolishKey' 'EditKey' 'hotkeyModeForKey' 'active_hotkey_'; do
+  rg -Fq "$token" fcitx5/module/vocotype_module.h \
+    fcitx5/module/vocotype_module.cpp || \
+    fail "Fcitx configurable-shortcut contract is missing: $token"
+done
+for token in 'hotkeys.value("transcribe"' 'hotkeys.value("polish"' \
+             'hotkeys.value("edit"' 'hotkey_mask'; do
+  rg -Fq "$token" native/desktop/src/ibus_main.cpp || \
+    fail "IBus configurable-shortcut contract is missing: $token"
+done
+if rg -Fq 'if (keyval == IBUS_KEY_F9)' native/desktop/src/ibus_main.cpp; then
+  fail "IBus still hard-codes F9 in its key event handler"
+fi
+
+# Nix support must remain source-built, locked, and cover all integration flavors.
+for path in flake.nix flake.lock nix/package.nix docs/getting-started/nix.md; do
+  test -f "$path" || fail "missing Nix support file: $path"
+done
+jq -e '.version == 7 and .nodes.nixpkgs.locked.rev == "b6018f87da91d19d0ab4cf979885689b469cdd41"' \
+  flake.lock >/dev/null || fail "flake.lock is not pinned to the reviewed nixpkgs revision"
+for token in \
+  'vocotype-universal' \
+  'vocotype-ibus' \
+  'vocotype-fcitx5' \
+  'vocotype-funasr-workers'; do
+  rg -Fq "$token" flake.nix || fail "flake output is missing: $token"
+done
+for token in \
+  'bd6e72142f1cca3c30b7651bf5fa567dfe969810' \
+  'sha256-4HxsobXHDN9SSLofoANhEHtqm3U+FPvRro088ZvNWoQ=' \
+  'pythonSupport = false' \
+  'native/streaming_worker/build.sh' \
+  'native/core' \
+  'fcitx5/module'; do
+  rg -Fq "$token" nix/package.nix || fail "Nix source-build contract is missing: $token"
+done
+if rg -Fq 'lib.fakeHash' nix/package.nix; then
+  fail "Nix package still contains a fake fixed-output hash"
+fi
+for token in \
+  'DeterminateSystems/determinate-nix-action@v3' \
+  'nix build .#vocotype-fcitx5' \
+  'nix build .#vocotype-ibus' \
+  'nix build .#vocotype-universal'; do
+  rg -Fq "$token" .github/workflows/ci.yml || \
+    fail "CI does not build Nix output: $token"
+done
+rg -Fq 'NLOHMANN_JSON_INCLUDE_DIR' native/streaming_worker/build.sh || \
+  fail "native worker build cannot consume Nix-provided nlohmann headers"
+rg -Fq 'VOCOTYPE_FCITX5_BACKEND_PATH' fcitx5/module/CMakeLists.txt || \
+  fail "Fcitx module cannot receive a Nix store backend path"
 
 echo NATIVE_CONTRACTS_OK

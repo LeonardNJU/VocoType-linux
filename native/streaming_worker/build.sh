@@ -122,11 +122,16 @@ cat "$OVERLAY" >> "$SOURCE_COPY/bin/CMakeLists.txt"
 # only mechanical toolchain fixes in the disposable source copy; online ASR
 # inference code remains byte-for-byte upstream.
 patch -d "$SOURCE_COPY" -p1 < "$SCRIPT_DIR/funasr-toolchain-compat.patch"
-# Prefer an installed nlohmann-json development package; otherwise upstream
-# CMake will fetch its pinned release as usual.
-if [[ -f /usr/include/nlohmann/json.hpp ]]; then
+# Prefer an explicitly supplied or installed nlohmann-json include root;
+# otherwise upstream CMake will fetch its pinned release as usual.
+NLOHMANN_JSON_INCLUDE_DIR=${NLOHMANN_JSON_INCLUDE_DIR:-}
+if [[ -z "$NLOHMANN_JSON_INCLUDE_DIR" && -f /usr/include/nlohmann/json.hpp ]]; then
+    NLOHMANN_JSON_INCLUDE_DIR=/usr/include
+fi
+if [[ -n "$NLOHMANN_JSON_INCLUDE_DIR" &&
+      -f "$NLOHMANN_JSON_INCLUDE_DIR/nlohmann/json.hpp" ]]; then
     mkdir -p "$SOURCE_COPY/third_party/json/include/nlohmann"
-    cp -a /usr/include/nlohmann/. "$SOURCE_COPY/third_party/json/include/nlohmann/"
+    cp -a "$NLOHMANN_JSON_INCLUDE_DIR/nlohmann/."         "$SOURCE_COPY/third_party/json/include/nlohmann/"
     touch "$SOURCE_COPY/third_party/json/ChangeLog.md"
 fi
 

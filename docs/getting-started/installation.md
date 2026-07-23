@@ -33,7 +33,7 @@ V4 Release 同时提供通用版、IBus 专用版和 Fcitx 5 专用版。三者�
 3. 点击安装 / 修复；
 4. 点击“校验并下载模型”，等待原生模型管理器完成 SHA-256 校验；
 5. 打开 **Playground**，选择麦克风并完成录音和 ASR 测试；
-6. 回到任意输入框，按住 `F9` 说话，松开后提交文字。
+6. 在“通用设置”确认或录制三个语音快捷键；默认按住 `F9` 说话，松开后提交文字。
 
 需要系统权限时，桌面会显示标准 Polkit 授权窗口。VoCoType 不读取或保存管理员密码。
 
@@ -49,6 +49,10 @@ bash fcitx5/scripts/install.sh --install-system-deps --download-models
 ```
 
 源码安装会编译 C++ 组件。完成后可运行 `vocotype-settings`；安装后的日常运行不需要编译器或 Python。
+
+## Nix / NixOS
+
+仓库提供锁定的 source-built flake，支持 universal、IBus-only 与 Fcitx5-only。安装命令和 NixOS input-method 配置见 [Nix 与 NixOS](nix.md)。
 
 ## 无图形桌面或兼容旧版 CLI
 

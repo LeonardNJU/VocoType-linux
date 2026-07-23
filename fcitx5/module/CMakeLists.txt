@@ -10,6 +10,11 @@ if(NOT VOCOTYPE_VERSION)
 endif()
 project(fcitx5-vocotype-module VERSION ${VOCOTYPE_VERSION})
 
+set(VOCOTYPE_FCITX5_RECORDER_PATH "" CACHE FILEPATH
+    "Absolute fallback path to the VoCoType recorder launcher")
+set(VOCOTYPE_FCITX5_BACKEND_PATH "" CACHE FILEPATH
+    "Absolute fallback path to the VoCoType backend launcher")
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -25,6 +30,10 @@ add_library(vocotype MODULE
     ../common/ipc_client.cpp
 )
 target_include_directories(vocotype PRIVATE ../common)
+target_compile_definitions(vocotype PRIVATE
+    VOCOTYPE_FCITX5_RECORDER_PATH="${VOCOTYPE_FCITX5_RECORDER_PATH}"
+    VOCOTYPE_FCITX5_BACKEND_PATH="${VOCOTYPE_FCITX5_BACKEND_PATH}"
+)
 target_link_libraries(vocotype Fcitx5::Core)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     set_property(TARGET vocotype APPEND_STRING PROPERTY

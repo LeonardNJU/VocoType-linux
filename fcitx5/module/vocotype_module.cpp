@@ -2,12 +2,12 @@
 
 #include <algorithm>
 #include <array>
-#include <cerrno>
 #include <cctype>
+#include <cerrno>
 #include <chrono>
 #include <cstdlib>
-#include <functional>
 #include <fstream>
+#include <functional>
 #include <iomanip>
 #include <mutex>
 #include <sstream>
@@ -41,6 +41,13 @@
 #include <fcitx/text.h>
 #include <fcitx/userinterface.h>
 #include <nlohmann/json.hpp>
+
+#ifndef VOCOTYPE_FCITX5_RECORDER_PATH
+#define VOCOTYPE_FCITX5_RECORDER_PATH ""
+#endif
+#ifndef VOCOTYPE_FCITX5_BACKEND_PATH
+#define VOCOTYPE_FCITX5_BACKEND_PATH ""
+#endif
 
 namespace {
 
@@ -102,9 +109,9 @@ std::string debugClip(std::string value, size_t limit = 160) {
 }
 
 std::string toLower(std::string value) {
-    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
-        return static_cast<char>(std::tolower(ch));
-    });
+  std::transform(
+      value.begin(), value.end(), value.begin(),
+      [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
     return value;
 }
 
@@ -169,6 +176,49 @@ std::string finishRecorderProcess(
     return audio_path;
 }
 
+bool launchDetached(const std::string &executable) {
+  if (executable.empty() || access(executable.c_str(), X_OK) != 0) {
+    return false;
+  }
+  const pid_t child = fork();
+  if (child < 0) {
+    return false;
+  }
+  if (child == 0) {
+    (void)setsid();
+    const int null_fd = open("/dev/null", O_RDWR | O_CLOEXEC);
+    if (null_fd >= 0) {
+      dup2(null_fd, STDIN_FILENO);
+      dup2(null_fd, STDOUT_FILENO);
+      dup2(null_fd, STDERR_FILENO);
+      if (null_fd > STDERR_FILENO) {
+        close(null_fd);
+      }
+    }
+    execl(executable.c_str(), executable.c_str(), static_cast<char *>(nullptr));
+    _exit(127);
+  }
+  std::thread([child]() {
+    int status = 0;
+    while (waitpid(child, &status, 0) < 0 && errno == EINTR) {
+    }
+  }).detach();
+  return true;
+}
+
+std::string configuredBackendLauncher() {
+  if (const char *override_path = std::getenv("VOCOTYPE_FCITX5_BACKEND")) {
+    if (*override_path != '\0' && access(override_path, X_OK) == 0) {
+      return override_path;
+    }
+  }
+  const std::string compiled = VOCOTYPE_FCITX5_BACKEND_PATH;
+  if (!compiled.empty() && access(compiled.c_str(), X_OK) == 0) {
+    return compiled;
+  }
+  return {};
+}
+
 bool startBackendUserService() {
     std::string manager;
     for (const char *candidate : {"/usr/bin/systemctl", "/bin/systemctl"}) {
@@ -177,13 +227,9 @@ bool startBackendUserService() {
             break;
         }
     }
-    if (manager.empty()) {
-        return false;
-    }
+  if (!manager.empty()) {
     const pid_t child = fork();
-    if (child < 0) {
-        return false;
-    }
+    if (child >= 0) {
     if (child == 0) {
         const std::string runtime =
             "/run/user/" + std::to_string(static_cast<unsigned long>(getuid()));
@@ -198,20 +244,24 @@ bool startBackendUserService() {
             setenv("DBUS_SESSION_BUS_ADDRESS", address.c_str(), 1);
         }
         execl(manager.c_str(), manager.c_str(), "--user", "start",
-              "vocotype-fcitx5-backend.service",
-              static_cast<char *>(nullptr));
+              "vocotype-fcitx5-backend.service", static_cast<char *>(nullptr));
         _exit(127);
     }
     int status = 0;
     while (waitpid(child, &status, 0) < 0 && errno == EINTR) {
     }
-    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+      if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+        return true;
+      }
+    }
+  }
+  return launchDetached(configuredBackendLauncher());
 }
 
 bool waitForBackend(const std::string &socket_path, int timeout_ms) {
     vocotype::IPCClient client(socket_path);
-    const auto deadline = std::chrono::steady_clock::now() +
-                          std::chrono::milliseconds(timeout_ms);
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     while (std::chrono::steady_clock::now() < deadline) {
         if (client.ping()) {
             return true;
@@ -235,10 +285,19 @@ std::string resolveBackendSocketPath() {
 namespace vocotype {
 
 VoCoTypeModule::VoCoTypeModule(fcitx::Instance *instance)
-    : instance_(instance),
-      backend_socket_path_(resolveBackendSocketPath()),
+    : instance_(instance), backend_socket_path_(resolveBackendSocketPath()),
       ipc_client_(std::make_unique<IPCClient>(backend_socket_path_)) {
     event_dispatcher_.attach(&instance_->eventLoop());
+  if (const char *override_path = std::getenv("VOCOTYPE_FCITX5_RECORDER")) {
+    if (*override_path != '\0' && access(override_path, X_OK) == 0) {
+      recorder_launcher_path_ = override_path;
+    }
+  }
+  const std::string compiled_recorder = VOCOTYPE_FCITX5_RECORDER_PATH;
+  if (recorder_launcher_path_.empty() && !compiled_recorder.empty() &&
+      access(compiled_recorder.c_str(), X_OK) == 0) {
+    recorder_launcher_path_ = compiled_recorder;
+  }
     if (const char *home = std::getenv("HOME")) {
         const std::string user_launcher =
             std::string(home) + "/.local/bin/vocotype-fcitx5-recorder";
@@ -257,21 +316,20 @@ VoCoTypeModule::VoCoTypeModule(fcitx::Instance *instance)
 
     key_handler_ = instance_->watchEvent(
         fcitx::EventType::InputContextKeyEvent,
-        fcitx::EventWatcherPhase::PreInputMethod,
-        [this](fcitx::Event &event) {
+      fcitx::EventWatcherPhase::PreInputMethod, [this](fcitx::Event &event) {
             handleKeyEvent(static_cast<fcitx::KeyEvent &>(event));
         });
     focus_out_handler_ = instance_->watchEvent(
         fcitx::EventType::InputContextFocusOut,
-        fcitx::EventWatcherPhase::PostInputMethod,
-        [this](fcitx::Event &event) {
+      fcitx::EventWatcherPhase::PostInputMethod, [this](fcitx::Event &event) {
             handleFocusOut(static_cast<fcitx::InputContextEvent &>(event));
         });
 
-    FCITX_INFO() << "VoCoType global module initialized; hotkey="
-                 << ptt_key_name_;
+  FCITX_INFO() << "VoCoType global module initialized; hotkeys="
+               << hotkey_summary_;
     if (!ipc_client_->ping()) {
-        FCITX_WARN() << "VoCoType backend is not responding; requesting user service start";
+    FCITX_WARN()
+        << "VoCoType backend is not responding; requesting user service start";
         const std::string socket_path = backend_socket_path_;
         std::thread([socket_path]() {
             (void)startBackendUserService();
@@ -301,14 +359,12 @@ VoCoTypeModule::~VoCoTypeModule() {
 }
 
 void VoCoTypeModule::reloadConfig() {
-    fcitx::readAsIni(config_, CONFIG_PATH_TYPE,
-                     FCITX_CONFIG_PATH);
+  fcitx::readAsIni(config_, CONFIG_PATH_TYPE, FCITX_CONFIG_PATH);
     applyConfig();
 }
 
 void VoCoTypeModule::save() {
-    if (!fcitx::safeSaveAsIni(config_, CONFIG_PATH_TYPE,
-                              FCITX_CONFIG_PATH)) {
+  if (!fcitx::safeSaveAsIni(config_, CONFIG_PATH_TYPE, FCITX_CONFIG_PATH)) {
         FCITX_WARN() << "Failed to save VoCoType module config";
     }
 }
@@ -326,22 +382,38 @@ void VoCoTypeModule::setConfig(const fcitx::RawConfig &config) {
 }
 
 void VoCoTypeModule::applyConfig() {
-    auto ptt_key = config_.pttKey.value().normalize();
-    if (!ptt_key.isValid()) {
-        ptt_key = fcitx::Key(FcitxKey_F9);
-    }
+  auto transcribe = config_.pttKey.value().normalize();
+  auto polish = config_.polishKey.value().normalize();
+  auto edit = config_.editKey.value().normalize();
+  const fcitx::Key default_transcribe(FcitxKey_F9);
+  const fcitx::Key default_polish(FcitxKey_F9, fcitx::KeyState::Shift);
+  const fcitx::Key default_edit(FcitxKey_F9, fcitx::KeyState::Ctrl);
+  if (!transcribe.isValid()) {
+    transcribe = default_transcribe;
+  }
+  if (!polish.isValid()) {
+    polish = default_polish;
+  }
+  if (!edit.isValid()) {
+    edit = default_edit;
+  }
+  if (hotkeyIsUnsafe(transcribe) || hotkeyIsUnsafe(polish) ||
+      hotkeyIsUnsafe(edit) || transcribe == polish || transcribe == edit ||
+      polish == edit) {
+    FCITX_WARN()
+        << "VoCoType shortcut is unsafe or duplicated; restoring defaults";
+    transcribe = default_transcribe;
+    polish = default_polish;
+    edit = default_edit;
+  }
 
-    auto modifier = config_.longModeModifier.value().normalize();
-    auto modifier_state = fcitx::Key::keySymToStates(modifier.sym());
-    if (!modifier.isValid() || modifier_state == fcitx::KeyState::NoState) {
-        modifier_state = fcitx::KeyState::Shift;
-    }
-
-    ptt_key_sym_ = ptt_key.sym();
-    ptt_key_name_ = ptt_key.toString();
+  transcribe_key_ = transcribe;
+  polish_key_ = polish;
+  edit_key_ = edit;
+  hotkey_summary_ = transcribe_key_.toString() + " / " +
+                    polish_key_.toString() + " / " + edit_key_.toString();
     ptt_hold_threshold_ms_ = config_.pttHoldThresholdMs.value();
     min_recording_ms_ = std::max(0, config_.minRecordingMs.value());
-    long_mode_modifier_ = modifier_state;
     polish_min_chars_ = std::max(0, config_.polishMinChars.value());
     polish_timeout_ms_ = std::max(1000, config_.polishTimeoutMs.value());
     enable_thinking_ = config_.enableThinking.value();
@@ -360,12 +432,108 @@ bool VoCoTypeModule::hasActiveComposition(fcitx::InputContext *ic) const {
            static_cast<bool>(panel.candidateList());
 }
 
-bool VoCoTypeModule::polishModeForStates(fcitx::KeyStates states) const {
-    return static_cast<bool>(states & long_mode_modifier_);
+bool VoCoTypeModule::hotkeyMatches(const fcitx::Key &key,
+                                   const fcitx::Key &configured) {
+  if (!configured.isValid()) {
+    return false;
+  }
+  return key.normalize().check(configured.normalize());
 }
 
-bool VoCoTypeModule::editModeForStates(fcitx::KeyStates states) const {
-    return static_cast<bool>(states & fcitx::KeyState::Ctrl);
+bool VoCoTypeModule::hotkeyReleaseMatches(const fcitx::Key &key,
+                                          const fcitx::Key &configured) {
+  if (!configured.isValid() || key.sym() != configured.sym()) {
+    return false;
+  }
+  if (fcitx::Key::keySymToStates(configured.sym()) !=
+      fcitx::KeyState::NoState) {
+    return key.isReleaseOfModifier(configured) ||
+           hotkeyMatches(key, configured);
+  }
+  return true;
+}
+
+bool VoCoTypeModule::hotkeyIsUnsafe(const fcitx::Key &configured) {
+  const auto key = configured.normalize();
+  if (!key.isValid()) {
+    return true;
+  }
+  const auto states = key.states();
+  const bool strong_modifier = states.testAny(fcitx::KeyStates{
+      fcitx::KeyState::Ctrl, fcitx::KeyState::Alt, fcitx::KeyState::Super,
+      fcitx::KeyState::Hyper, fcitx::KeyState::Meta});
+  const auto sym = key.sym();
+  if (!strong_modifier && sym >= FcitxKey_space && sym <= FcitxKey_asciitilde) {
+    return true;
+  }
+  if (!strong_modifier) {
+    switch (sym) {
+    case FcitxKey_space:
+    case FcitxKey_Tab:
+    case FcitxKey_ISO_Left_Tab:
+    case FcitxKey_Return:
+    case FcitxKey_KP_Enter:
+    case FcitxKey_BackSpace:
+    case FcitxKey_Delete:
+    case FcitxKey_Insert:
+    case FcitxKey_Left:
+    case FcitxKey_Right:
+    case FcitxKey_Up:
+    case FcitxKey_Down:
+    case FcitxKey_Home:
+    case FcitxKey_End:
+    case FcitxKey_Page_Up:
+    case FcitxKey_Page_Down:
+    case FcitxKey_Escape:
+    case FcitxKey_Caps_Lock:
+    case FcitxKey_Num_Lock:
+    case FcitxKey_Scroll_Lock:
+    case FcitxKey_Shift_L:
+    case FcitxKey_Shift_R:
+    case FcitxKey_Control_L:
+    case FcitxKey_Alt_L:
+    case FcitxKey_Super_L:
+    case FcitxKey_Meta_L:
+    case FcitxKey_Hyper_L:
+      return true;
+    default:
+      break;
+    }
+  }
+  const std::string normalized = toLower(key.toString());
+  static const std::unordered_set<std::string> reserved = {
+      "control+a", "control+c", "control+f", "control+n",  "control+o",
+      "control+p", "control+q", "control+r", "control+s",  "control+t",
+      "control+v", "control+w", "control+x", "control+z",  "control+space",
+      "alt+f4",    "alt+tab",   "super+l",   "super+space"};
+  return reserved.contains(normalized);
+}
+
+VoCoTypeModule::VoiceHotkeyMode
+VoCoTypeModule::hotkeyModeForKey(const fcitx::Key &key) const {
+  if (hotkeyMatches(key, edit_key_)) {
+    return VoiceHotkeyMode::Edit;
+  }
+  if (hotkeyMatches(key, polish_key_)) {
+    return VoiceHotkeyMode::Polish;
+  }
+  if (hotkeyMatches(key, transcribe_key_)) {
+    return VoiceHotkeyMode::Transcribe;
+  }
+  return VoiceHotkeyMode::None;
+}
+
+const fcitx::Key &VoCoTypeModule::hotkeyForMode(VoiceHotkeyMode mode) const {
+  switch (mode) {
+  case VoiceHotkeyMode::Polish:
+    return polish_key_;
+  case VoiceHotkeyMode::Edit:
+    return edit_key_;
+  case VoiceHotkeyMode::Transcribe:
+  case VoiceHotkeyMode::None:
+    return transcribe_key_;
+  }
+  return transcribe_key_;
 }
 
 std::string VoCoTypeModule::inputContextId(fcitx::InputContext *ic) {
@@ -380,8 +548,7 @@ std::string VoCoTypeModule::inputContextId(fcitx::InputContext *ic) {
     return stream.str();
 }
 
-bool VoCoTypeModule::captureVoiceEditSnapshot(
-    fcitx::InputContext *ic,
+bool VoCoTypeModule::captureVoiceEditSnapshot(fcitx::InputContext *ic,
     VoiceEditSnapshot &snapshot,
     std::string &error) const {
     snapshot = VoiceEditSnapshot();
@@ -405,8 +572,7 @@ bool VoCoTypeModule::captureVoiceEditSnapshot(
 }
 
 bool VoCoTypeModule::voiceEditSnapshotStillMatches(
-    fcitx::InputContext *ic,
-    const VoiceEditSnapshot &snapshot) const {
+    fcitx::InputContext *ic, const VoiceEditSnapshot &snapshot) const {
     if (!ic || !snapshot.valid || !ic->hasFocus()) {
         return false;
     }
@@ -425,9 +591,7 @@ void VoCoTypeModule::showTemporaryMessage(fcitx::InputContext *ic,
     showPanelMessage(ic, message);
     auto ic_ref = ic->watch();
     edit_hint_timer_ = instance_->eventLoop().addTimeEvent(
-        CLOCK_MONOTONIC,
-        fcitx::now(CLOCK_MONOTONIC) + 1200000ULL,
-        0,
+      CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 1200000ULL, 0,
         [this, ic_ref](fcitx::EventSourceTime *, uint64_t) {
             edit_hint_timer_.reset();
             auto *ic_ptr = ic_ref.get();
@@ -440,8 +604,7 @@ void VoCoTypeModule::showTemporaryMessage(fcitx::InputContext *ic,
 }
 
 void VoCoTypeModule::runVoiceEditKeyActions(
-    fcitx::InputContext *ic,
-    const std::vector<EditKeyAction> &actions) {
+    fcitx::InputContext *ic, const std::vector<EditKeyAction> &actions) {
     if (!ic || !ic->hasFocus()) {
         return;
     }
@@ -514,22 +677,18 @@ void VoCoTypeModule::runVoiceEditKeyActions(
     }
 }
 
-void VoCoTypeModule::confirmVoiceEditApplied(
-    const VoiceEditSnapshot &snapshot,
+void VoCoTypeModule::confirmVoiceEditApplied(const VoiceEditSnapshot &snapshot,
     const std::string &new_text,
     bool record_history) {
     const std::string socket_path = backend_socket_path_;
     std::thread([socket_path, snapshot, new_text, record_history]() {
         IPCClient client(socket_path);
-        (void)client.confirmEditApplied(snapshot.context_id,
-                                        snapshot.text,
-                                        new_text,
-                                        record_history);
+    (void)client.confirmEditApplied(snapshot.context_id, snapshot.text,
+                                    new_text, record_history);
     }).detach();
 }
 
-void VoCoTypeModule::replaceSurroundingText(
-    fcitx::InputContext *ic,
+void VoCoTypeModule::replaceSurroundingText(fcitx::InputContext *ic,
     const VoiceEditSnapshot &snapshot,
     const std::string &new_text,
     bool record_history,
@@ -568,8 +727,7 @@ void VoCoTypeModule::replaceSurroundingText(
     active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
 }
 
-void VoCoTypeModule::applyVoiceEditResult(
-    fcitx::InputContext *ic,
+void VoCoTypeModule::applyVoiceEditResult(fcitx::InputContext *ic,
     const VoiceEditSnapshot &snapshot,
     const VoiceEditResult &result) {
     if (!ic || !ic->hasFocus()) {
@@ -577,8 +735,7 @@ void VoCoTypeModule::applyVoiceEditResult(
         return;
     }
     if (!result.success) {
-        showVoiceEditFailure(
-            ic,
+    showVoiceEditFailure(ic,
             result.error.empty() ? "语音编辑失败" : result.error,
             result.instruction);
         active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
@@ -613,8 +770,7 @@ void VoCoTypeModule::applyVoiceEditResult(
             commitText(ic, result.new_text);
             confirmVoiceEditApplied(
                 snapshot,
-                result.expected_text.empty() ? result.new_text
-                                             : result.expected_text,
+          result.expected_text.empty() ? result.new_text : result.expected_text,
                 result.record_history);
         }
         if (!result.hint.empty()) {
@@ -624,10 +780,7 @@ void VoCoTypeModule::applyVoiceEditResult(
         return;
     }
 
-    replaceSurroundingText(ic,
-                           snapshot,
-                           result.new_text,
-                           result.record_history,
+  replaceSurroundingText(ic, snapshot, result.new_text, result.record_history,
                            result.hint);
 }
 
@@ -658,16 +811,27 @@ void VoCoTypeModule::handleKeyEvent(fcitx::KeyEvent &event) {
             return;
         }
     }
-    if (key.sym() != ptt_key_sym_) {
+
+  if (event.isRelease()) {
+    if ((is_recording_ || ptt_pressed_) &&
+        hotkeyReleaseMatches(key, active_hotkey_)) {
+      armPendingPttRelease(ic);
+      event.filterAndAccept();
+    }
         return;
     }
 
-    if (!event.isRelease()) {
+  const auto mode = hotkeyModeForKey(key);
+  if (mode == VoiceHotkeyMode::None) {
+    return;
+  }
+  const auto &configured_hotkey = hotkeyForMode(mode);
+
         // X11 autorepeat may arrive as a synthetic release immediately followed
         // by another press. Keep the current PTT session alive when that press
         // lands inside the release grace window. ReportKeyRepeat frontends also
         // mark repeated presses explicitly on rawKey().
-        if (ptt_release_timer_) {
+  if (ptt_release_timer_ && hotkeyMatches(key, active_hotkey_)) {
             cancelPendingPttRelease();
             event.filterAndAccept();
             return;
@@ -678,24 +842,22 @@ void VoCoTypeModule::handleKeyEvent(fcitx::KeyEvent &event) {
         }
         if (!is_recording_ && !ptt_pressed_) {
             if (block_when_composing_ && hasActiveComposition(ic)) {
-                FCITX_INFO() << "VoCoType hotkey ignored because current input method has active composition";
+      FCITX_INFO() << "VoCoType hotkey ignored because current input method "
+                      "has active composition";
                 event.filterAndAccept();
                 return;
             }
-            const bool edit_mode = editModeForStates(key.states());
+    const bool edit_mode = mode == VoiceHotkeyMode::Edit;
             VoiceEditSnapshot edit_snapshot;
             if (edit_mode) {
                 std::string error;
                 if (!captureVoiceEditSnapshot(ic, edit_snapshot, error)) {
-                    editDebugLog("native_snapshot_unavailable program=" + ic->program() +
-                                 " frontend=" +
-                                 std::string(ic->frontend() ? ic->frontend() : "") +
-                                 " flags=" +
-                                 std::to_string(ic->capabilityFlags().toInteger()) +
+        editDebugLog(
+            "native_snapshot_unavailable program=" + ic->program() +
+            " frontend=" + std::string(ic->frontend() ? ic->frontend() : "") +
+            " flags=" + std::to_string(ic->capabilityFlags().toInteger()) +
                                  " reason=" + error);
-                    showError(ic,
-                              error.empty()
-                                  ? "当前输入框未通过输入法接口提供上下文"
+        showError(ic, error.empty() ? "当前输入框未通过输入法接口提供上下文"
                                   : error);
                     event.filterAndAccept();
                     return;
@@ -706,19 +868,12 @@ void VoCoTypeModule::handleKeyEvent(fcitx::KeyEvent &event) {
                              " bytes=" + std::to_string(edit_snapshot.text.size()) +
                              " text=" + debugClip(edit_snapshot.text));
             }
-            pending_ptt_states_ = key.states();
+    pending_ptt_key_ = key.normalize();
+    active_hotkey_ = configured_hotkey;
             active_ic_ = ic->watch();
-            armPendingRecordingStart(
-                ic,
-                !edit_mode && polishModeForStates(key.states()),
-                edit_mode,
+    armPendingRecordingStart(ic, mode == VoiceHotkeyMode::Polish, edit_mode,
                 edit_snapshot);
         }
-    } else if (is_recording_ || ptt_pressed_) {
-        armPendingPttRelease(ic);
-    } else {
-        cancelPendingRecordingStart();
-    }
 
     event.filterAndAccept();
 }
@@ -734,7 +889,8 @@ void VoCoTypeModule::handleFocusOut(fcitx::InputContextEvent &event) {
     edit_hint_timer_.reset();
     cancelPendingPttRelease();
     if (is_recording_) {
-        FCITX_INFO() << "Input focus changed while recording; cancelling VoCoType session";
+    FCITX_INFO()
+        << "Input focus changed while recording; cancelling VoCoType session";
         stopRecording(false);
         active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
     } else {
@@ -745,9 +901,7 @@ void VoCoTypeModule::handleFocusOut(fcitx::InputContextEvent &event) {
 }
 
 void VoCoTypeModule::armPendingRecordingStart(
-    fcitx::InputContext *ic,
-    bool long_mode,
-    bool edit_mode,
+    fcitx::InputContext *ic, bool long_mode, bool edit_mode,
     const VoiceEditSnapshot &edit_snapshot) {
     cancelPendingRecordingStart();
     ptt_pressed_ = true;
@@ -765,17 +919,14 @@ void VoCoTypeModule::armPendingRecordingStart(
         CLOCK_MONOTONIC,
         fcitx::now(CLOCK_MONOTONIC) +
             static_cast<uint64_t>(ptt_hold_threshold_ms_) * 1000ULL,
-        0,
-        [this, ic_ref](fcitx::EventSourceTime *, uint64_t) {
+      0, [this, ic_ref](fcitx::EventSourceTime *, uint64_t) {
             ptt_hold_timer_.reset();
             auto *ic_ptr = ic_ref.get();
             if (!ptt_pressed_ || is_recording_ || !ic_ptr || !ic_ptr->hasFocus()) {
                 cancelPendingRecordingStart();
                 return false;
             }
-            startRecording(ic_ptr,
-                           pending_long_mode_,
-                           pending_edit_mode_,
+        startRecording(ic_ptr, pending_long_mode_, pending_edit_mode_,
                            pending_edit_snapshot_);
             return false;
         });
@@ -788,7 +939,8 @@ void VoCoTypeModule::cancelPendingRecordingStart() {
     pending_long_mode_ = false;
     pending_edit_mode_ = false;
     pending_edit_snapshot_ = VoiceEditSnapshot();
-    pending_ptt_states_ = fcitx::KeyState::NoState;
+  pending_ptt_key_ = fcitx::Key();
+  active_hotkey_ = fcitx::Key();
     ptt_hold_timer_.reset();
 }
 
@@ -797,8 +949,7 @@ void VoCoTypeModule::armPendingPttRelease(fcitx::InputContext *ic) {
     auto ic_ref = ic->watch();
     ptt_release_timer_ = instance_->eventLoop().addTimeEvent(
         CLOCK_MONOTONIC,
-        fcitx::now(CLOCK_MONOTONIC) + PTT_AUTOREPEAT_RELEASE_GRACE_US,
-        0,
+      fcitx::now(CLOCK_MONOTONIC) + PTT_AUTOREPEAT_RELEASE_GRACE_US, 0,
         [this, ic_ref](fcitx::EventSourceTime *, uint64_t) {
             ptt_release_timer_.reset();
             auto *ic_ptr = ic_ref.get();
@@ -816,22 +967,21 @@ void VoCoTypeModule::armPendingPttRelease(fcitx::InputContext *ic) {
     ptt_release_timer_->setOneShot();
 }
 
-void VoCoTypeModule::cancelPendingPttRelease() {
-    ptt_release_timer_.reset();
-}
+void VoCoTypeModule::cancelPendingPttRelease() { ptt_release_timer_.reset(); }
 
 void VoCoTypeModule::replayShortTapAsRegularKey(fcitx::InputContext *ic) {
-    const auto states = pending_ptt_states_;
+  const auto key = pending_ptt_key_;
     cancelPendingRecordingStart();
     active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
+  if (!key.isValid()) {
+    return;
+  }
     const int time = 0;
-    ic->forwardKey(fcitx::Key(ptt_key_sym_, states), false, time);
-    ic->forwardKey(fcitx::Key(ptt_key_sym_, states), true, time);
+  ic->forwardKey(key, false, time);
+  ic->forwardKey(key, true, time);
 }
 
-void VoCoTypeModule::startRecording(
-    fcitx::InputContext *ic,
-    bool long_mode,
+void VoCoTypeModule::startRecording(fcitx::InputContext *ic, bool long_mode,
     bool edit_mode,
     const VoiceEditSnapshot &edit_snapshot) {
     edit_hint_timer_.reset();
@@ -854,23 +1004,20 @@ void VoCoTypeModule::startRecording(
         showPanelMessage(ic, "⏳ 正在启动语音后台...");
         std::thread([this, ic_ref, socket_path, long_mode, edit_mode,
                      edit_snapshot]() {
-            const bool ready = startBackendUserService() &&
-                               waitForBackend(socket_path, 45000);
+      const bool ready =
+          startBackendUserService() && waitForBackend(socket_path, 45000);
             scheduleWithContext(
-                ic_ref, [this, ic_ref, ready, long_mode, edit_mode,
-                         edit_snapshot]() {
+          ic_ref, [this, ic_ref, ready, long_mode, edit_mode, edit_snapshot]() {
                     backend_start_pending_.store(false);
                     auto *context = ic_ref.get();
                     if (!context || !context->hasFocus()) {
                         return;
                     }
                     if (!ready) {
-                        showError(context,
-                                  "语音后台启动失败，请在设置中心运行诊断");
+              showError(context, "语音后台启动失败，请在设置中心运行诊断");
                         return;
                     }
-                    startRecording(context, long_mode, edit_mode,
-                                   edit_snapshot);
+            startRecording(context, long_mode, edit_mode, edit_snapshot);
                 });
         }).detach();
         return;
@@ -941,8 +1088,8 @@ void VoCoTypeModule::startRecording(
 
     active_voice_session_id_ = ++voice_session_counter_;
     recording_voice_session_id_ = active_voice_session_id_;
-    editDebugLog("recording_start session=" +
-                 std::to_string(recording_voice_session_id_) +
+  editDebugLog(
+      "recording_start session=" + std::to_string(recording_voice_session_id_) +
                  " edit=" + std::to_string(edit_mode) +
                  " context_bytes=" + std::to_string(edit_snapshot.text.size()));
     recorder_pid_ = pid;
@@ -966,13 +1113,12 @@ void VoCoTypeModule::startRecording(
     const uint64_t generation = ++recording_generation_;
     auto output_state = recorder_output_state_;
     auto ic_ref = active_ic_;
-    recorder_output_thread_ = std::thread(
-        [this, stdout_file, output_state, ic_ref, generation]() {
+  recorder_output_thread_ = std::thread([this, stdout_file, output_state,
+                                         ic_ref, generation]() {
             char buffer[65536];
             while (fgets(buffer, sizeof(buffer), stdout_file) != nullptr) {
                 std::string line(buffer);
-                while (!line.empty() &&
-                       (line.back() == '\n' || line.back() == '\r')) {
+      while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) {
                     line.pop_back();
                 }
                 if (line.empty()) {
@@ -987,11 +1133,9 @@ void VoCoTypeModule::startRecording(
                     } else if (type == "partial") {
                         const std::string text = event.value("text", "");
                         if (!text.empty()) {
-                            scheduleWithContext(
-                                ic_ref, [this, ic_ref, generation, text]() {
+            scheduleWithContext(ic_ref, [this, ic_ref, generation, text]() {
                                     auto *ic_ptr = ic_ref.get();
-                                    if (!ic_ptr || !ic_ptr->hasFocus() ||
-                                        !is_recording_ ||
+              if (!ic_ptr || !ic_ptr->hasFocus() || !is_recording_ ||
                                         generation != recording_generation_) {
                                         return;
                                     }
@@ -1014,25 +1158,19 @@ void VoCoTypeModule::startRecording(
     if (long_mode || edit_mode) {
     }
     if (edit_mode) {
-        showVoiceEditStatusBar(ic,
-                               "🎤 语音编辑中...",
+    showVoiceEditStatusBar(ic, "🎤 语音编辑中...",
                                "松开 Ctrl+F9 后识别编辑指令");
     } else if (animate_panel_) {
-        startPanelAnimation(
-            ic,
-            long_mode ? PanelAnimationKind::RecordingLong
+    startPanelAnimation(ic, long_mode ? PanelAnimationKind::RecordingLong
                       : PanelAnimationKind::Recording);
 
     } else {
-        recording_status_text_ =
-            long_mode ? "🎤 录音中(长句)..." : "🎤 录音中...";
+    recording_status_text_ = long_mode ? "🎤 录音中(长句)..." : "🎤 录音中...";
         renderRecordingPanel(ic, recording_status_text_);
     }
 }
 
-void VoCoTypeModule::stopAndTranscribe() {
-    stopRecording(true);
-}
+void VoCoTypeModule::stopAndTranscribe() { stopRecording(true); }
 
 void VoCoTypeModule::stopRecording(bool transcribe) {
     cancelPendingPttRelease();
@@ -1078,18 +1216,14 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
     auto ic_ref = active_ic_;
     auto *ic = ic_ref.get();
     if (ic && recording_too_short && ic->hasFocus()) {
-        showTemporaryMessage(
-            ic,
-            "⚠️ 录音过短（至少 " + std::to_string(min_recording_ms_) +
-                " ms）");
+    showTemporaryMessage(ic, "⚠️ 录音过短（至少 " +
+                                 std::to_string(min_recording_ms_) + " ms）");
         active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
     } else if (ic && transcribe && ic->hasFocus()) {
         // Release is a synchronous UI boundary: never leave the recording
         // animation visible while the recorder process is flushing.
         if (edit_mode) {
-            showVoiceEditStatusBar(
-                ic,
-                "✍️ 正在识别编辑指令...",
+      showVoiceEditStatusBar(ic, "✍️ 正在识别编辑指令...",
                 "指令：等待识别结果...");
         } else {
             showPanelMessage(ic, "⏳ 识别中");
@@ -1124,9 +1258,8 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
         }
 
         if (edit_mode) {
-            scheduleWithContext(
-                ic_ref,
-                [this, ic_ref, audio_path, edit_snapshot, session_id]() mutable {
+      scheduleWithContext(ic_ref, [this, ic_ref, audio_path, edit_snapshot,
+                                   session_id]() mutable {
                     auto *ic_ptr = ic_ref.get();
                     if (!ic_ptr || !ic_ptr->hasFocus() || session_id == 0 ||
                         session_id != active_voice_session_id_) {
@@ -1138,21 +1271,17 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
                     if (audio_path.empty()) {
                         showVoiceEditFailure(ic_ptr, "录音失败", "");
                         active_voice_session_id_ = 0;
-                        active_ic_ =
-                            fcitx::TrackableObjectReference<fcitx::InputContext>();
+          active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
                         return;
                     }
                     if (!edit_snapshot.valid) {
                         std::remove(audio_path.c_str());
-                        showVoiceEditFailure(
-                            ic_ptr, "编辑上下文无效，请重试", "");
+          showVoiceEditFailure(ic_ptr, "编辑上下文无效，请重试", "");
                         active_voice_session_id_ = 0;
-                        active_ic_ =
-                            fcitx::TrackableObjectReference<fcitx::InputContext>();
+          active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
                         return;
                     }
-                    launchVoiceEditTask(
-                        ic_ref, audio_path, edit_snapshot, session_id);
+        launchVoiceEditTask(ic_ref, audio_path, edit_snapshot, session_id);
                 });
             return;
         }
@@ -1163,18 +1292,14 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
                 start_result.error = "录音失败";
             } else {
                 start_result = ipc_client_->startTranscription(
-                    audio_path,
-                    true,
-                    polish_min_chars_,
-                    polish_timeout_ms_,
+            audio_path, true, polish_min_chars_, polish_timeout_ms_,
                     enable_thinking_);
                 if (!start_result.success || start_result.task_id.empty()) {
                     std::remove(audio_path.c_str());
                 }
             }
 
-            scheduleWithContext(
-                ic_ref, [this, ic_ref, start_result]() {
+      scheduleWithContext(ic_ref, [this, ic_ref, start_result]() {
                     auto *ic_ptr = ic_ref.get();
                     if (!ic_ptr || !ic_ptr->hasFocus()) {
                         if (start_result.success && !start_result.task_id.empty()) {
@@ -1191,9 +1316,8 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
                     if (start_result.success && !start_result.task_id.empty()) {
                         startPolishPolling(ic_ptr, start_result.task_id);
                     } else {
-                        showError(
-                            ic_ptr,
-                            start_result.error.empty() ? "转录失败" : start_result.error);
+          showError(ic_ptr, start_result.error.empty() ? "转录失败"
+                                                       : start_result.error);
                     }
                 });
             return;
@@ -1207,21 +1331,19 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
             std::remove(audio_path.c_str());
         }
 
-        scheduleWithContext(
-            ic_ref, [this, ic_ref, result]() {
+    scheduleWithContext(ic_ref, [this, ic_ref, result]() {
                 auto *ic_ptr = ic_ref.get();
                 if (!ic_ptr || !ic_ptr->hasFocus()) {
-                    FCITX_INFO() << "Discarded transcription because original input context lost focus";
+        FCITX_INFO() << "Discarded transcription because original input "
+                        "context lost focus";
                     active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
                     return;
                 }
                 bool keep_context_for_fallback = false;
                 if (result.success && !result.text.empty()) {
-                    commitText(ic_ptr, result.text,
-                               strip_trailing_period_on_commit_);
+        commitText(ic_ptr, result.text, strip_trailing_period_on_commit_);
                 } else if (!result.success) {
-                    showError(ic_ptr,
-                              result.error.empty() ? "转录失败" : result.error,
+        showError(ic_ptr, result.error.empty() ? "转录失败" : result.error,
                               result.original_text);
                     keep_context_for_fallback = !result.original_text.empty();
                 } else {
@@ -1236,8 +1358,7 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
 
 void VoCoTypeModule::launchVoiceEditTask(
     fcitx::TrackableObjectReference<fcitx::InputContext> ic_ref,
-    const std::string &audio_path,
-    const VoiceEditSnapshot &snapshot,
+    const std::string &audio_path, const VoiceEditSnapshot &snapshot,
     uint64_t session_id) {
     std::thread([this, ic_ref, audio_path, snapshot, session_id]() {
         VoiceEditStartResult start_result;
@@ -1245,14 +1366,8 @@ void VoCoTypeModule::launchVoiceEditTask(
             start_result.error = "录音失败";
         } else {
             start_result = ipc_client_->startVoiceEdit(
-                audio_path,
-                snapshot.context_id,
-                snapshot.text,
-                snapshot.cursor,
-                snapshot.anchor,
-                snapshot.selected_text,
-                "supported",
-                true);
+          audio_path, snapshot.context_id, snapshot.text, snapshot.cursor,
+          snapshot.anchor, snapshot.selected_text, "supported", true);
             // A successful async start transfers ownership of the audio file
             // to the backend task. Failed starts leave cleanup to the module.
             if (!start_result.success || start_result.task_id.empty()) {
@@ -1260,9 +1375,8 @@ void VoCoTypeModule::launchVoiceEditTask(
             }
         }
 
-        scheduleWithContext(
-            ic_ref,
-            [this, ic_ref, snapshot, session_id, start_result]() {
+    scheduleWithContext(ic_ref, [this, ic_ref, snapshot, session_id,
+                                 start_result]() {
                 auto *ic_ptr = ic_ref.get();
                 const bool current =
                     session_id != 0 && session_id == active_voice_session_id_;
@@ -1278,25 +1392,20 @@ void VoCoTypeModule::launchVoiceEditTask(
                     return;
                 }
                 if (!start_result.success || start_result.task_id.empty()) {
-                    showVoiceEditFailure(
-                        ic_ptr,
-                        start_result.error.empty()
-                            ? "启动语音编辑任务失败"
+        showVoiceEditFailure(ic_ptr,
+                             start_result.error.empty() ? "启动语音编辑任务失败"
                             : start_result.error,
                         "");
                     active_voice_session_id_ = 0;
-                    active_ic_ =
-                        fcitx::TrackableObjectReference<fcitx::InputContext>();
+        active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
                     return;
                 }
-                startVoiceEditPolling(
-                    ic_ptr, start_result.task_id, snapshot, session_id);
+      startVoiceEditPolling(ic_ptr, start_result.task_id, snapshot, session_id);
             });
     }).detach();
 }
 
-void VoCoTypeModule::startVoiceEditPolling(
-    fcitx::InputContext *ic,
+void VoCoTypeModule::startVoiceEditPolling(fcitx::InputContext *ic,
     const std::string &task_id,
     const VoiceEditSnapshot &snapshot,
     uint64_t session_id) {
@@ -1320,13 +1429,10 @@ void VoCoTypeModule::scheduleVoiceEditPoll(
         return;
     }
     voice_edit_poll_timer_ = instance_->eventLoop().addTimeEvent(
-        CLOCK_MONOTONIC,
-        fcitx::now(CLOCK_MONOTONIC) + POLISH_POLL_INTERVAL_US,
-        0,
+      CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + POLISH_POLL_INTERVAL_US, 0,
         [this, ic_ref](fcitx::EventSourceTime *, uint64_t) {
             voice_edit_poll_timer_.reset();
-            if (active_voice_edit_task_id_.empty() ||
-                voice_edit_poll_in_flight_) {
+        if (active_voice_edit_task_id_.empty() || voice_edit_poll_in_flight_) {
                 return false;
             }
             const std::string task_id = active_voice_edit_task_id_;
@@ -1340,8 +1446,7 @@ void VoCoTypeModule::scheduleVoiceEditPoll(
                         voice_edit_poll_in_flight_ = false;
                         auto *ic_ptr = ic_ref.get();
                         if (!ic_ptr || !ic_ptr->hasFocus() ||
-                            task_id != active_voice_edit_task_id_ ||
-                            session_id == 0 ||
+                    task_id != active_voice_edit_task_id_ || session_id == 0 ||
                             session_id != active_voice_edit_session_id_ ||
                             session_id != active_voice_session_id_) {
                             return;
@@ -1355,8 +1460,7 @@ void VoCoTypeModule::scheduleVoiceEditPoll(
 }
 
 void VoCoTypeModule::handleVoiceEditPollResult(
-    fcitx::InputContext *ic,
-    const VoiceEditPollResult &result) {
+    fcitx::InputContext *ic, const VoiceEditPollResult &result) {
     if (!result.instruction.empty() &&
         result.instruction != active_voice_edit_instruction_) {
         active_voice_edit_instruction_ = result.instruction;
@@ -1369,15 +1473,15 @@ void VoCoTypeModule::handleVoiceEditPollResult(
         active_voice_edit_snapshot_ = VoiceEditSnapshot();
         voice_edit_poll_timer_.reset();
         showVoiceEditFailure(
-            ic,
-            result.error.empty() ? "读取语音编辑任务失败" : result.error,
+        ic, result.error.empty() ? "读取语音编辑任务失败" : result.error,
             instruction);
         active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
         return;
     }
 
     if (result.status == "final") {
-        editDebugLog("edit_task_final id=" + active_voice_edit_task_id_ +
+    editDebugLog(
+        "edit_task_final id=" + active_voice_edit_task_id_ +
                      " instruction=" + debugClip(active_voice_edit_instruction_) +
                      " result_bytes=" + std::to_string(result.result.new_text.size()));
         VoiceEditResult edit_result = result.result;
@@ -1403,22 +1507,17 @@ void VoCoTypeModule::handleVoiceEditPollResult(
         active_voice_edit_snapshot_ = VoiceEditSnapshot();
         voice_edit_poll_timer_.reset();
         showVoiceEditFailure(
-            ic,
-            result.error.empty() ? "语音编辑失败" : result.error,
-            instruction);
+        ic, result.error.empty() ? "语音编辑失败" : result.error, instruction);
         active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
         return;
     }
 
-    showVoiceEditProgress(
-        ic,
-        result.phase.empty() ? "asr" : result.phase,
+  showVoiceEditProgress(ic, result.phase.empty() ? "asr" : result.phase,
         active_voice_edit_instruction_);
     scheduleVoiceEditPoll(ic->watch());
 }
 
-void VoCoTypeModule::showVoiceEditStatusBar(
-    fcitx::InputContext *ic,
+void VoCoTypeModule::showVoiceEditStatusBar(fcitx::InputContext *ic,
     const std::string &title,
     const std::string &detail) {
     if (!ic || !ic->hasFocus()) {
@@ -1443,29 +1542,21 @@ void VoCoTypeModule::showVoiceEditStatusBar(
         panel.setAuxDown(auxiliary);
     }
     ic->updatePreedit();
-    ic->updateUserInterface(
-        fcitx::UserInterfaceComponent::InputPanel, true);
+  ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel, true);
 }
 
-void VoCoTypeModule::showVoiceEditProgress(
-    fcitx::InputContext *ic,
+void VoCoTypeModule::showVoiceEditProgress(fcitx::InputContext *ic,
     const std::string &phase,
     const std::string &instruction) {
     showVoiceEditStatusBar(
-        ic,
-        phase == "asr" ? "✍️ 正在识别编辑指令..."
-                       : "✨ 正在执行编辑...",
-        instruction.empty() ? "指令：等待识别结果..."
-                            : "指令：" + instruction);
+      ic, phase == "asr" ? "✍️ 正在识别编辑指令..." : "✨ 正在执行编辑...",
+      instruction.empty() ? "指令：等待识别结果..." : "指令：" + instruction);
 }
 
-void VoCoTypeModule::showVoiceEditFailure(
-    fcitx::InputContext *ic,
+void VoCoTypeModule::showVoiceEditFailure(fcitx::InputContext *ic,
     const std::string &error,
     const std::string &instruction) {
-    showVoiceEditStatusBar(
-        ic,
-        "❌ " + error,
+  showVoiceEditStatusBar(ic, "❌ " + error,
         instruction.empty() ? "" : "识别指令：" + instruction);
 }
 
@@ -1507,9 +1598,7 @@ void VoCoTypeModule::schedulePolishPoll(
     }
 
     polish_poll_timer_ = instance_->eventLoop().addTimeEvent(
-        CLOCK_MONOTONIC,
-        fcitx::now(CLOCK_MONOTONIC) + POLISH_POLL_INTERVAL_US,
-        0,
+      CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + POLISH_POLL_INTERVAL_US, 0,
         [this, ic_ref](fcitx::EventSourceTime *, uint64_t) {
             polish_poll_timer_.reset();
             if (active_polish_task_id_.empty() || polish_poll_in_flight_) {
@@ -1522,8 +1611,7 @@ void VoCoTypeModule::schedulePolishPoll(
             std::thread([this, ic_ref, task_id, after_seq]() {
                 const PolishPollResult result =
                     ipc_client_->pollPolishTask(task_id, after_seq);
-                scheduleWithContext(
-                    ic_ref, [this, ic_ref, task_id, result]() {
+          scheduleWithContext(ic_ref, [this, ic_ref, task_id, result]() {
                         polish_poll_in_flight_ = false;
                         auto *ic_ptr = ic_ref.get();
                         if (!ic_ptr || !ic_ptr->hasFocus() ||
@@ -1538,16 +1626,14 @@ void VoCoTypeModule::schedulePolishPoll(
     polish_poll_timer_->setOneShot();
 }
 
-void VoCoTypeModule::handlePolishPollResult(
-    fcitx::InputContext *ic,
+void VoCoTypeModule::handlePolishPollResult(fcitx::InputContext *ic,
     const PolishPollResult &result) {
     if (!result.success) {
         const std::string fallback = active_polish_original_;
         active_polish_task_id_.clear();
         active_polish_started_us_ = 0;
         polish_poll_timer_.reset();
-        showError(ic,
-                  result.error.empty() ? "润色任务失败" : result.error,
+    showError(ic, result.error.empty() ? "润色任务失败" : result.error,
                   fallback);
         return;
     }
@@ -1567,9 +1653,8 @@ void VoCoTypeModule::handlePolishPollResult(
     }
 
     if (result.status == "final") {
-        const std::string final_text = result.final_text.empty()
-                                           ? active_polish_preview_
-                                           : result.final_text;
+    const std::string final_text =
+        result.final_text.empty() ? active_polish_preview_ : result.final_text;
         active_polish_task_id_.clear();
         polish_poll_timer_.reset();
         active_polish_preview_.clear();
@@ -1600,13 +1685,11 @@ void VoCoTypeModule::handlePolishPollResult(
         return;
     }
 
-    showPolishProgress(ic, active_polish_preview_,
-                       active_polish_original_);
+  showPolishProgress(ic, active_polish_preview_, active_polish_original_);
     schedulePolishPoll(ic->watch());
 }
 
-void VoCoTypeModule::showPolishProgress(
-    fcitx::InputContext *ic,
+void VoCoTypeModule::showPolishProgress(fcitx::InputContext *ic,
     const std::string &preview,
     const std::string &original_text) {
     stopPanelAnimation();
@@ -1632,8 +1715,7 @@ void VoCoTypeModule::showPolishProgress(
     auto candidates = std::make_unique<fcitx::CommonCandidateList>();
     candidates->setPageSize(2);
     fcitx::Text original;
-    original.append(original_text.empty()
-                        ? "粗识别文本：等待识别结果..."
+  original.append(original_text.empty() ? "粗识别文本：等待识别结果..."
                         : "粗识别文本：" + original_text);
     candidates->append<fcitx::DisplayOnlyCandidateWord>(original);
     if (!preview.empty()) {
@@ -1683,8 +1765,8 @@ void VoCoTypeModule::showPanelMessage(fcitx::InputContext *ic,
     ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
 }
 
-void VoCoTypeModule::renderRecordingPanel(
-    fcitx::InputContext *ic, const std::string &status) {
+void VoCoTypeModule::renderRecordingPanel(fcitx::InputContext *ic,
+                                          const std::string &status) {
     if (!ic || status.empty()) {
         return;
     }
@@ -1706,8 +1788,8 @@ void VoCoTypeModule::renderRecordingPanel(
     ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
 }
 
-void VoCoTypeModule::showStreamingPreview(
-    fcitx::InputContext *ic, const std::string &text) {
+void VoCoTypeModule::showStreamingPreview(fcitx::InputContext *ic,
+                                          const std::string &text) {
     if (!ic || text.empty()) {
         return;
     }
@@ -1722,9 +1804,8 @@ void VoCoTypeModule::showStreamingPreview(
     streaming_preview_visible_ = true;
     streaming_preview_text_ = text;
     if (recording_status_text_.empty()) {
-        recording_status_text_ = recording_long_mode_
-                                     ? "🎤 录音中(长句)..."
-                                     : "🎤 录音中...";
+    recording_status_text_ =
+        recording_long_mode_ ? "🎤 录音中(长句)..." : "🎤 录音中...";
     }
     renderRecordingPanel(ic, recording_status_text_);
 }
@@ -1775,8 +1856,8 @@ void VoCoTypeModule::schedulePanelAnimationFrame(
                 return false;
             }
             auto *ic_ptr = ic_ref.get();
-            if (panel_animation_kind_ == PanelAnimationKind::None ||
-                !ic_ptr || !ic_ptr->hasFocus()) {
+        if (panel_animation_kind_ == PanelAnimationKind::None || !ic_ptr ||
+            !ic_ptr->hasFocus()) {
                 stopPanelAnimation();
                 return false;
             }
@@ -1881,9 +1962,8 @@ void VoCoTypeModule::commitText(fcitx::InputContext *ic,
     if (!ic || !ic->hasFocus()) {
         return;
     }
-    const std::string commit_text = strip_trailing_period
-                                        ? stripTrailingCommitPeriod(text)
-                                        : text;
+  const std::string commit_text =
+      strip_trailing_period ? stripTrailingCommitPeriod(text) : text;
     const uint64_t now = fcitx::now(CLOCK_MONOTONIC);
     const std::string program = ic->program();
     const std::string frontend = ic->frontend() ? ic->frontend() : "";

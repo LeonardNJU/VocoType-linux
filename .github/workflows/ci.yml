@@ -29,6 +29,38 @@ jobs:
       - name: Run native test suite
         run: make test
 
+  nix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: DeterminateSystems/determinate-nix-action@v3
+      - name: Evaluate locked flake
+        run: nix flake show
+      - name: Build native FunASR workers and all flavors
+        run: |
+          nix build .#vocotype-funasr-workers --out-link result-workers -L
+          nix build .#vocotype-fcitx5 --out-link result-fcitx5 -L
+          nix build .#vocotype-ibus --out-link result-ibus -L
+          nix build .#vocotype-universal --out-link result-universal -L
+      - name: Smoke-test Nix outputs
+        run: |
+          result-fcitx5/bin/vocotype-core --help >/dev/null
+          result-fcitx5/bin/vocotype-settings --check-hotkey F8             | jq -e '.success == true and .kind == "available"' >/dev/null
+          test -f result-fcitx5/share/fcitx5/addon/vocotype.conf
+          find result-fcitx5/lib -path '*/fcitx5/vocotype.so' -print -quit             | grep -q .
+
+          result-ibus/bin/vocotype-core --help >/dev/null
+          result-ibus/libexec/vocotype-ibus-engine --xml             | grep -Fq '<name>vocotype</name>'
+          test -f result-ibus/share/ibus/component/vocotype.xml
+
+          test -f result-universal/share/fcitx5/addon/vocotype.conf
+          test -f result-universal/share/ibus/component/vocotype.xml
+          result-universal/bin/vocotype-settings --check-hotkey Alt_R             | jq -e '.success == true' >/dev/null
+          nix path-info -Sh result-workers result-fcitx5 result-ibus result-universal
+
   release-contract:
     runs-on: ubuntu-24.04
     steps:

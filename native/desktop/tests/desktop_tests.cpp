@@ -1,5 +1,6 @@
 #include "vocotype/desktop/audio.hpp"
 #include "vocotype/desktop/fcitx_profile.hpp"
+#include "vocotype/desktop/hotkey.hpp"
 #include "vocotype/desktop/ipc.hpp"
 #include "vocotype/desktop/wav.hpp"
 #include <cassert>
@@ -17,6 +18,32 @@ int main() {
   const std::string encoded =
       base64_encode(reinterpret_cast<const unsigned char *>("abc"), 3);
   assert(encoded == "YWJj");
+
+  const Hotkey normal = parse_hotkey("F9");
+  const Hotkey polish = parse_hotkey("Shift+F9");
+  const Hotkey edit = parse_hotkey("Ctrl+Alt_R");
+  assert(normal.valid() && hotkey_to_string(normal) == "F9");
+  assert(polish.valid() && hotkey_to_string(polish) == "Shift+F9");
+  assert(edit.valid() && hotkey_to_string(edit) == "Ctrl+Alt_R");
+  assert(hotkey_matches(polish, GDK_KEY_F9, GDK_SHIFT_MASK));
+  assert(!hotkey_matches(polish, GDK_KEY_F9, 0));
+  const Hotkey right_alt = parse_hotkey("Alt_R");
+  assert(right_alt.valid());
+  assert(hotkey_matches(right_alt, GDK_KEY_Alt_R, 0));
+  assert(hotkey_matches(right_alt, GDK_KEY_Alt_R, GDK_MOD1_MASK));
+  assert(hotkeys_equal(parse_hotkey("Control+F8"), parse_hotkey("Ctrl+F8")));
+  assert(hotkey_to_string(parse_hotkey("not-a-real-key", normal)) == "F9");
+  assert(hotkey_safety_error(parse_hotkey("a")).find("裸字母") !=
+         std::string::npos);
+  assert(hotkey_safety_error(parse_hotkey("Shift+7")).find("裸字母") !=
+         std::string::npos);
+  assert(hotkey_safety_error(parse_hotkey("Left")).find("基础输入") !=
+         std::string::npos);
+  assert(hotkey_safety_error(parse_hotkey("Ctrl+C")).find("常用系统") !=
+         std::string::npos);
+  assert(hotkey_safety_error(parse_hotkey("Alt_R")).empty());
+  assert(hotkey_safety_error(parse_hotkey("F8")).empty());
+  assert(hotkey_safety_error(parse_hotkey("Ctrl+Shift+F8")).empty());
   const auto path = create_secure_wav_path();
   write_pcm16_wav(path, source, 16000);
   const auto decoded = read_pcm16_wav(path);

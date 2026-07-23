@@ -6,9 +6,9 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <sys/types.h>
 #include <thread>
 #include <vector>
-#include <sys/types.h>
 
 #include <fcitx-config/option.h>
 #include <fcitx-utils/event.h>
@@ -40,64 +40,39 @@ struct RecorderOutputState {
 FCITX_CONFIGURATION(
     VoCoTypeModuleConfig,
     fcitx::Option<fcitx::Key, fcitx::KeyConstrain> pttKey{
-        this,
-        "PTTKey",
-        "按住说话主键",
-        fcitx::Key(FcitxKey_F9),
+        this, "PTTKey", "按住说话主键", fcitx::Key(FcitxKey_F9),
         fcitx::KeyConstrain({fcitx::KeyConstrainFlag::AllowModifierLess,
                              fcitx::KeyConstrainFlag::AllowModifierOnly})};
     fcitx::Option<int, fcitx::IntConstrain> pttHoldThresholdMs{
-        this,
-        "PTTHoldThresholdMs",
-        "开始录音所需长按阈值（毫秒）",
-        0,
+        this, "PTTHoldThresholdMs", "开始录音所需长按阈值（毫秒）", 0,
         fcitx::IntConstrain(0, 2000)};
-    fcitx::Option<int, fcitx::IntConstrain> minRecordingMs{
-        this,
-        "MinRecordingMs",
-        "最短有效录音时长（毫秒）",
-        1000,
-        fcitx::IntConstrain(0, 5000)};
-    fcitx::Option<fcitx::Key, fcitx::KeyConstrain> longModeModifier{
-        this,
-        "LongModeModifier",
-        "AI 润色模式修饰键",
-        fcitx::Key(FcitxKey_Shift_L),
+    fcitx::Option<fcitx::Key, fcitx::KeyConstrain> polishKey{
+        this, "PolishKey", "按住说话并进行 AI 润色",
+        fcitx::Key(FcitxKey_F9, fcitx::KeyState::Shift),
         fcitx::KeyConstrain({fcitx::KeyConstrainFlag::AllowModifierLess,
                              fcitx::KeyConstrainFlag::AllowModifierOnly})};
+    fcitx::Option<fcitx::Key, fcitx::KeyConstrain> editKey{
+        this, "EditKey", "按住说话并执行语音编辑",
+        fcitx::Key(FcitxKey_F9, fcitx::KeyState::Ctrl),
+        fcitx::KeyConstrain({fcitx::KeyConstrainFlag::AllowModifierLess,
+                             fcitx::KeyConstrainFlag::AllowModifierOnly})};
+    fcitx::Option<int, fcitx::IntConstrain> minRecordingMs{
+        this, "MinRecordingMs", "最短有效录音时长（毫秒）", 1000,
+        fcitx::IntConstrain(0, 5000)};
     fcitx::Option<int, fcitx::IntConstrain> polishMinChars{
-        this,
-        "PolishMinChars",
-        "AI 润色最少字数",
-        8,
+        this, "PolishMinChars", "AI 润色最少字数", 8,
         fcitx::IntConstrain(0, 2000)};
     fcitx::Option<int, fcitx::IntConstrain> polishTimeoutMs{
-        this,
-        "PolishTimeoutMs",
-        "AI 流式输出空闲超时（毫秒）",
-        20000,
+        this, "PolishTimeoutMs", "AI 流式输出空闲超时（毫秒）", 20000,
         fcitx::IntConstrain(1000, 120000)};
-    fcitx::Option<bool> enableThinking{
-        this,
-        "EnableThinking",
-        "允许模型 thinking / reasoning",
-        false};
+    fcitx::Option<bool> enableThinking{this, "EnableThinking",
+                                       "允许模型 thinking / reasoning", false};
     fcitx::Option<bool> blockWhenComposing{
-        this,
-        "BlockWhenComposing",
-        "存在未提交预编辑时禁止开始录音",
-        true};
+        this, "BlockWhenComposing", "存在未提交预编辑时禁止开始录音", true};
     fcitx::Option<bool> stripTrailingPeriodOnCommit{
-        this,
-        "StripTrailingPeriodOnCommit",
-        "提交时移除尾部句号",
-        false};
+        this, "StripTrailingPeriodOnCommit", "提交时移除尾部句号", false};
     fcitx::Option<std::string> panelStyle{
-        this,
-        "PanelStyle",
-        "状态提示样式（minimal 或 animated）",
-        "minimal"};
-);
+        this, "PanelStyle", "状态提示样式（minimal 或 animated）", "minimal"};);
 
 class VoCoTypeModule final : public fcitx::AddonInstance {
 public:
@@ -117,29 +92,36 @@ private:
         Polishing,
     };
 
-
+  enum class VoiceHotkeyMode {
+    None,
+    Transcribe,
+    Polish,
+    Edit,
+  };
 
     void applyConfig();
     void handleKeyEvent(fcitx::KeyEvent &event);
     void handleFocusOut(fcitx::InputContextEvent &event);
     bool hasActiveComposition(fcitx::InputContext *ic) const;
 
-    bool polishModeForStates(fcitx::KeyStates states) const;
-    bool editModeForStates(fcitx::KeyStates states) const;
+  VoiceHotkeyMode hotkeyModeForKey(const fcitx::Key &key) const;
+  static bool hotkeyMatches(const fcitx::Key &key,
+                            const fcitx::Key &configured);
+  static bool hotkeyReleaseMatches(const fcitx::Key &key,
+                                   const fcitx::Key &configured);
+  static bool hotkeyIsUnsafe(const fcitx::Key &key);
+  const fcitx::Key &hotkeyForMode(VoiceHotkeyMode mode) const;
     bool captureVoiceEditSnapshot(fcitx::InputContext *ic,
                                   VoiceEditSnapshot &snapshot,
                                   std::string &error) const;
     void launchVoiceEditTask(
         fcitx::TrackableObjectReference<fcitx::InputContext> ic_ref,
-        const std::string &audio_path,
-        const VoiceEditSnapshot &snapshot,
+      const std::string &audio_path, const VoiceEditSnapshot &snapshot,
         uint64_t session_id);
-    void showVoiceEditStatusBar(fcitx::InputContext *ic,
-                                const std::string &title,
+  void showVoiceEditStatusBar(fcitx::InputContext *ic, const std::string &title,
                                 const std::string &detail = {});
     static std::string inputContextId(fcitx::InputContext *ic);
-    bool voiceEditSnapshotStillMatches(
-        fcitx::InputContext *ic,
+  bool voiceEditSnapshotStillMatches(fcitx::InputContext *ic,
         const VoiceEditSnapshot &snapshot) const;
     void applyVoiceEditResult(fcitx::InputContext *ic,
                               const VoiceEditSnapshot &snapshot,
@@ -148,8 +130,7 @@ private:
                                 const std::vector<EditKeyAction> &actions);
     void replaceSurroundingText(fcitx::InputContext *ic,
                                 const VoiceEditSnapshot &snapshot,
-                                const std::string &new_text,
-                                bool record_history,
+                              const std::string &new_text, bool record_history,
                                 const std::string &hint);
     void confirmVoiceEditApplied(const VoiceEditSnapshot &snapshot,
                                  const std::string &new_text,
@@ -164,11 +145,9 @@ private:
         fcitx::TrackableObjectReference<fcitx::InputContext> ic_ref);
     void handleVoiceEditPollResult(fcitx::InputContext *ic,
                                    const VoiceEditPollResult &result);
-    void showVoiceEditProgress(fcitx::InputContext *ic,
-                               const std::string &phase,
+  void showVoiceEditProgress(fcitx::InputContext *ic, const std::string &phase,
                                const std::string &instruction);
-    void showVoiceEditFailure(fcitx::InputContext *ic,
-                              const std::string &error,
+  void showVoiceEditFailure(fcitx::InputContext *ic, const std::string &error,
                               const std::string &instruction);
     void cancelActiveVoiceEditTask();
 
@@ -177,13 +156,11 @@ private:
         fcitx::TrackableObjectReference<fcitx::InputContext> ic_ref);
     void handlePolishPollResult(fcitx::InputContext *ic,
                                 const PolishPollResult &result);
-    void showPolishProgress(fcitx::InputContext *ic,
-                            const std::string &preview,
+  void showPolishProgress(fcitx::InputContext *ic, const std::string &preview,
                             const std::string &original_text);
     void cancelActivePolishTask();
 
-    void armPendingRecordingStart(fcitx::InputContext *ic,
-                                  bool long_mode,
+  void armPendingRecordingStart(fcitx::InputContext *ic, bool long_mode,
                                   bool edit_mode,
                                   const VoiceEditSnapshot &edit_snapshot);
     void cancelPendingRecordingStart();
@@ -191,16 +168,13 @@ private:
     void cancelPendingPttRelease();
     void replayShortTapAsRegularKey(fcitx::InputContext *ic);
 
-    void startRecording(fcitx::InputContext *ic,
-                        bool long_mode,
-                        bool edit_mode,
+  void startRecording(fcitx::InputContext *ic, bool long_mode, bool edit_mode,
                         const VoiceEditSnapshot &edit_snapshot);
     void stopRecording(bool transcribe);
     void stopAndTranscribe();
 
     void showPanelMessage(fcitx::InputContext *ic, const std::string &message);
-    void renderRecordingPanel(fcitx::InputContext *ic,
-                              const std::string &status);
+  void renderRecordingPanel(fcitx::InputContext *ic, const std::string &status);
     void showStreamingPreview(fcitx::InputContext *ic, const std::string &text);
     void showAnimationFrame(fcitx::InputContext *ic);
     void startPanelAnimation(fcitx::InputContext *ic, PanelAnimationKind kind);
@@ -236,12 +210,14 @@ private:
     std::unique_ptr<IPCClient> ipc_client_;
     VoCoTypeModuleConfig config_;
     std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> key_handler_;
-    std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> focus_out_handler_;
+  std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>>
+      focus_out_handler_;
 
     std::string recorder_launcher_path_;
-    fcitx::KeySym ptt_key_sym_ = FcitxKey_F9;
-    fcitx::KeyStates long_mode_modifier_ = fcitx::KeyState::Shift;
-    std::string ptt_key_name_ = "F9";
+  fcitx::Key transcribe_key_{FcitxKey_F9};
+  fcitx::Key polish_key_{FcitxKey_F9, fcitx::KeyState::Shift};
+  fcitx::Key edit_key_{FcitxKey_F9, fcitx::KeyState::Ctrl};
+  std::string hotkey_summary_ = "F9 / Shift+F9 / Ctrl+F9";
     int ptt_hold_threshold_ms_ = 0;
     int min_recording_ms_ = 1000;
     int polish_min_chars_ = 8;
@@ -265,7 +241,8 @@ private:
     bool streaming_preview_visible_ = false;
     std::string streaming_preview_text_;
     std::string recording_status_text_;
-    fcitx::KeyStates pending_ptt_states_ = fcitx::KeyState::NoState;
+  fcitx::Key pending_ptt_key_;
+  fcitx::Key active_hotkey_;
     fcitx::TrackableObjectReference<fcitx::InputContext> active_ic_;
 
     pid_t recorder_pid_ = -1;

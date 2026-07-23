@@ -16,7 +16,7 @@
             <author>VoCoType</author>
             <layout>default</layout>
             <longname>VoCoType Voice Input</longname>
-            <description>Push-to-Talk Voice Input (F9)</description>
+            <description>Configurable Push-to-Talk Voice Input</description>
             <rank>50</rank>
             <symbol>🎤</symbol>
         </engine>

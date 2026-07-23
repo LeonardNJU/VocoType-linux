@@ -22,6 +22,7 @@ cmake -S native/desktop -B build/native-desktop \
   -DBUILD_TESTING=ON
 cmake --build build/native-desktop -j"$JOBS"
 ctest --test-dir build/native-desktop --output-on-failure
+tests/hotkey-settings.sh build/native-desktop/vocotype-settings
 
 cmake -S fcitx5/module -B build/fcitx-module \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo

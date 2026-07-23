@@ -1,10 +1,10 @@
 # VoCoType Linux
 
 <p align="center">
-  <img src="site/og-image.png" alt="VoCoType Linux — 按住 F9 说话，松开即可输入文字" width="100%">
+  <img src="site/og-image.png" alt="VoCoType Linux — 按住语音快捷键说话，松开即可输入文字" width="100%">
 </p>
 
-<p align="center"><strong>按住 F9 说话，松开即可输入文字。</strong></p>
+<p align="center"><strong>按住语音快捷键说话，松开即可输入文字。</strong></p>
 
 <p align="center">
   <a href="https://vocotype-linux.lsamc.website">官网</a> ·
@@ -34,7 +34,7 @@
 - **本地语音识别**：语音默认不离开设备，断网也能输入。
 - **直接融入现有输入法**：Fcitx 5 版本是全局 Module，可继续使用 Rime、拼音、Mozc 等原有输入法。
 - **中文输入优化**：支持中英混合识别、原生热词、用户术语和数字格式化。
-- **按住即说**：`F9` 快速识别，`Shift+F9` 可选 AI 润色；可开启录音期间的实时 preedit 预览。
+- **按住即说**：默认 `F9` 快速识别、`Shift+F9` AI 润色；三个动作都可在设置中心直接录制新快捷键。
 - **语音编辑**：IBus 与 Fcitx 5 的 `Ctrl+F9` 都由已配置的 SLM 结合 surrounding text 理解指令，可处理同音词替换、改写、导航和撤销重做。
 - **图形化管理**：安装、修复、麦克风测试、AI 配置、Doctor 和反馈均可在设置中心完成。
 - **纯 CPU 可用**：普通 Linux 笔记本和台式机即可运行，无需独立显卡。
@@ -51,7 +51,9 @@ https://github.com/user-attachments/assets/4b936014-9477-4794-8d04-aa31d34577a0
 
 - **全图形化配置**：安装、修复、模型下载、术语、ITN 和 AI 配置均可在设置中心完成。
 - **自动诊断与反馈**：Doctor、Playground、安装完整性检查、脱敏支持包和官方反馈入口已经集成。
-- **共享语音编辑**：IBus 与 Fcitx 5 已统一 `Ctrl+F9` 编辑语义，并显示识别到的编辑指令。
+- **可录制快捷键**：普通识别、AI 润色和语音编辑可分别录制按键，并拒绝普通输入键、重复项和已检测到的桌面全局冲突。
+- **共享语音编辑**：IBus 与 Fcitx 5 已统一默认 `Ctrl+F9` 编辑语义，并显示识别到的编辑指令。
+- **Nix / NixOS**：锁定 flake 从 C++ 源码构建 universal、IBus-only 与 Fcitx5-only 三种 flavor。
 - **实时识别预览**：可选启用本地 FunASR 2-pass，在说话时持续更新 preedit，松键后仍由完整离线模型给出最终结果。
 
 [查看全部项目进展 →](https://vocotype-linux.lsamc.website/zh-news.html)
@@ -99,7 +101,20 @@ bash ibus/scripts/install.sh --install-system-deps --download-models
 
 安装器会编译 C++ 组件；完成后从应用菜单打开 **VoCoType 设置**。日常运行不需要编译器或 Python。
 
-### 3. 命令行安装（兼容旧版 / 无桌面环境）
+### 3. Nix / NixOS
+
+仓库提供锁定的源码构建 flake：
+
+```bash
+nix run github:LeonardNJU/VocoType-linux#settings
+nix build github:LeonardNJU/VocoType-linux#vocotype-fcitx5
+nix build github:LeonardNJU/VocoType-linux#vocotype-ibus
+nix build github:LeonardNJU/VocoType-linux#vocotype-universal
+```
+
+NixOS 用户应把 Fcitx flavor 放入 `i18n.inputMethod.fcitx5.addons`，或把 IBus flavor 放入 `i18n.inputMethod.ibus.engines`。详见 [Nix 与 NixOS 文档](docs/getting-started/nix.md)。
+
+### 4. 命令行安装（兼容旧版 / 无桌面环境）
 
 图形界面不可用时，仍可使用原有 CLI 安装入口：
 
@@ -112,7 +127,9 @@ bash ibus/scripts/install.sh --install-system-deps --download-models
 
 ## 基本使用
 
-| 快捷键 | 功能 |
+以下是默认值；可在 **通用设置 → 语音快捷键** 中点击录制按钮分别替换。
+
+| 默认快捷键 | 功能 |
 |---|---|
 | `F9` | 按住录音；可选实时预览，松开后由完整离线识别提交最终文字 |
 | `Shift+F9` | 识别后使用已配置的 AI 模型润色 |
@@ -120,11 +137,11 @@ bash ibus/scripts/install.sh --install-system-deps --download-models
 
 ### Fcitx 5
 
-VoCoType 作为全局 Module 工作，安装后**无需把 VoCoType 添加到输入法列表**。继续使用现有的 Rime、拼音、Mozc 或键盘布局，直接按 `F9` 即可；应用提供 surrounding text 时，也可使用 `Ctrl+F9` 语音编辑。
+VoCoType 作为全局 Module 工作，安装后**无需把 VoCoType 添加到输入法列表**。继续使用现有的 Rime、拼音、Mozc 或键盘布局，直接使用已配置的普通识别快捷键即可；应用提供 surrounding text 时，也可使用语音编辑快捷键。
 
 ### IBus
 
-VoCoType 作为独立 IBus 引擎运行，并提供与 Fcitx 5 相同的 `Ctrl+F9` 语音编辑。编辑能力取决于当前应用是否提供 surrounding text。
+VoCoType 作为独立 IBus 引擎运行，并提供与 Fcitx 5 相同的可配置语音编辑快捷键。编辑能力取决于当前应用是否提供 surrounding text。
 
 ## 功能
 
@@ -216,6 +233,8 @@ AI 功能默认关闭。`Shift+F9` 润色和 `Ctrl+F9` 语音编辑都调用用�
 
 - [Fcitx 5 安装与排障](fcitx5/README.md)
 - [IBus 安装与排障](ibus/README.md)
+- [语音快捷键录制与冲突检测](docs/guides/shortcuts.md)
+- [Nix 与 NixOS](docs/getting-started/nix.md)
 - [语音编辑兼容性与局限](docs/guides/voice-editing.md)
 - [常见问题](docs/troubleshooting/faq.md)
 - [版本记录](CHANGELOG.md)

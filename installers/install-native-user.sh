@@ -372,7 +372,7 @@ install_ibus() {
   [[ -f "$PROJECT_DIR/VERSION" ]] && version=$(tr -d '[:space:]' < "$PROJECT_DIR/VERSION")
   cat > "$USER_COMPONENT_DIR/vocotype.xml" <<EOF_COMPONENT
 <?xml version="1.0" encoding="utf-8"?>
-<component><name>org.vocotype.IBus.VoCoType</name><description>VoCoType Voice Input Method</description><exec>$USER_LIBEXEC/ibus-engine-vocotype --ibus</exec><version>$version</version><author>VoCoType</author><license>GPL</license><homepage>https://github.com/LeonardNJU/VocoType-linux</homepage><textdomain>vocotype</textdomain><engines><engine><name>vocotype</name><language>zh</language><license>GPL</license><author>VoCoType</author><layout>default</layout><longname>VoCoType Voice Input</longname><description>Push-to-Talk Voice Input (F9)</description><rank>50</rank><symbol>🎤</symbol></engine></engines></component>
+<component><name>org.vocotype.IBus.VoCoType</name><description>VoCoType Voice Input Method</description><exec>$USER_LIBEXEC/ibus-engine-vocotype --ibus</exec><version>$version</version><author>VoCoType</author><license>GPL</license><homepage>https://github.com/LeonardNJU/VocoType-linux</homepage><textdomain>vocotype</textdomain><engines><engine><name>vocotype</name><language>zh</language><license>GPL</license><author>VoCoType</author><layout>default</layout><longname>VoCoType Voice Input</longname><description>Configurable Push-to-Talk Voice Input</description><rank>50</rank><symbol>🎤</symbol></engine></engines></component>
 EOF_COMPONENT
   "$engine" --deploy-rime >/dev/null 2>&1 || true
   command -v ibus >/dev/null 2>&1 && ibus restart >/dev/null 2>&1 || true

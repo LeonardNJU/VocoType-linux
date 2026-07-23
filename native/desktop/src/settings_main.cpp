@@ -1,6 +1,7 @@
 #include "vocotype/desktop/audio.hpp"
 #include "vocotype/desktop/config.hpp"
 #include "vocotype/desktop/fcitx_profile.hpp"
+#include "vocotype/desktop/hotkey.hpp"
 #include "vocotype/desktop/ipc.hpp"
 #include "vocotype/desktop/settings_ui.hpp"
 #include "vocotype/desktop/wav.hpp"
@@ -10,6 +11,10 @@
 
 #include <curl/curl.h>
 #include <gtk/gtk.h>
+#ifdef VOCOTYPE_HAVE_GDK_X11
+#include <X11/Xlib.h>
+#include <gdk/gdkx.h>
+#endif
 #include <yaml-cpp/yaml.h>
 
 #include <algorithm>
@@ -27,6 +32,9 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <regex>
+#include <set>
 #include <sstream>
 #include <string>
 #include <sys/stat.h>
@@ -35,6 +43,7 @@
 #include <unistd.h>
 #include <vector>
 
+using vocotype::desktop::Hotkey;
 using vocotype::desktop::Json;
 namespace sui = vocotype::desktop::settings_ui;
 
@@ -50,6 +59,13 @@ constexpr GApplicationFlags kDefaultApplicationFlags =
 #else
 constexpr GApplicationFlags kDefaultApplicationFlags = G_APPLICATION_FLAGS_NONE;
 #endif
+
+enum class HotkeySlot {
+  none,
+  transcribe,
+  polish,
+  edit,
+};
 
 struct SettingsWindow {
   GtkApplication *application = nullptr;
@@ -69,6 +85,18 @@ struct SettingsWindow {
   GtkRadioButton *fcitx_framework_radio = nullptr;
 
   GtkLabel *recognition_status = nullptr;
+  GtkLabel *hotkey_status = nullptr;
+  GtkButton *transcribe_hotkey_button = nullptr;
+  GtkButton *polish_hotkey_button = nullptr;
+  GtkButton *edit_hotkey_button = nullptr;
+  Hotkey transcribe_hotkey = vocotype::desktop::parse_hotkey("F9");
+  Hotkey polish_hotkey = vocotype::desktop::parse_hotkey("Shift+F9");
+  Hotkey edit_hotkey = vocotype::desktop::parse_hotkey("Ctrl+F9");
+  HotkeySlot hotkey_capture_slot = HotkeySlot::none;
+  guint hotkey_capture_modifier = 0;
+  bool transcribe_hotkey_changed = false;
+  bool polish_hotkey_changed = false;
+  bool edit_hotkey_changed = false;
   GtkLabel *panel_style_status = nullptr;
   GtkComboBoxText *audio_device = nullptr;
   GtkSpinButton *audio_rate = nullptr;
@@ -153,13 +181,447 @@ std::string config_value(const std::filesystem::path &path,
                          const std::string &key, const std::string &fallback);
 void update_fcitx_config(
     const std::vector<std::pair<std::string, std::string>> &values);
+void set_label(GtkLabel *label, const std::string &text);
+std::string file_text(const std::filesystem::path &path);
+Json run_command(const std::vector<std::string> &arguments);
+Hotkey &hotkey_for_slot(SettingsWindow &window, HotkeySlot slot) {
+  switch (slot) {
+  case HotkeySlot::polish:
+    return window.polish_hotkey;
+  case HotkeySlot::edit:
+    return window.edit_hotkey;
+  case HotkeySlot::transcribe:
+  case HotkeySlot::none:
+    return window.transcribe_hotkey;
+  }
+  return window.transcribe_hotkey;
+}
+
+const Hotkey &hotkey_for_slot(const SettingsWindow &window, HotkeySlot slot) {
+  return hotkey_for_slot(const_cast<SettingsWindow &>(window), slot);
+}
+
+GtkButton *hotkey_button_for_slot(SettingsWindow &window, HotkeySlot slot) {
+  switch (slot) {
+  case HotkeySlot::polish:
+    return window.polish_hotkey_button;
+  case HotkeySlot::edit:
+    return window.edit_hotkey_button;
+  case HotkeySlot::transcribe:
+    return window.transcribe_hotkey_button;
+  case HotkeySlot::none:
+    return nullptr;
+  }
+  return nullptr;
+}
+
+bool &hotkey_changed_for_slot(SettingsWindow &window, HotkeySlot slot) {
+  switch (slot) {
+  case HotkeySlot::polish:
+    return window.polish_hotkey_changed;
+  case HotkeySlot::edit:
+    return window.edit_hotkey_changed;
+  case HotkeySlot::transcribe:
+  case HotkeySlot::none:
+    return window.transcribe_hotkey_changed;
+  }
+  return window.transcribe_hotkey_changed;
+}
+
+const char *hotkey_slot_name(HotkeySlot slot) {
+  switch (slot) {
+  case HotkeySlot::transcribe:
+    return "普通识别";
+  case HotkeySlot::polish:
+    return "AI 润色";
+  case HotkeySlot::edit:
+    return "语音编辑";
+  case HotkeySlot::none:
+    return "快捷键";
+  }
+  return "快捷键";
+}
+
+void set_hotkey_status(SettingsWindow &window, const std::string &text,
+                       const char *style_class = nullptr) {
+  if (!window.hotkey_status)
+    return;
+  set_label(window.hotkey_status, text);
+  GtkStyleContext *context =
+      gtk_widget_get_style_context(GTK_WIDGET(window.hotkey_status));
+  for (const char *name : {"status-pass", "status-warn", "status-fail"})
+    gtk_style_context_remove_class(context, name);
+  if (style_class)
+    gtk_style_context_add_class(context, style_class);
+}
+
+void refresh_hotkey_button(SettingsWindow &window, HotkeySlot slot) {
+  GtkButton *button = hotkey_button_for_slot(window, slot);
+  if (!button)
+    return;
+  const std::string text =
+      vocotype::desktop::hotkey_to_string(hotkey_for_slot(window, slot));
+  gtk_button_set_label(button, text.empty() ? "录制快捷键" : text.c_str());
+}
+
+std::string trim_shortcut(std::string value) {
+  const auto first = value.find_first_not_of(" \t\r\n'\"");
+  if (first == std::string::npos)
+    return {};
+  const auto last = value.find_last_not_of(" \t\r\n'\"");
+  return value.substr(first, last - first + 1);
+}
+
+std::vector<std::string> split_shortcut_list(const std::string &value) {
+  std::vector<std::string> result;
+  std::string current;
+  for (const char character : value) {
+    if (std::isspace(static_cast<unsigned char>(character)) != 0 ||
+        character == ';' || character == ',') {
+      const std::string item = trim_shortcut(current);
+      if (!item.empty())
+        result.push_back(item);
+      current.clear();
+    } else {
+      current.push_back(character);
+    }
+  }
+  const std::string item = trim_shortcut(current);
+  if (!item.empty())
+    result.push_back(item);
+  return result;
+}
+
+std::string gnome_shortcut_to_portable(const std::string &raw) {
+  std::string value = trim_shortcut(raw);
+  std::string result;
+  std::size_t offset = 0;
+  while (offset < value.size() && value[offset] == '<') {
+    const auto end = value.find('>', offset + 1);
+    if (end == std::string::npos)
+      return {};
+    std::string modifier = value.substr(offset + 1, end - offset - 1);
+    std::transform(modifier.begin(), modifier.end(), modifier.begin(),
+                   [](unsigned char character) {
+                     return static_cast<char>(std::tolower(character));
+                   });
+    if (modifier == "control" || modifier == "ctrl" || modifier == "primary")
+      result += "Ctrl+";
+    else if (modifier == "alt" || modifier == "mod1")
+      result += "Alt+";
+    else if (modifier == "shift")
+      result += "Shift+";
+    else if (modifier == "super" || modifier == "meta" || modifier == "mod4" ||
+             modifier == "hyper")
+      result += "Super+";
+    else
+      return {};
+    offset = end + 1;
+  }
+  if (offset >= value.size())
+    return {};
+  result += value.substr(offset);
+  return result;
+}
+
+std::optional<std::string>
+shortcut_conflict_in_ini(const std::filesystem::path &path,
+                         const Hotkey &candidate, bool kde_format) {
+  if (!std::filesystem::is_regular_file(path))
+    return std::nullopt;
+  std::istringstream input(file_text(path));
+  std::string line;
+  while (std::getline(input, line)) {
+    if (line.empty() || line[0] == '#' || line[0] == ';' || line[0] == '[')
+      continue;
+    const auto equals = line.find('=');
+    if (equals == std::string::npos)
+      continue;
+    const std::string key = trim_shortcut(line.substr(0, equals));
+    std::string values = line.substr(equals + 1);
+    if (kde_format) {
+      const auto comma = values.find(',');
+      if (comma != std::string::npos)
+        values.resize(comma);
+    }
+    for (const auto &item : split_shortcut_list(values)) {
+      if (item == "none" || item == "None")
+        continue;
+      const Hotkey configured = vocotype::desktop::parse_hotkey(item);
+      if (configured.valid() &&
+          vocotype::desktop::hotkeys_equal(candidate, configured)) {
+        return path.filename().string() + " 中的 “" + key + "”";
+      }
+    }
+  }
+  return std::nullopt;
+}
+
+std::optional<std::string>
+shortcut_conflict_in_gsettings_output(const std::string &output,
+                                      const Hotkey &candidate,
+                                      const std::string &source) {
+  static const std::regex quoted("'([^']+)'", std::regex::optimize);
+  for (std::sregex_iterator iterator(output.begin(), output.end(), quoted), end;
+       iterator != end; ++iterator) {
+    const std::string raw = (*iterator)[1].str();
+    std::string portable = raw.find('<') == std::string::npos
+                               ? raw
+                               : gnome_shortcut_to_portable(raw);
+    const Hotkey configured = vocotype::desktop::parse_hotkey(portable);
+    if (configured.valid() &&
+        vocotype::desktop::hotkeys_equal(candidate, configured))
+      return source + " 中的 “" + raw + "”";
+  }
+  return std::nullopt;
+}
+
+#ifdef VOCOTYPE_HAVE_GDK_X11
+bool x11_hotkey_bad_access = false;
+
+int x11_hotkey_error_handler(Display *, XErrorEvent *event) {
+  if (event && event->error_code == BadAccess)
+    x11_hotkey_bad_access = true;
+  return 0;
+}
+
+std::optional<std::string> x11_hotkey_conflict(const Hotkey &candidate) {
+  GdkDisplay *gdk_display = gdk_display_get_default();
+  if (!gdk_display || !GDK_IS_X11_DISPLAY(gdk_display))
+    return std::nullopt;
+  Display *display = gdk_x11_display_get_xdisplay(gdk_display);
+  if (!display)
+    return std::nullopt;
+  const KeyCode keycode =
+      XKeysymToKeycode(display, static_cast<KeySym>(candidate.keyval));
+  if (keycode == 0)
+    return std::nullopt;
+
+  unsigned int modifiers = 0;
+  const guint state = static_cast<guint>(candidate.modifiers);
+  if (state & GDK_SHIFT_MASK)
+    modifiers |= ShiftMask;
+  if (state & GDK_CONTROL_MASK)
+    modifiers |= ControlMask;
+  if (state & GDK_MOD1_MASK)
+    modifiers |= Mod1Mask;
+  if (state & GDK_SUPER_MASK)
+    modifiers |= Mod4Mask;
+
+  constexpr unsigned int lock_variants[] = {0U, LockMask, Mod2Mask,
+                                            LockMask | Mod2Mask};
+  XSync(display, False);
+  x11_hotkey_bad_access = false;
+  auto previous_handler = XSetErrorHandler(x11_hotkey_error_handler);
+  for (const unsigned int locks : lock_variants) {
+    XGrabKey(display, static_cast<int>(keycode), modifiers | locks,
+             DefaultRootWindow(display), False, GrabModeAsync, GrabModeAsync);
+  }
+  XSync(display, False);
+  for (const unsigned int locks : lock_variants) {
+    XUngrabKey(display, static_cast<int>(keycode), modifiers | locks,
+               DefaultRootWindow(display));
+  }
+  XSync(display, False);
+  XSetErrorHandler(previous_handler);
+  if (x11_hotkey_bad_access)
+    return "X11 root window 上已被其他进程全局抓取";
+  return std::nullopt;
+}
+#else
+std::optional<std::string> x11_hotkey_conflict(const Hotkey &) {
+  return std::nullopt;
+}
+#endif
+
+std::optional<std::string> external_hotkey_conflict(const Hotkey &candidate) {
+  if (const auto conflict = x11_hotkey_conflict(candidate))
+    return *conflict;
+  const auto home = vocotype::desktop::home_path();
+  const auto fcitx_root = home / ".config/fcitx5";
+  if (const auto conflict =
+          shortcut_conflict_in_ini(fcitx_root / "config", candidate, false))
+    return "Fcitx 5 " + *conflict;
+  const auto conf_dir = fcitx_root / "conf";
+  std::error_code error;
+  if (std::filesystem::is_directory(conf_dir, error)) {
+    for (const auto &entry :
+         std::filesystem::directory_iterator(conf_dir, error)) {
+      if (entry.path().filename() == "vocotype.conf")
+        continue;
+      if (const auto conflict =
+              shortcut_conflict_in_ini(entry.path(), candidate, false))
+        return "Fcitx 5 " + *conflict;
+    }
+  }
+  if (const auto conflict = shortcut_conflict_in_ini(
+          home / ".config/kglobalshortcutsrc", candidate, true))
+    return "KDE 全局快捷键 " + *conflict;
+
+  for (const std::string &schema :
+       {"org.gnome.desktop.wm.keybindings",
+        "org.gnome.settings-daemon.plugins.media-keys"}) {
+    const Json result = run_command({"gsettings", "list-recursively", schema});
+    if (!result.value("success", false))
+      continue;
+    if (const auto conflict = shortcut_conflict_in_gsettings_output(
+            result.value("output", ""), candidate, "GNOME " + schema))
+      return conflict;
+  }
+  const Json custom = run_command(
+      {"gsettings", "get", "org.gnome.settings-daemon.plugins.media-keys",
+       "custom-keybindings"});
+  if (custom.value("success", false)) {
+    static const std::regex path_pattern("'(/[^']+/)'", std::regex::optimize);
+    const std::string output = custom.value("output", "");
+    for (std::sregex_iterator
+             iterator(output.begin(), output.end(), path_pattern),
+         end;
+         iterator != end; ++iterator) {
+      const std::string path = (*iterator)[1].str();
+      const Json binding = run_command(
+          {"gsettings", "get",
+           "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:" +
+               path,
+           "binding"});
+      if (!binding.value("success", false))
+        continue;
+      if (const auto conflict = shortcut_conflict_in_gsettings_output(
+              binding.value("output", ""), candidate,
+              "GNOME 自定义快捷键 " + path))
+        return conflict;
+    }
+  }
+  return std::nullopt;
+}
+
+std::string hotkey_candidate_error(const SettingsWindow &window,
+                                   HotkeySlot slot, const Hotkey &candidate,
+                                   bool check_external) {
+  if (const std::string safety =
+          vocotype::desktop::hotkey_safety_error(candidate);
+      !safety.empty())
+    return safety;
+  for (const HotkeySlot other :
+       {HotkeySlot::transcribe, HotkeySlot::polish, HotkeySlot::edit}) {
+    if (other != slot && vocotype::desktop::hotkeys_equal(
+                             candidate, hotkey_for_slot(window, other)))
+      return std::string("与 VoCoType 的“") + hotkey_slot_name(other) +
+             "”快捷键重复";
+  }
+  if (check_external) {
+    if (const auto conflict = external_hotkey_conflict(candidate))
+      return "已被占用：" + *conflict;
+  }
+  return {};
+}
+
+void cancel_hotkey_capture(SettingsWindow &window,
+                           const std::string &message = "已取消快捷键录制") {
+  const HotkeySlot slot = window.hotkey_capture_slot;
+  window.hotkey_capture_slot = HotkeySlot::none;
+  window.hotkey_capture_modifier = 0;
+  if (slot != HotkeySlot::none)
+    refresh_hotkey_button(window, slot);
+  set_hotkey_status(window, message, "status-warn");
+}
+
+void accept_hotkey_candidate(SettingsWindow &window, const Hotkey &candidate) {
+  const HotkeySlot slot = window.hotkey_capture_slot;
+  if (slot == HotkeySlot::none)
+    return;
+  const std::string error =
+      hotkey_candidate_error(window, slot, candidate, true);
+  if (!error.empty()) {
+    GtkButton *button = hotkey_button_for_slot(window, slot);
+    if (button)
+      gtk_button_set_label(button, "重新按键…");
+    window.hotkey_capture_modifier = 0;
+    set_hotkey_status(window, "不能使用：" + error, "status-fail");
+    return;
+  }
+  hotkey_for_slot(window, slot) = candidate;
+  hotkey_changed_for_slot(window, slot) = true;
+  window.hotkey_capture_slot = HotkeySlot::none;
+  window.hotkey_capture_modifier = 0;
+  refresh_hotkey_button(window, slot);
+  set_hotkey_status(window,
+                    std::string("✓ 已录制“") + hotkey_slot_name(slot) + "”：" +
+                        vocotype::desktop::hotkey_to_string(candidate) +
+                        "；保存后同时应用到 Fcitx 5 与 IBus",
+                    "status-pass");
+}
+
+void begin_hotkey_capture(SettingsWindow &window, HotkeySlot slot) {
+  if (window.hotkey_capture_slot != HotkeySlot::none)
+    refresh_hotkey_button(window, window.hotkey_capture_slot);
+  window.hotkey_capture_slot = slot;
+  window.hotkey_capture_modifier = 0;
+  GtkButton *button = hotkey_button_for_slot(window, slot);
+  if (button)
+    gtk_button_set_label(button, "请按快捷键…");
+  gtk_widget_grab_focus(window.window);
+  set_hotkey_status(window,
+                    std::string("正在录制“") + hotkey_slot_name(slot) +
+                        "”。按 Esc 取消；右 Alt 等单独修饰键请按下后松开。",
+                    "status-warn");
+}
+
+gboolean capture_hotkey_press(GtkWidget *, GdkEventKey *event, gpointer data) {
+  auto *window = static_cast<SettingsWindow *>(data);
+  if (!window || window->hotkey_capture_slot == HotkeySlot::none)
+    return FALSE;
+  if (event->keyval == GDK_KEY_Escape) {
+    cancel_hotkey_capture(*window);
+    return TRUE;
+  }
+  const Hotkey candidate =
+      vocotype::desktop::hotkey_from_event(event->keyval, event->state);
+  if (vocotype::desktop::hotkey_is_modifier_key(event->keyval)) {
+    window->hotkey_capture_modifier = event->keyval;
+    GtkButton *button =
+        hotkey_button_for_slot(*window, window->hotkey_capture_slot);
+    if (button) {
+      const std::string text = "松开 " +
+                               vocotype::desktop::hotkey_to_string(candidate) +
+                               "，或继续按组合键";
+      gtk_button_set_label(button, text.c_str());
+    }
+    return TRUE;
+  }
+  accept_hotkey_candidate(*window, candidate);
+  return TRUE;
+}
+
+gboolean capture_hotkey_release(GtkWidget *, GdkEventKey *event,
+                                gpointer data) {
+  auto *window = static_cast<SettingsWindow *>(data);
+  if (!window || window->hotkey_capture_slot == HotkeySlot::none ||
+      window->hotkey_capture_modifier == 0)
+    return FALSE;
+  if (event->keyval != window->hotkey_capture_modifier)
+    return TRUE;
+  const Hotkey candidate =
+      vocotype::desktop::hotkey_from_event(event->keyval, event->state);
+  accept_hotkey_candidate(*window, candidate);
+  return TRUE;
+}
+
+std::string fcitx_hotkey_string(const Hotkey &hotkey) {
+  std::string value = vocotype::desktop::hotkey_to_string(hotkey);
+  if (value.rfind("Ctrl+", 0) == 0)
+    value.replace(0, 5, "Control+");
+  return value;
+}
+
 std::string yaml_scalar_value(const std::filesystem::path &path,
                               const std::string &key,
                               const std::string &fallback);
 void update_rime_schema(const std::string &schema);
 std::string selected_framework(const SettingsWindow &window);
 vocotype::desktop::FcitxAddonState
-query_fcitx_addon_state(const std::string &name, std::string *details = nullptr);
+query_fcitx_addon_state(const std::string &name,
+                        std::string *details = nullptr);
 Json restart_fcitx_with_vocotype();
 std::string doctor_report();
 
@@ -372,6 +834,21 @@ void populate_rime_schema_combo(SettingsWindow &window,
 }
 
 void save_config(SettingsWindow &window) {
+  for (const HotkeySlot slot :
+       {HotkeySlot::transcribe, HotkeySlot::polish, HotkeySlot::edit}) {
+    const bool check_external = hotkey_changed_for_slot(window, slot);
+    const std::string error = hotkey_candidate_error(
+        window, slot, hotkey_for_slot(window, slot), check_external);
+    if (!error.empty())
+      throw std::runtime_error(std::string(hotkey_slot_name(slot)) +
+                               "快捷键无效：" + error);
+  }
+  auto &hotkeys = window.config["hotkeys"];
+  hotkeys["transcribe"] =
+      vocotype::desktop::hotkey_to_string(window.transcribe_hotkey);
+  hotkeys["polish"] = vocotype::desktop::hotkey_to_string(window.polish_hotkey);
+  hotkeys["edit"] = vocotype::desktop::hotkey_to_string(window.edit_hotkey);
+
   auto &audio = window.config["audio"];
   const int active =
       gtk_combo_box_get_active(GTK_COMBO_BOX(window.audio_device));
@@ -436,6 +913,9 @@ void save_config(SettingsWindow &window) {
                                             window.config);
 
   update_fcitx_config({
+      {"PTTKey", fcitx_hotkey_string(window.transcribe_hotkey)},
+      {"PolishKey", fcitx_hotkey_string(window.polish_hotkey)},
+      {"EditKey", fcitx_hotkey_string(window.edit_hotkey)},
       {"PanelStyle", style_index == 1 ? "animated" : "minimal"},
       {"BlockWhenComposing",
        gtk_switch_get_active(window.fcitx_block_composing) ? "True" : "False"},
@@ -447,6 +927,9 @@ void save_config(SettingsWindow &window) {
         gtk_combo_box_get_active_id(GTK_COMBO_BOX(window.rime_schema));
     update_rime_schema(active && *active ? active : "luna_pinyin");
   }
+  window.transcribe_hotkey_changed = false;
+  window.polish_hotkey_changed = false;
+  window.edit_hotkey_changed = false;
 }
 
 void refresh_devices(SettingsWindow &window) {
@@ -563,8 +1046,8 @@ bool fcitx_module_installed() {
   }
   std::error_code error;
   for (std::filesystem::directory_iterator iterator(
-           "/usr/lib", std::filesystem::directory_options::skip_permission_denied,
-           error),
+           "/usr/lib",
+           std::filesystem::directory_options::skip_permission_denied, error),
        end;
        iterator != end; iterator.increment(error)) {
     if (error) {
@@ -588,10 +1071,10 @@ bool framework_installed(const std::string &framework) {
            std::filesystem::is_regular_file(
                home / ".local/libexec/ibus-engine-vocotype");
   }
-  const bool addon = std::filesystem::is_regular_file(
-                         home / ".local/share/fcitx5/addon/vocotype.conf") ||
-                     std::filesystem::is_regular_file(
-                         "/usr/share/fcitx5/addon/vocotype.conf");
+  const bool addon =
+      std::filesystem::is_regular_file(
+          home / ".local/share/fcitx5/addon/vocotype.conf") ||
+      std::filesystem::is_regular_file("/usr/share/fcitx5/addon/vocotype.conf");
   return fcitx_module_installed() && addon;
 }
 
@@ -634,9 +1117,9 @@ void refresh_overview(SettingsWindow &window) {
   const bool core_ready = vocotype::desktop::native_core_ready();
   const bool ibus_installed = framework_installed("ibus");
   const bool fcitx_installed = framework_installed("fcitx5");
-  const auto fcitx_state =
-      fcitx_installed ? query_fcitx_addon_state("vocotype")
-                      : vocotype::desktop::FcitxAddonState::missing;
+  const auto fcitx_state = fcitx_installed
+                               ? query_fcitx_addon_state("vocotype")
+                               : vocotype::desktop::FcitxAddonState::missing;
   const bool fcitx_enabled =
       fcitx_state == vocotype::desktop::FcitxAddonState::enabled;
   const bool package_present =
@@ -674,13 +1157,11 @@ void refresh_overview(SettingsWindow &window) {
                                              : "○ 尚未安装，可选择后执行安装");
   if (window.fcitx_choice_status) {
     const std::string status =
-        !fcitx_installed
-            ? "○ 尚未安装，可选择后执行安装"
-            : fcitx_enabled
-                  ? "✅ 全局 Module 已安装且 addon 已启用"
-                  : fcitx_state == vocotype::desktop::FcitxAddonState::disabled
-                        ? "⚠️ 全局 Module 已安装，但 addon 被禁用"
-                        : "⚠️ 全局 Module 已安装，当前实例尚未加载 addon";
+        !fcitx_installed ? "○ 尚未安装，可选择后执行安装"
+        : fcitx_enabled  ? "✅ 全局 Module 已安装且 addon 已启用"
+        : fcitx_state == vocotype::desktop::FcitxAddonState::disabled
+            ? "⚠️ 全局 Module 已安装，但 addon 被禁用"
+            : "⚠️ 全局 Module 已安装，当前实例尚未加载 addon";
     set_label(window.fcitx_choice_status, status);
   }
   if (window.ibus_install_status)
@@ -690,26 +1171,23 @@ void refresh_overview(SettingsWindow &window) {
                   : "○ 尚未安装 VoCoType（IBus）。");
   if (window.fcitx_install_status) {
     const std::string status =
-        !fcitx_installed
-            ? "○ 尚未安装 VoCoType（Fcitx 5）。"
-            : fcitx_enabled
-                  ? "✅ VoCoType（Fcitx 5）addon 已安装并启用；无需添加输入源。"
-                  : fcitx_state == vocotype::desktop::FcitxAddonState::disabled
-                        ? "⚠️ VoCoType addon 已安装但被禁用；点击安装 / 修复可自动启用。"
-                        : "⚠️ 文件已安装，但当前 Fcitx 实例尚未发现 addon。";
+        !fcitx_installed ? "○ 尚未安装 VoCoType（Fcitx 5）。"
+        : fcitx_enabled
+            ? "✅ VoCoType（Fcitx 5）addon 已安装并启用；无需添加输入源。"
+        : fcitx_state == vocotype::desktop::FcitxAddonState::disabled
+            ? "⚠️ VoCoType addon 已安装但被禁用；点击安装 / 修复可自动启用。"
+            : "⚠️ 文件已安装，但当前 Fcitx 实例尚未发现 addon。";
     set_label(window.fcitx_install_status, status);
   }
 
   std::ostringstream summary;
   summary << "Core：" << (core_ready ? "运行中" : "按需启动") << "；IBus："
           << (ibus_installed ? "已安装" : "未安装") << "；Fcitx 5："
-          << (!fcitx_installed
-                  ? "未安装"
-                  : fcitx_enabled
-                        ? "已启用"
-                        : fcitx_state == vocotype::desktop::FcitxAddonState::disabled
-                              ? "已安装但禁用"
-                              : "已安装待加载");
+          << (!fcitx_installed ? "未安装"
+              : fcitx_enabled  ? "已启用"
+              : fcitx_state == vocotype::desktop::FcitxAddonState::disabled
+                  ? "已安装但禁用"
+                  : "已安装待加载");
   if (window.overview_summary)
     set_label(window.overview_summary, summary.str());
   if (window.overview_status)
@@ -853,24 +1331,23 @@ Json run_command(const std::vector<std::string> &arguments) {
           {"error", success ? "" : output}};
 }
 
-
 constexpr const char *kFcitxService = "org.fcitx.Fcitx5";
 constexpr const char *kFcitxControllerPath = "/controller";
 constexpr const char *kFcitxControllerInterface = "org.fcitx.Fcitx.Controller1";
 
 std::filesystem::path fcitx_profile_path() {
   const char *xdg = std::getenv("XDG_CONFIG_HOME");
-  const auto config_root =
-      xdg && *xdg ? std::filesystem::path(xdg)
-                  : vocotype::desktop::home_path() / ".config";
+  const auto config_root = xdg && *xdg
+                               ? std::filesystem::path(xdg)
+                               : vocotype::desktop::home_path() / ".config";
   return config_root / "fcitx5/profile";
 }
 
 vocotype::desktop::FcitxAddonState
 query_fcitx_addon_state(const std::string &name, std::string *details) {
-  const Json result = run_command(
-      {"busctl", "--user", "--json=short", "call", kFcitxService,
-       kFcitxControllerPath, kFcitxControllerInterface, "GetAddons"});
+  const Json result = run_command({"busctl", "--user", "--json=short", "call",
+                                   kFcitxService, kFcitxControllerPath,
+                                   kFcitxControllerInterface, "GetAddons"});
   if (!result.value("success", false)) {
     if (details)
       *details = result.value("error", "无法查询 Fcitx D-Bus");
@@ -933,8 +1410,8 @@ Json restart_fcitx_desktop_session() {
       (std::getenv("DISPLAY") && *std::getenv("DISPLAY")) ||
       (std::getenv("WAYLAND_DISPLAY") && *std::getenv("WAYLAND_DISPLAY"));
   if (graphical) {
-    const Json restarted = run_command(
-        {"sh", "-c", "exec env -u FCITX_ADDON_DIRS fcitx5 -r -d"});
+    const Json restarted =
+        run_command({"sh", "-c", "exec env -u FCITX_ADDON_DIRS fcitx5 -r -d"});
     if (restarted.value("success", false))
       return {{"success", true}, {"method", "desktop-process"}};
   }
@@ -1362,6 +1839,56 @@ void populate_from_config(SettingsWindow &window) {
     gtk_spin_button_set_value(window.playground_audio_rate,
                               audio.value("sample_rate", 44100));
 
+  const Hotkey default_transcribe = vocotype::desktop::parse_hotkey("F9");
+  const Hotkey default_polish = vocotype::desktop::parse_hotkey("Shift+F9");
+  const Hotkey default_edit = vocotype::desktop::parse_hotkey("Ctrl+F9");
+  const Json hotkeys =
+      window.config.contains("hotkeys") && window.config["hotkeys"].is_object()
+          ? window.config["hotkeys"]
+          : Json::object();
+  window.transcribe_hotkey = vocotype::desktop::parse_hotkey(
+      hotkeys.value("transcribe",
+                    config_value(fcitx_config_path(), "PTTKey", "F9")),
+      default_transcribe);
+  window.polish_hotkey = vocotype::desktop::parse_hotkey(
+      hotkeys.value("polish",
+                    config_value(fcitx_config_path(), "PolishKey", "Shift+F9")),
+      default_polish);
+  window.edit_hotkey = vocotype::desktop::parse_hotkey(
+      hotkeys.value("edit",
+                    config_value(fcitx_config_path(), "EditKey", "Control+F9")),
+      default_edit);
+  bool reset_hotkeys = false;
+  for (const Hotkey &hotkey :
+       {window.transcribe_hotkey, window.polish_hotkey, window.edit_hotkey}) {
+    if (!vocotype::desktop::hotkey_safety_error(hotkey).empty())
+      reset_hotkeys = true;
+  }
+  if (vocotype::desktop::hotkeys_equal(window.transcribe_hotkey,
+                                       window.polish_hotkey) ||
+      vocotype::desktop::hotkeys_equal(window.transcribe_hotkey,
+                                       window.edit_hotkey) ||
+      vocotype::desktop::hotkeys_equal(window.polish_hotkey,
+                                       window.edit_hotkey))
+    reset_hotkeys = true;
+  if (reset_hotkeys) {
+    window.transcribe_hotkey = default_transcribe;
+    window.polish_hotkey = default_polish;
+    window.edit_hotkey = default_edit;
+    set_hotkey_status(window, "检测到无效或重复的旧快捷键配置，已恢复默认值",
+                      "status-warn");
+  } else {
+    set_hotkey_status(
+        window,
+        "点击任一按键开始录制；会拒绝普通输入键、重复项和已检测到的系统冲突");
+  }
+  for (const HotkeySlot slot :
+       {HotkeySlot::transcribe, HotkeySlot::polish, HotkeySlot::edit})
+    refresh_hotkey_button(window, slot);
+  window.transcribe_hotkey_changed = false;
+  window.polish_hotkey_changed = false;
+  window.edit_hotkey_changed = false;
+
   gtk_switch_set_active(
       window.streaming_enabled,
       json_bool(window.config["asr_streaming"], "enabled", true));
@@ -1628,9 +2155,8 @@ GtkWidget *build_overview(SettingsWindow &window) {
           auto *self = static_cast<SettingsWindow *>(data);
           const std::string framework = static_cast<const char *>(
               g_object_get_data(G_OBJECT(button), "vocotype-framework"));
-          Json result = framework == "ibus"
-                            ? run_command({"ibus", "restart"})
-                            : restart_fcitx_with_vocotype();
+          Json result = framework == "ibus" ? run_command({"ibus", "restart"})
+                                            : restart_fcitx_with_vocotype();
           set_label(self->overview_status,
                     result.value("success", false)
                         ? "✓ 输入法框架已请求重启"
@@ -1763,14 +2289,14 @@ GtkWidget *build_overview(SettingsWindow &window) {
 
 GtkWidget *build_recognition(SettingsWindow &window) {
   const auto page = sui::make_page(
-      "通用设置", "集中配置麦克风、F9 状态样式、实时识别预览与 ITN。Playground "
-                  "中的麦克风控件与这里双向同步。");
+      "通用设置", "集中配置麦克风、语音快捷键、状态样式、实时识别预览与 "
+                  "ITN。Playground 中的麦克风控件与这里双向同步。");
 
   gtk_box_pack_start(
       GTK_BOX(page.content),
       sui::make_section_heading(
           "麦克风与采样率",
-          "这组设置同时供 F9、IBus、Fcitx 5 与 Playground 使用。"),
+          "这组设置同时供语音快捷键、IBus、Fcitx 5 与 Playground 使用。"),
       FALSE, FALSE, 0);
   GtkWidget *audio_card = sui::make_card();
   window.audio_device = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
@@ -1792,7 +2318,7 @@ GtkWidget *build_recognition(SettingsWindow &window) {
   gtk_box_pack_start(
       GTK_BOX(audio_card),
       sui::make_row("输入设备",
-                    "选择后会同步到 Playground；成功录音时保存为 F9 使用设备。",
+                    "选择后会同步到 Playground；成功录音时保存为语音输入设备。",
                     GTK_WIDGET(window.audio_device)),
       FALSE, FALSE, 0);
   gtk_box_pack_start(
@@ -1802,17 +2328,78 @@ GtkWidget *build_recognition(SettingsWindow &window) {
           "按设备原生采样率采集；ASR 会在内部重采样到模型需要的采样率。",
           GTK_WIDGET(window.audio_rate)),
       FALSE, FALSE, 0);
-  gtk_box_pack_start(
-      GTK_BOX(audio_card),
-      sui::make_row("最短有效录音（毫秒）",
-                    "不足此时长的 F9 / Shift+F9 / Ctrl+F9 录音会直接丢弃；默认 "
-                    "1000 ms，0 表示关闭限制。",
-                    GTK_WIDGET(window.minimum_recording)),
-      FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(audio_card),
+                     sui::make_row("最短有效录音（毫秒）",
+                                   "不足此时长的语音快捷键录音会直接丢弃；默认 "
+                                   "1000 ms，0 表示关闭限制。",
+                                   GTK_WIDGET(window.minimum_recording)),
+                     FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(audio_card),
                      sui::make_row("设备状态", "", audio_actions), FALSE, FALSE,
                      0);
   gtk_box_pack_start(GTK_BOX(page.content), audio_card, FALSE, FALSE, 0);
+
+  gtk_box_pack_start(
+      GTK_BOX(page.content),
+      sui::make_section_heading(
+          "语音快捷键",
+          "点击右侧按钮后直接按键录制。设置同时用于 Fcitx 5 与 IBus；检测到"
+          "普通输入键、重复项或已知系统冲突时不会接受。"),
+      FALSE, FALSE, 0);
+  GtkWidget *hotkey_card = sui::make_card();
+  window.transcribe_hotkey_button = GTK_BUTTON(gtk_button_new_with_label("F9"));
+  window.polish_hotkey_button =
+      GTK_BUTTON(gtk_button_new_with_label("Shift+F9"));
+  window.edit_hotkey_button = GTK_BUTTON(gtk_button_new_with_label("Ctrl+F9"));
+  for (GtkButton *button :
+       {window.transcribe_hotkey_button, window.polish_hotkey_button,
+        window.edit_hotkey_button}) {
+    gtk_widget_set_size_request(GTK_WIDGET(button), 150, -1);
+    gtk_widget_set_can_focus(GTK_WIDGET(button), TRUE);
+  }
+  gtk_box_pack_start(
+      GTK_BOX(hotkey_card),
+      sui::make_row("普通识别",
+                    "按住录音，松开后提交高精度离线识别结果。可使用 F8、右 "
+                    "Alt 或带 Ctrl/Alt/Super 的组合键。",
+                    GTK_WIDGET(window.transcribe_hotkey_button)),
+      FALSE, FALSE, 0);
+  gtk_box_pack_start(
+      GTK_BOX(hotkey_card),
+      sui::make_row("AI 润色",
+                    "按住录音，松开后先识别再调用已配置的 AI 端点润色。",
+                    GTK_WIDGET(window.polish_hotkey_button)),
+      FALSE, FALSE, 0);
+  gtk_box_pack_start(
+      GTK_BOX(hotkey_card),
+      sui::make_row("语音编辑",
+                    "按住说编辑指令；要求当前输入框提供 surrounding text。",
+                    GTK_WIDGET(window.edit_hotkey_button)),
+      FALSE, FALSE, 0);
+  window.hotkey_status =
+      GTK_LABEL(sui::make_status_label("点击任一按键开始录制；Esc 取消。"));
+  gtk_box_pack_start(
+      GTK_BOX(hotkey_card),
+      sui::make_row("校验状态", "", GTK_WIDGET(window.hotkey_status)), FALSE,
+      FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(page.content), hotkey_card, FALSE, FALSE, 0);
+
+  g_signal_connect_swapped(window.transcribe_hotkey_button, "clicked",
+                           G_CALLBACK(+[](SettingsWindow *self) {
+                             begin_hotkey_capture(*self,
+                                                  HotkeySlot::transcribe);
+                           }),
+                           &window);
+  g_signal_connect_swapped(window.polish_hotkey_button, "clicked",
+                           G_CALLBACK(+[](SettingsWindow *self) {
+                             begin_hotkey_capture(*self, HotkeySlot::polish);
+                           }),
+                           &window);
+  g_signal_connect_swapped(window.edit_hotkey_button, "clicked",
+                           G_CALLBACK(+[](SettingsWindow *self) {
+                             begin_hotkey_capture(*self, HotkeySlot::edit);
+                           }),
+                           &window);
 
   window.fcitx_panel_section = sui::make_section_heading(
       "Fcitx 5：F9 交互样式",
@@ -2699,13 +3286,14 @@ std::string doctor_report() {
             : integrity.value("error", integrity.value("output", "校验失败")));
   if (framework_installed("fcitx5")) {
     std::string addon_details;
-    const auto addon_state = query_fcitx_addon_state("vocotype", &addon_details);
+    const auto addon_state =
+        query_fcitx_addon_state("vocotype", &addon_details);
     check("Fcitx addon 已启用",
           addon_state == vocotype::desktop::FcitxAddonState::enabled,
           std::string(vocotype::desktop::fcitx_addon_state_name(addon_state)) +
               " — " + addon_details);
-    const auto references =
-        vocotype::desktop::legacy_fcitx_profile_references(fcitx_profile_path());
+    const auto references = vocotype::desktop::legacy_fcitx_profile_references(
+        fcitx_profile_path());
     std::ostringstream legacy_details;
     for (std::size_t index = 0; index < references.size(); ++index) {
       if (index)
@@ -3180,6 +3768,12 @@ void activate(GtkApplication *application, gpointer user_data) {
   window->application = application;
   sui::apply_css();
   window->window = gtk_application_window_new(application);
+  gtk_widget_add_events(window->window,
+                        GDK_KEY_PRESS_MASK | GDK_KEY_RELEASE_MASK);
+  g_signal_connect(window->window, "key-press-event",
+                   G_CALLBACK(capture_hotkey_press), window);
+  g_signal_connect(window->window, "key-release-event",
+                   G_CALLBACK(capture_hotkey_release), window);
   gtk_window_set_title(GTK_WINDOW(window->window), "VoCoType 设置");
   gtk_window_set_default_size(GTK_WINDOW(window->window), 1120, 760);
   gtk_widget_set_size_request(window->window, 900, 620);
@@ -3247,7 +3841,7 @@ void activate(GtkApplication *application, gpointer user_data) {
           show_settings_message(
               *self, GTK_MESSAGE_INFO, "设置已保存",
               ready ? "通用设置、AI 配置和当前输入法框架选项已应用。"
-                    : "配置已写入；Core 将在下一次 F9 时按需启动。");
+                    : "配置已写入；Core 将在下一次语音输入时按需启动。");
         } catch (const std::exception &error) {
           show_settings_message(*self, GTK_MESSAGE_ERROR, "保存设置失败",
                                 error.what());
@@ -3297,6 +3891,35 @@ void activate(GtkApplication *application, gpointer user_data) {
 } // namespace
 
 int main(int argc, char **argv) {
+  if (argc >= 2 && std::string(argv[1]) == "--check-hotkey") {
+    const std::string requested = argc >= 3 ? argv[2] : "";
+    const Hotkey hotkey = vocotype::desktop::parse_hotkey(requested);
+    const std::string safety = vocotype::desktop::hotkey_safety_error(hotkey);
+    if (!safety.empty()) {
+      std::cout << Json{{"success", false},
+                        {"shortcut", requested},
+                        {"reason", safety},
+                        {"kind", "unsafe"}}
+                       .dump()
+                << std::endl;
+      return 20;
+    }
+    if (const auto conflict = external_hotkey_conflict(hotkey)) {
+      std::cout << Json{{"success", false},
+                        {"shortcut", requested},
+                        {"reason", *conflict},
+                        {"kind", "occupied"}}
+                       .dump()
+                << std::endl;
+      return 21;
+    }
+    std::cout << Json{{"success", true},
+                      {"shortcut", vocotype::desktop::hotkey_to_string(hotkey)},
+                      {"kind", "available"}}
+                     .dump()
+              << std::endl;
+    return 0;
+  }
   if (argc >= 2 && std::string(argv[1]) == "--repair-fcitx-profile") {
     try {
       const std::filesystem::path profile =
