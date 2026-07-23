@@ -4,6 +4,8 @@ vocotype-linux (4.1.0~beta2-1) unstable; urgency=medium
   * Share one native terms parser between Core and the settings center.
   * Reject packages that reintroduce a system yaml-cpp dependency in metadata
     or the settings executable.
+  * Fix the empty framework-specific advanced-options card and remove the
+    doubled separator below the final row of settings cards.
 
  -- Leonard Li <leo@lsamc.website>  Thu, 23 Jul 2026 16:00:00 +0000
 

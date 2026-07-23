@@ -77,15 +77,32 @@ done
   fail "legacy notebook or free-text Rime schema returned"
 rg -Fq 'gtk_widget_set_visible(window.rime_resource_row, ibus)' "$settings" || \
   fail "IBus Rime initialization is not conditional"
-rg -Fq 'gtk_widget_set_visible(window.rime_schema_row, ibus)' "$settings" || \
-  fail "IBus Rime schema is not conditional"
+for token in 'window.ibus_advanced_section' 'window.ibus_advanced_card' \
+             'gtk_widget_set_visible(widget, ibus)'; do
+  rg -Fq "$token" "$settings" || \
+    fail "IBus advanced section is not conditionally visible: $token"
+done
+for token in 'window.fcitx_advanced_section' 'window.fcitx_advanced_card' \
+             'Fcitx 5：高级选项'; do
+  rg -Fq "$token" "$settings" || \
+    fail "Fcitx advanced section is incomplete: $token"
+done
+if rg -Fq 'gtk_widget_set_no_show_all(window.' "$settings"; then
+  fail "framework-specific containers can remain visible with hidden children"
+fi
+show_line=$(grep -n 'gtk_widget_show_all(window->window)' "$settings" | cut -d: -f1)
+framework_line=$(grep -n 'apply_framework_selection(\*window, selected_framework' "$settings" | cut -d: -f1)
+[[ -n "$show_line" && -n "$framework_line" && "$show_line" -lt "$framework_line" ]] || \
+  fail "framework visibility is applied before GTK shows child controls"
+rg -Fq '.card-row:last-child' "$ui" || \
+  fail "settings cards still draw a duplicate separator below their final row"
+rg -Fq 'border-bottom-width: 0' "$ui" || \
+  fail "final settings row separator is not disabled"
 rg -Fq 'VOCOTYPE_VERSION' native/desktop/src/ibus_main.cpp || \
   fail "native IBus XML does not use the repository version"
 if rg -Fq '<version>3</version>' native/desktop/src/ibus_main.cpp; then
   fail "native IBus XML still hard-codes the V3 version"
 fi
-rg -Fq 'gtk_widget_set_visible(window.fcitx_composing_row, !ibus)' "$settings" || \
-  fail "Fcitx-specific controls are not conditional"
 for token in \
   'parse_fcitx_addon_states' 'SetAddonsState' '--repair-fcitx-profile' \
   'migrate_legacy_fcitx_profile' 'legacy_fcitx_profile_references' \

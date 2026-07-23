@@ -116,6 +116,10 @@ struct SettingsWindow {
   GtkWidget *rime_resource_row = nullptr;
   GtkWidget *rime_schema_row = nullptr;
   GtkWidget *fcitx_composing_row = nullptr;
+  GtkWidget *fcitx_advanced_section = nullptr;
+  GtkWidget *fcitx_advanced_card = nullptr;
+  GtkWidget *ibus_advanced_section = nullptr;
+  GtkWidget *ibus_advanced_card = nullptr;
   GtkWidget *fcitx_panel_section = nullptr;
   GtkWidget *fcitx_panel_card = nullptr;
   GtkWidget *fcitx_output_section = nullptr;
@@ -1097,12 +1101,14 @@ void apply_framework_selection(SettingsWindow &window,
   const bool ibus = framework == "ibus";
   if (window.rime_resource_row)
     gtk_widget_set_visible(window.rime_resource_row, ibus);
-  if (window.rime_schema_row)
-    gtk_widget_set_visible(window.rime_schema_row, ibus);
-  if (window.fcitx_composing_row)
-    gtk_widget_set_visible(window.fcitx_composing_row, !ibus);
   for (GtkWidget *widget :
-       {window.fcitx_panel_section, window.fcitx_panel_card,
+       {window.ibus_advanced_section, window.ibus_advanced_card}) {
+    if (widget)
+      gtk_widget_set_visible(widget, ibus);
+  }
+  for (GtkWidget *widget :
+       {window.fcitx_advanced_section, window.fcitx_advanced_card,
+        window.fcitx_panel_section, window.fcitx_panel_card,
         window.fcitx_output_section, window.fcitx_output_card}) {
     if (widget)
       gtk_widget_set_visible(widget, !ibus);
@@ -2186,7 +2192,6 @@ GtkWidget *build_overview(SettingsWindow &window) {
                     "初始化 VoCoType IBus 独立引擎使用的 schema "
                     "与用户数据；Fcitx 5 不需要此步骤。",
                     rime);
-  gtk_widget_set_no_show_all(window.rime_resource_row, TRUE);
   gtk_box_pack_start(GTK_BOX(resource_card), window.rime_resource_row, FALSE,
                      FALSE, 0);
   gtk_box_pack_start(GTK_BOX(page.content), resource_card, FALSE, FALSE, 0);
@@ -2398,14 +2403,12 @@ GtkWidget *build_recognition(SettingsWindow &window) {
                            &window);
 
   window.fcitx_panel_section = sui::make_section_heading(
-      "Fcitx 5：F9 交互样式",
+      "Fcitx 5：语音快捷键交互样式",
       "控制 Fcitx 候选框中第一行状态和第二行实时预览的样式。");
-  gtk_widget_set_no_show_all(window.fcitx_panel_section, TRUE);
   gtk_box_pack_start(GTK_BOX(page.content), window.fcitx_panel_section, FALSE,
                      FALSE, 0);
   GtkWidget *panel_card = sui::make_card();
   window.fcitx_panel_card = panel_card;
-  gtk_widget_set_no_show_all(window.fcitx_panel_card, TRUE);
   window.fcitx_panel_style = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
   gtk_combo_box_text_append(window.fcitx_panel_style, "minimal",
                             "极简：🎤 录音中 / ⏳ 识别中");
@@ -2430,13 +2433,11 @@ GtkWidget *build_recognition(SettingsWindow &window) {
 
   window.fcitx_output_section = sui::make_section_heading(
       "Fcitx 5：输出文本",
-      "控制 F9 与 Shift+F9 最终通过 Fcitx 提交到当前输入框的文本格式。");
-  gtk_widget_set_no_show_all(window.fcitx_output_section, TRUE);
+      "控制普通识别与 AI 润色最终通过 Fcitx 提交到当前输入框的文本格式。");
   gtk_box_pack_start(GTK_BOX(page.content), window.fcitx_output_section, FALSE,
                      FALSE, 0);
   GtkWidget *output_card = sui::make_card();
   window.fcitx_output_card = output_card;
-  gtk_widget_set_no_show_all(window.fcitx_output_card, TRUE);
   window.fcitx_strip_period = GTK_SWITCH(sui::make_switch());
   gtk_box_pack_start(GTK_BOX(output_card),
                      sui::make_row("取消句尾句号",
@@ -2519,30 +2520,37 @@ GtkWidget *build_recognition(SettingsWindow &window) {
       FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(page.content), preview_card, FALSE, FALSE, 0);
 
-  gtk_box_pack_start(
-      GTK_BOX(page.content),
-      sui::make_section_heading(
-          "输入法高级选项",
-          "这些设置通常不需要修改；保留当前 C++ 版本新增的输入法能力。"),
-      FALSE, FALSE, 0);
-  GtkWidget *advanced_card = sui::make_card();
+  window.fcitx_advanced_section = sui::make_section_heading(
+      "Fcitx 5：高级选项",
+      "仅显示对 Fcitx 全局 Module 生效的行为；一般保持默认即可。");
+  gtk_box_pack_start(GTK_BOX(page.content), window.fcitx_advanced_section,
+                     FALSE, FALSE, 0);
+  window.fcitx_advanced_card = sui::make_card();
   window.fcitx_block_composing = GTK_SWITCH(sui::make_switch());
+  window.fcitx_composing_row = sui::make_row(
+      "组合中阻止录音",
+      "当前输入法仍有未提交 preedit 时，避免语音快捷键与键盘组合互相干扰。",
+      GTK_WIDGET(window.fcitx_block_composing));
+  gtk_box_pack_start(GTK_BOX(window.fcitx_advanced_card),
+                     window.fcitx_composing_row, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(page.content), window.fcitx_advanced_card, FALSE,
+                     FALSE, 0);
+
+  window.ibus_advanced_section = sui::make_section_heading(
+      "IBus：Rime 输入方案",
+      "仅用于 VoCoType IBus 独立引擎；Fcitx 5 用户无需配置此项。");
+  gtk_box_pack_start(GTK_BOX(page.content), window.ibus_advanced_section, FALSE,
+                     FALSE, 0);
+  window.ibus_advanced_card = sui::make_card();
   window.rime_schema = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
   gtk_widget_set_hexpand(GTK_WIDGET(window.rime_schema), TRUE);
-  window.fcitx_composing_row = sui::make_row(
-      "Fcitx：组合中阻止录音",
-      "当前输入法仍有未提交 preedit 时，避免 F9 与键盘组合互相干扰。",
-      GTK_WIDGET(window.fcitx_block_composing));
-  gtk_widget_set_no_show_all(window.fcitx_composing_row, TRUE);
-  gtk_box_pack_start(GTK_BOX(advanced_card), window.fcitx_composing_row, FALSE,
-                     FALSE, 0);
   window.rime_schema_row = sui::make_row(
-      "IBus Rime schema", "VoCoType IBus 独立引擎内置 Rime 使用的 schema。",
+      "Rime schema", "VoCoType IBus 独立引擎内置 Rime 使用的 schema。",
       GTK_WIDGET(window.rime_schema));
-  gtk_widget_set_no_show_all(window.rime_schema_row, TRUE);
-  gtk_box_pack_start(GTK_BOX(advanced_card), window.rime_schema_row, FALSE,
+  gtk_box_pack_start(GTK_BOX(window.ibus_advanced_card), window.rime_schema_row,
+                     FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(page.content), window.ibus_advanced_card, FALSE,
                      FALSE, 0);
-  gtk_box_pack_start(GTK_BOX(page.content), advanced_card, FALSE, FALSE, 0);
 
   g_signal_connect_swapped(
       refresh_audio, "clicked",
@@ -3822,7 +3830,6 @@ void activate(GtkApplication *application, gpointer user_data) {
   set_label(window->playground_ai_gate_status,
             ai_enabled ? "AI 功能已启用；建议先在“AI 功能”页执行一次真实测活。"
                        : "AI 功能尚未启用。请先配置端点和模型并完成测活。");
-  apply_framework_selection(*window, selected_framework(*window));
   gtk_stack_set_visible_child_name(window->stack, "overview");
 
   g_signal_connect_swapped(
@@ -3853,6 +3860,7 @@ void activate(GtkApplication *application, gpointer user_data) {
                    window);
 
   gtk_widget_show_all(window->window);
+  apply_framework_selection(*window, selected_framework(*window));
   if (const char *probe = std::getenv("VOCOTYPE_SETTINGS_UI_PROBE");
       probe && *probe) {
     const std::string framework =
@@ -3871,10 +3879,14 @@ void activate(GtkApplication *application, gpointer user_data) {
     Json result{
         {"framework", framework},
         {"rime_resource_visible", visible(window->rime_resource_row)},
-        {"rime_schema_visible", visible(window->rime_schema_row)},
+        {"ibus_advanced_visible", visible(window->ibus_advanced_card)},
+        {"rime_schema_visible", visible(window->ibus_advanced_card) &&
+                                    visible(window->rime_schema_row)},
         {"fcitx_panel_visible", visible(window->fcitx_panel_card)},
         {"fcitx_output_visible", visible(window->fcitx_output_card)},
-        {"fcitx_composing_visible", visible(window->fcitx_composing_row)},
+        {"fcitx_advanced_visible", visible(window->fcitx_advanced_card)},
+        {"fcitx_composing_visible", visible(window->fcitx_advanced_card) &&
+                                        visible(window->fcitx_composing_row)},
         {"rime_schema_count", schema_count},
     };
     std::cout << result.dump() << std::endl;

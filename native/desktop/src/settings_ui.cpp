@@ -47,6 +47,9 @@ headerbar {
   padding: 12px 14px;
   border-bottom: 1px solid alpha(@theme_fg_color, 0.10);
 }
+.card-row:last-child {
+  border-bottom-width: 0;
+}
 .row-title {
   font-size: 15px;
   font-weight: 600;
