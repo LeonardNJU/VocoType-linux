@@ -52,7 +52,10 @@ add_executable(vocotype-model-manager src/model_manager_main.cpp)
 target_link_libraries(vocotype-model-manager PRIVATE vocotype_desktop_common CURL::libcurl OpenSSL::Crypto)
 
 if(VOCOTYPE_BUILD_SETTINGS)
-  add_executable(vocotype-settings src/settings_main.cpp)
+  add_executable(vocotype-settings
+    src/settings_main.cpp
+    src/settings_ui.cpp
+  )
   target_compile_definitions(vocotype-settings PRIVATE VOCOTYPE_VERSION="${VOCOTYPE_VERSION}")
   target_link_libraries(vocotype-settings PRIVATE vocotype_desktop_common PkgConfig::GTK3 ${VOCOTYPE_YAML_TARGET} CURL::libcurl)
   if(VOCOTYPE_BUILD_RIME)

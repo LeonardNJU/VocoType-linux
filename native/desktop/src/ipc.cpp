@@ -12,6 +12,7 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/un.h>
+#include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
 namespace vocotype::desktop {
@@ -112,6 +113,71 @@ bool native_core_ready(const std::string &requested_socket, int timeout_ms) {
   }
 }
 
+bool native_core_service_available() {
+  const auto home = home_path();
+  for (const auto &path : {
+           home / ".config/systemd/user/vocotype-fcitx5-backend.service",
+           std::filesystem::path(
+               "/usr/lib/systemd/user/vocotype-fcitx5-backend.service"),
+           std::filesystem::path(
+               "/usr/lib64/systemd/user/vocotype-fcitx5-backend.service"),
+           std::filesystem::path(
+               "/etc/systemd/user/vocotype-fcitx5-backend.service"),
+       }) {
+    if (std::filesystem::is_regular_file(path))
+      return true;
+  }
+  return false;
+}
+
+bool run_user_service_action(const char *action) {
+  const std::string manager = find_executable(
+      std::string("system") + "ctl", {"/usr/bin/systemctl", "/bin/systemctl"});
+  if (manager.empty())
+    return false;
+  const pid_t child = fork();
+  if (child < 0)
+    return false;
+  if (child == 0) {
+    const std::string runtime = "/run/user/" + std::to_string(getuid());
+    if (!std::getenv("XDG_RUNTIME_DIR") &&
+        std::filesystem::is_directory(runtime))
+      setenv("XDG_RUNTIME_DIR", runtime.c_str(), 1);
+    const std::string bus = runtime + "/bus";
+    if (!std::getenv("DBUS_SESSION_BUS_ADDRESS") &&
+        std::filesystem::exists(bus)) {
+      const std::string address = "unix:path=" + bus;
+      setenv("DBUS_SESSION_BUS_ADDRESS", address.c_str(), 1);
+    }
+    execl(manager.c_str(), manager.c_str(), "--user", action,
+          "vocotype-fcitx5-backend.service", static_cast<char *>(nullptr));
+    _exit(127);
+  }
+  int status = 0;
+  while (waitpid(child, &status, 0) < 0 && errno == EINTR) {
+  }
+  return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+bool start_native_core_service(bool restart,
+                               const std::string &requested_socket,
+                               int wait_ms) {
+  if (!native_core_service_available())
+    return false;
+  const std::string socket =
+      requested_socket.empty() ? backend_socket_path() : requested_socket;
+  if (!run_user_service_action(restart ? "restart" : "start"))
+    return false;
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(wait_ms);
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (native_core_ready(socket, 800))
+      return true;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  return false;
+}
+
 pid_t start_native_core(const std::string &requested_socket,
                         const std::filesystem::path &requested_config) {
   const std::string socket =
@@ -144,6 +210,11 @@ pid_t start_native_core(const std::string &requested_socket,
     }
     _exit(127);
   }
+  std::thread([child] {
+    int status = 0;
+    while (waitpid(child, &status, 0) < 0 && errno == EINTR) {
+    }
+  }).detach();
   return child;
 }
 
@@ -152,6 +223,9 @@ bool ensure_native_core(const std::string &requested_socket,
   const std::string socket =
       requested_socket.empty() ? backend_socket_path() : requested_socket;
   if (native_core_ready(socket))
+    return true;
+  if (native_core_service_available() &&
+      start_native_core_service(false, socket, wait_ms))
     return true;
   if (start_native_core(socket, config_path) < 0)
     return false;

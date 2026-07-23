@@ -1,6 +1,7 @@
 #ifndef VOCOTYPE_FCITX5_MODULE_H
 #define VOCOTYPE_FCITX5_MODULE_H
 
+#include <atomic>
 #include <cstdio>
 #include <memory>
 #include <mutex>
@@ -253,6 +254,7 @@ private:
     bool ptt_pressed_ = false;
     bool ptt_suppressed_ = false;
     bool is_recording_ = false;
+    std::atomic_bool backend_start_pending_{false};
     bool recording_long_mode_ = false;
     bool recording_edit_mode_ = false;
     bool pending_long_mode_ = false;

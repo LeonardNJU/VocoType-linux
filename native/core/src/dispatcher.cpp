@@ -1,4 +1,5 @@
 #include "vocotype/core/dispatcher.hpp"
+#include "vocotype/core/text_normalizer.hpp"
 
 #include <utility>
 
@@ -60,8 +61,25 @@ Json CoreDispatcher::dispatch(const Json &request) const {
   }
   if (type == "normalize_text") {
     const std::string text = request.value("text", "");
+    std::string normalized;
+    if (request.contains("normalization") &&
+        request["normalization"].is_object()) {
+      const auto &value = request["normalization"];
+      NormalizationConfig config = config_.normalization;
+      config.enabled = value.value("enabled", config.enabled);
+      config.compact_dates = value.value("compact_dates", config.compact_dates);
+      config.compact_times = value.value("compact_times", config.compact_times);
+      config.compact_distances =
+          value.value("compact_distances", config.compact_distances);
+      config.currency_symbols =
+          value.value("currency_symbols", config.currency_symbols);
+      TextNormalizer normalizer(config);
+      normalized = normalizer.normalize(text);
+    } else {
+      normalized = offline_asr_.normalize_text(text);
+    }
     return {{"success", true},
-            {"text", offline_asr_.normalize_text(text)},
+            {"text", normalized},
             {"hotwords", offline_asr_.build_native_hotwords(
                              request.value("hotwords", std::string()))}};
   }

@@ -259,7 +259,7 @@ PartOf=graphical-session.target
 [Service]
 Type=simple
 ExecStart=$USER_BIN/vocotype-fcitx5-backend
-Restart=on-failure
+Restart=always
 RestartSec=3
 
 [Install]

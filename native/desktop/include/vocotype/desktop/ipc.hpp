@@ -11,6 +11,10 @@ Json unix_json_request(const std::string &socket_path, const Json &request,
 std::string base64_encode(const unsigned char *data, std::size_t size);
 bool native_core_ready(const std::string &socket_path = {},
                        int timeout_ms = 500);
+bool native_core_service_available();
+bool start_native_core_service(bool restart = false,
+                               const std::string &socket_path = {},
+                               int wait_ms = 45000);
 pid_t start_native_core(const std::string &socket_path = {},
                         const std::filesystem::path &config_path = {});
 bool ensure_native_core(const std::string &socket_path = {},

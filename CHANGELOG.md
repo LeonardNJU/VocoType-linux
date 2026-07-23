@@ -15,6 +15,7 @@ No unreleased changes.
 
 - Added a compiled PortAudio recorder/player, checksum-pinned ModelScope model manager, GTK settings center, native IBus/librime engine, and native Fcitx 5 module.
 - Added native settings coverage for install/repair/uninstall, input/output devices, waveform playback, ASR and voice-edit Playground, ITN, terminology, SLM, Rime schema, version checks, integrity checks, support bundles, private feedback, and GitHub issue creation.
+- Restored the Beta3 settings experience in C++ with a GTK HeaderBar, StackSidebar navigation, scrollable card pages, synchronized General Settings and Playground audio controls, framework-specific tutorials, card-based Doctor results, and the full feedback form.
 - Added a compiled Boost.Beast/SQLite feedback receiver with multipart/JSON uploads, HMAC rate limiting, deduplication, private attachments, retention, backups, and an operator CLI.
 - Added a compiled static documentation generator and repository-wide native architecture contracts.
 
@@ -25,12 +26,15 @@ No unreleased changes.
 - Fcitx 5 and IBus share the same C++ core, audio recorder, normalization/terminology layer, OpenAI-compatible SSE client, and validated voice-edit planner.
 - Fcitx polishing now shows `正在润色... （等待模型输出 XXs/<timeout>s）` on the first line and the rough ASR text on the next row.
 - Source and graphical installers preserve existing configuration and model caches, create native payload checksums, and restart Fcitx through the graphical desktop session.
+- IBus-only controls are now visible only while IBus is selected; the IBus Rime schema is chosen from an enumerated dropdown of installed schemas. Fcitx-only panel, output, and composing controls are hidden in IBus mode.
 
 ### Fixed
 
 - Fixed Ctrl+F9 full-text replacement in gedit and other GTK clients: VoCoType now validates the surrounding snapshot before editing, then sends delete-surrounding and replacement commit in the same ordered input-method transaction instead of mistaking a stale surrounding-text cache for deletion failure.
 - Removed the destructive failure mode that could delete the source text, suppress the replacement, and report that the input box did not support replacement.
 - Removed clipboard injection fallbacks and internal `del=? sur=1` capability diagnostics from the user-facing Fcitx panel.
+- Fixed the native Core lifecycle so settings, Fcitx, and IBus reuse the persistent user service when available. Settings no longer kill the service and fork a parent-bound temporary Core; Fcitx automatically starts the service and retries F9 when the socket is missing.
+- Fixed settings startup with Beta3/legacy configurations that stored switches as numeric `0/1` values instead of JSON booleans.
 
 ### Removed
 

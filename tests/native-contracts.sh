@@ -57,34 +57,60 @@ rg -Fq '正在润色... （等待模型输出 ' fcitx5/module/vocotype_module.cp
 rg -Fq '粗识别文本：' fcitx5/module/vocotype_module.cpp || fail "rough recognition line missing"
 rg -Fq 'active_polish_started_us_' fcitx5/module/vocotype_module.cpp || fail "polish timer missing"
 
-# The native settings window must cover every former product page/capability.
+# The native settings window must preserve the Beta3 information architecture
+# while exposing framework-specific controls only in the active framework.
 settings=native/desktop/src/settings_main.cpp
+ui=native/desktop/src/settings_ui.cpp
 for token in \
+  'gtk_header_bar_new' 'gtk_stack_sidebar_new' '1120, 760' \
+  '概览与安装' '通用设置' 'Playground' '用户词典' 'AI 功能' \
+  '诊断' '教程' '反馈' \
   'list_output_devices' 'play_pcm16' 'draw_waveform' 'edit_audio' \
   'query_latest_release' 'create_support_bundle' 'submit_feedback' \
-  'uninstall_integration' 'update_rime_schema' 'verify_native_payload' \
-  '安装 / 修复 Fcitx 5' '安装 / 修复 IBus' '卸载 Fcitx 5 集成' \
-  'Playground' 'Doctor 与支持' '反馈'; do
-  rg -Fq "$token" "$settings" || fail "native settings capability missing: $token"
+  'uninstall_integration' 'verify_native_payload' \
+  'discover_rime_schemas' 'gtk_combo_box_text_new' \
+  '初始化 IBus 内置 Rime'; do
+  rg -Fq "$token" "$settings" "$ui" || \
+    fail "native settings capability missing: $token"
+done
+! rg -q 'gtk_notebook_new|GtkEntry \*rime_schema' "$settings" || \
+  fail "legacy notebook or free-text Rime schema returned"
+rg -Fq 'gtk_widget_set_visible(window.rime_resource_row, ibus)' "$settings" || \
+  fail "IBus Rime initialization is not conditional"
+rg -Fq 'gtk_widget_set_visible(window.rime_schema_row, ibus)' "$settings" || \
+  fail "IBus Rime schema is not conditional"
+rg -Fq 'gtk_widget_set_visible(window.fcitx_composing_row, !ibus)' "$settings" || \
+  fail "Fcitx-specific controls are not conditional"
+
+# Core lifecycle must use the persistent user service when installed. A
+# settings window must never replace it with a parent-bound temporary child.
+ipc=native/desktop/src/ipc.cpp
+rg -Fq 'native_core_service_available' "$ipc" || \
+  fail "persistent Core service discovery missing"
+rg -Fq 'start_native_core_service(false, socket, wait_ms)' "$ipc" || \
+  fail "ensure_native_core does not prefer the user service"
+rg -Fq 'start_native_core_service(true, socket, 45000)' "$settings" || \
+  fail "settings Core restart does not use the user service"
+rg -Fq 'startBackendUserService' fcitx5/module/vocotype_module.cpp || \
+  fail "Fcitx cannot recover a missing backend service"
+rg -Fq 'backend_start_pending_' fcitx5/module/vocotype_module.cpp || \
+  fail "Fcitx backend recovery is not serialized"
+for service in installers/install-native-user.sh \
+               packaging/systemd/vocotype-fcitx5-backend.service; do
+  rg -Fq 'Restart=always' "$service" || \
+    fail "persistent Core service is not restart-always: $service"
 done
 
 
-# The complete source tree contains no Python implementation or dependency
-# manifest. Documentation is Markdown/static configuration; all executable
-# product and service code is compiled C++ or lifecycle shell.
-if find . \
-    -path './.git' -prune -o \
-    -path './build' -prune -o \
-    -path './dist' -prune -o \
-    -path './native/streaming_worker/build' -prune -o \
-    -type f -name '*.py' -print -quit | grep -q .; then
+# The tracked source tree contains no Python implementation or dependency
+# manifest. Local build caches and historical staging directories are ignored.
+if git ls-files '*.py' | grep -q .; then
   fail "Python source remains in the repository"
 fi
-if find . -path './.git' -prune -o -path './build' -prune -o \
-    -type f \( -name 'pyproject.toml' -o -name 'uv.lock' -o \
-    -name 'requirements*.txt' \) -print -quit | grep -q .; then
+if git ls-files 'pyproject.toml' 'uv.lock' 'requirements*.txt' | grep -q .; then
   fail "Python dependency manifest remains in the repository"
 fi
+
 for token in \
   'add_executable(vocotype-feedback' \
   'Boost.Beast' \

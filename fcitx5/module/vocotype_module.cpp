@@ -169,6 +169,58 @@ std::string finishRecorderProcess(
     return audio_path;
 }
 
+bool startBackendUserService() {
+    std::string manager;
+    for (const char *candidate : {"/usr/bin/systemctl", "/bin/systemctl"}) {
+        if (access(candidate, X_OK) == 0) {
+            manager = candidate;
+            break;
+        }
+    }
+    if (manager.empty()) {
+        return false;
+    }
+    const pid_t child = fork();
+    if (child < 0) {
+        return false;
+    }
+    if (child == 0) {
+        const std::string runtime =
+            "/run/user/" + std::to_string(static_cast<unsigned long>(getuid()));
+        if (!std::getenv("XDG_RUNTIME_DIR") &&
+            access(runtime.c_str(), F_OK) == 0) {
+            setenv("XDG_RUNTIME_DIR", runtime.c_str(), 1);
+        }
+        const std::string bus = runtime + "/bus";
+        if (!std::getenv("DBUS_SESSION_BUS_ADDRESS") &&
+            access(bus.c_str(), F_OK) == 0) {
+            const std::string address = "unix:path=" + bus;
+            setenv("DBUS_SESSION_BUS_ADDRESS", address.c_str(), 1);
+        }
+        execl(manager.c_str(), manager.c_str(), "--user", "start",
+              "vocotype-fcitx5-backend.service",
+              static_cast<char *>(nullptr));
+        _exit(127);
+    }
+    int status = 0;
+    while (waitpid(child, &status, 0) < 0 && errno == EINTR) {
+    }
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+bool waitForBackend(const std::string &socket_path, int timeout_ms) {
+    vocotype::IPCClient client(socket_path);
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::milliseconds(timeout_ms);
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (client.ping()) {
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    return false;
+}
+
 std::string resolveBackendSocketPath() {
     if (const char *override_path = std::getenv("VOCOTYPE_FCITX5_SOCKET")) {
         if (*override_path != '\0') {
@@ -219,7 +271,12 @@ VoCoTypeModule::VoCoTypeModule(fcitx::Instance *instance)
     FCITX_INFO() << "VoCoType global module initialized; hotkey="
                  << ptt_key_name_;
     if (!ipc_client_->ping()) {
-        FCITX_WARN() << "VoCoType backend is not responding";
+        FCITX_WARN() << "VoCoType backend is not responding; requesting user service start";
+        const std::string socket_path = backend_socket_path_;
+        std::thread([socket_path]() {
+            (void)startBackendUserService();
+            (void)waitForBackend(socket_path, 45000);
+        }).detach();
     }
 }
 
@@ -785,6 +842,37 @@ void VoCoTypeModule::startRecording(
     }
     if (recorder_launcher_path_.empty()) {
         showError(ic, "录音配置无效");
+        return;
+    }
+    if (!ipc_client_->ping()) {
+        if (backend_start_pending_.exchange(true)) {
+            showPanelMessage(ic, "⏳ 语音后台正在启动...");
+            return;
+        }
+        auto ic_ref = ic->watch();
+        const std::string socket_path = backend_socket_path_;
+        showPanelMessage(ic, "⏳ 正在启动语音后台...");
+        std::thread([this, ic_ref, socket_path, long_mode, edit_mode,
+                     edit_snapshot]() {
+            const bool ready = startBackendUserService() &&
+                               waitForBackend(socket_path, 45000);
+            scheduleWithContext(
+                ic_ref, [this, ic_ref, ready, long_mode, edit_mode,
+                         edit_snapshot]() {
+                    backend_start_pending_.store(false);
+                    auto *context = ic_ref.get();
+                    if (!context || !context->hasFocus()) {
+                        return;
+                    }
+                    if (!ready) {
+                        showError(context,
+                                  "语音后台启动失败，请在设置中心运行诊断");
+                        return;
+                    }
+                    startRecording(context, long_mode, edit_mode,
+                                   edit_snapshot);
+                });
+        }).detach();
         return;
     }
 
