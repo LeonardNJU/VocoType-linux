@@ -27,12 +27,10 @@ let
   version = lib.strings.removeSuffix "\n" (builtins.readFile ../VERSION);
   withIbus = flavor == "universal" || flavor == "ibus";
   withFcitx = flavor == "universal" || flavor == "fcitx5";
-  onnxruntimeNative = onnxruntime.override {
-    pythonSupport = false;
-    cudaSupport = false;
-    rocmSupport = false;
-  };
 
+  # Use the locked nixpkgs ONNX Runtime outputs directly. They are built from
+  # source by nixpkgs and available from its binary cache; overriding the
+  # derivation would force every VoCoType user to rebuild ONNX Runtime.
   funasrSource = fetchFromGitHub {
     owner = "modelscope";
     repo = "FunASR";
@@ -55,7 +53,7 @@ let
     buildInputs = [
       glog
       nlohmann_json
-      onnxruntimeNative
+      onnxruntime
     ];
 
     dontConfigure = true;
@@ -65,8 +63,8 @@ let
       runHook preBuild
       export HOME="$TMPDIR/home"
       mkdir -p "$HOME" "$TMPDIR/ort/include" "$TMPDIR/worker-cache"
-      cp -rs ${onnxruntimeNative.dev}/include/. "$TMPDIR/ort/include/"
-      ln -s ${onnxruntimeNative}/lib "$TMPDIR/ort/lib"
+      cp -rs ${onnxruntime.dev}/include/. "$TMPDIR/ort/include/"
+      ln -s ${onnxruntime}/lib "$TMPDIR/ort/lib"
       export FUNASR_SOURCE_DIR=${funasrSource}
       export ONNXRUNTIME_DIR="$TMPDIR/ort"
       export NLOHMANN_JSON_INCLUDE_DIR=${nlohmann_json}/include
@@ -86,7 +84,7 @@ let
       install -m755 "$bundle/bin/vocotype-offline-worker" "$out/bin/"
       cp -a "$bundle/lib/." "$out/lib/vocotype/"
       cp -a "$bundle/share/licenses/." "$out/share/licenses/vocotype/"
-      worker_rpath="$out/lib/vocotype:${lib.makeLibraryPath [ stdenv.cc.cc glog onnxruntimeNative ]}"
+      worker_rpath="$out/lib/vocotype:${lib.makeLibraryPath [ stdenv.cc.cc glog onnxruntime ]}"
       patchelf --set-rpath "$worker_rpath" "$out/bin/vocotype-streaming-worker"
       patchelf --set-rpath "$worker_rpath" "$out/bin/vocotype-offline-worker"
       for library in "$out"/lib/vocotype/*.so*; do
