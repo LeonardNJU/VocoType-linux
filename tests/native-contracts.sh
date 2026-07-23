@@ -165,7 +165,7 @@ rg -Fq '/usr/lib64/vocotype' packaging/tests/smoke-removed-package.sh ||   fail 
 # Fedora's libcurl package exposes the OpenSSL symbol version in ELF but not
 # as an RPM provide. The spec must filter only that generated requirement and
 # retain an explicit dependency on the full libcurl implementation.
-rg -Fq '__requires_exclude ^libcurl\.so\.4\(CURL_OPENSSL_4\)\(64bit\)$'   packaging/rpm/vocotype.spec.in ||   fail "RPM spec does not filter Fedora's unsatisfiable CURL_OPENSSL_4 auto-require"
+rg -Fq '__requires_exclude ^libcurl\\.so\\.4\\(CURL_OPENSSL_4\\)\\(64bit\\)$'   packaging/rpm/vocotype.spec.in ||   fail "RPM spec does not filter Fedora's unsatisfiable CURL_OPENSSL_4 auto-require"
 rg -Fq "'Requires:       libcurl-full'" packaging/tools/render-package-metadata.sh ||   fail "RPM metadata does not require Fedora libcurl-full"
 if rg -Fq "files=('%{_libexecdir}/vocotype-audio-recorder'"     packaging/tools/render-package-metadata.sh; then
   fail "RPM flavor file list duplicates common native helpers"
