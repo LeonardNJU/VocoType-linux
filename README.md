@@ -17,9 +17,9 @@
 
 > Windows / macOS 用户请使用 VoCoType 官方桌面版：[vocotype.com](https://vocotype.com/)
 
-## 📰 V4 Beta 1：完整原生重写
+## 📰 V4 Beta 1 已发布：完整原生重写
 
-VoCoType Linux V4 Beta 1 将整个产品路径迁移为 C++/CMake/shell：native core、FunASR worker、Fcitx 5、IBus、设置中心、反馈服务、安装、打包、测试和文档发布均不再依赖 Python。
+**[VoCoType Linux v4.0.0-beta.1](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v4.0.0-beta.1) 已发布。** 本版本将整个产品路径迁移为 C++/CMake/shell：native core、FunASR worker、Fcitx 5、IBus、设置中心、反馈服务、安装、打包、测试和文档发布均不再依赖 Python。
 
 - 原生 GTK 设置中心覆盖安装/修复、模型、音频、2-pass、ITN、术语、AI、Doctor 和反馈；
 - Fcitx 5 是全局 Module，可继续使用现有 Rime、拼音、Mozc 等输入法；
@@ -27,7 +27,7 @@ VoCoType Linux V4 Beta 1 将整个产品路径迁移为 C++/CMake/shell：native
 - 修复 gedit 全文替换、Core/socket 生命周期、旧布尔配置、2-pass 不生效，以及旧 Fcitx profile/addon 迁移；
 - 提供 Debian/Ubuntu、Fedora/RHEL 和 Arch Linux 的 universal、IBus-only、Fcitx5-only 共 9 个安装包。
 
-欢迎试用 [V4 Beta 1](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v4.0.0-beta.1)。升级自 V3 时，请在设置中心对当前框架执行一次“安装 / 修复”。遇到问题请运行 Doctor 并提交 [GitHub Issue](https://github.com/LeonardNJU/VocoType-linux/issues)。
+[前往 V4 Beta 1 Release 下载](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v4.0.0-beta.1)。Release 包含 universal、IBus-only、Fcitx5-only 三种 flavor，对应 DEB、RPM、Arch 共 9 个安装包，并提供统一的 `SHA256SUMS`。升级自 V3 时，请在设置中心对当前框架执行一次“安装 / 修复”。遇到问题请运行 Doctor 并提交 [GitHub Issue](https://github.com/LeonardNJU/VocoType-linux/issues)。
 
 ## 为什么使用 VoCoType Linux
 
@@ -60,7 +60,7 @@ https://github.com/user-attachments/assets/4b936014-9477-4794-8d04-aa31d34577a0
 
 ### 1. 安装发行包（推荐）
 
-在 [GitHub Releases](https://github.com/LeonardNJU/VocoType-linux/releases) 下载适合当前发行版的软件包：
+在 [V4 Beta 1 Release](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v4.0.0-beta.1) 下载适合当前发行版与输入法框架的软件包，并可使用同页的 `SHA256SUMS` 校验文件：
 
 ```bash
 # Debian / Ubuntu
