@@ -10,18 +10,9 @@ esac
 
 "$ROOT/native/streaming_worker/build.sh" >/tmp/vocotype-native-worker-path.txt
 bundle="$ROOT/native/streaming_worker/build/bundle"
-core_build="$ROOT/build/native-core-release"
-rm -rf "$core_build"
-cmake -S "$ROOT/native/core" -B "$core_build" \
-  -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
-cmake --build "$core_build" --target vocotype-core -j"${JOBS:-2}"
-install -m755 "$core_build/vocotype-core" "$bundle/bin/vocotype-core"
-if command -v strip >/dev/null 2>&1; then
-  strip --strip-unneeded "$bundle/bin/vocotype-core" 2>/dev/null || true
-fi
+rm -f "$bundle/bin/vocotype-core"
 "$ROOT/native/streaming_worker/audit_bundle.sh" "$bundle"
 for required in \
-  bin/vocotype-core \
   bin/vocotype-streaming-worker \
   bin/vocotype-offline-worker \
   lib/libfunasr.so \

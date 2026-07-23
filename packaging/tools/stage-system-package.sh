@@ -77,6 +77,7 @@ VERSION=$(vocotype_version "$PROJECT_DIR")
 CMAKE_VERSION=$(vocotype_version_field "$VERSION" rpm_version)
 BUILD_DIR=${BUILD_DIR:-"$PROJECT_DIR/build/package-$FLAVOR"}
 DESKTOP_BUILD="$BUILD_DIR/desktop"
+CORE_BUILD="$BUILD_DIR/core"
 FCITX_BUILD="$BUILD_DIR/fcitx"
 
 # Minimal immutable package metadata for the compiled runtime.
@@ -105,20 +106,31 @@ cmake -S "$PROJECT_DIR/native/desktop" -B "$DESKTOP_BUILD" \
 cmake --build "$DESKTOP_BUILD" --parallel "${JOBS:-2}"
 DESTDIR="$DESTDIR" cmake --install "$DESKTOP_BUILD"
 
-# The audited FunASR/ONNX bundle owns the C++ core and both model workers.
+# Build the Core against the target distribution's libc/libcurl/OpenSSL. The
+# FunASR workers and inference libraries are portable, but reusing a Core built
+# on another distribution can leak symbol-version requirements and warnings.
+cmake -S "$PROJECT_DIR/native/core" -B "$CORE_BUILD" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DBUILD_TESTING=OFF
+cmake --build "$CORE_BUILD" --target vocotype-core --parallel "${JOBS:-2}"
+
+# The audited FunASR/ONNX bundle owns both model workers and their private
+# inference libraries. The locally built Core is installed beside them.
 streaming_bundle=${VOCOTYPE_STREAMING_BUNDLE_DIR:-"$PROJECT_DIR/native/streaming_worker/build/bundle"}
 if [[ "$SKIP_STREAMING_BUNDLE" == 1 ]]; then
   echo "native ASR bundle omitted" >&2
-elif [[ -x "$streaming_bundle/bin/vocotype-core" && \
-        -x "$streaming_bundle/bin/vocotype-streaming-worker" && \
+elif [[ -x "$streaming_bundle/bin/vocotype-streaming-worker" && \
         -x "$streaming_bundle/bin/vocotype-offline-worker" && \
         -d "$streaming_bundle/lib" ]]; then
   if [[ "$LIBDIR" == /* ]]; then runtime_libdir="$LIBDIR/vocotype"
   else runtime_libdir="$PREFIX/$LIBDIR/vocotype"; fi
   private_dir="$DESTDIR$runtime_libdir"
   mkdir -p "$private_dir" "$DESTDIR$LIBEXECDIR"
+  install -m755 "$CORE_BUILD/vocotype-core" "$private_dir/vocotype-core"
+  for worker in vocotype-streaming-worker vocotype-offline-worker; do
+    install -m755 "$streaming_bundle/bin/$worker" "$private_dir/$worker"
+  done
   for executable in vocotype-core vocotype-streaming-worker vocotype-offline-worker; do
-    install -m755 "$streaming_bundle/bin/$executable" "$private_dir/$executable"
     if [[ "$LIBEXECDIR/$executable" != "$runtime_libdir/$executable" ]]; then
       cat > "$DESTDIR$LIBEXECDIR/$executable" <<LAUNCHER
 #!/usr/bin/env bash

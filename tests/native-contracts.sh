@@ -154,6 +154,36 @@ if rg -n 'setup-python|mkdocs|requirements-docs|pip install' \
   fail "Python documentation build dependency remains"
 fi
 
+# Package and source installations must compile the Core against the target
+# distribution instead of reusing a portable libcurl-linked Core.
+for lifecycle in packaging/tools/stage-system-package.sh installers/install-native-user.sh; do
+  rg -Fq 'native/core' "$lifecycle" || \
+    fail "$lifecycle does not build vocotype-core for the target distribution"
+done
+rg -Fq 'cmake --build "$CORE_BUILD" --target vocotype-core' \
+  packaging/tools/stage-system-package.sh || \
+  fail "package staging does not compile the target-distribution Core"
+rg -Fq 'cmake --build "$core_build" --target vocotype-core' \
+  installers/install-native-user.sh || \
+  fail "source installation does not compile the target-distribution Core"
+if rg -Fq 'install -m755 "$streaming_bundle/bin/vocotype-core"' \
+    packaging/tools/stage-system-package.sh; then
+  fail "package staging still installs the portable bundle Core"
+fi
+rg -Fq 'rm -f "$bundle/bin/vocotype-core"' \
+  packaging/tools/build-native-streaming-release.sh || \
+  fail "portable bundle builder does not remove stale Core artifacts"
+if rg -Fq 'bin/vocotype-core' packaging/tools/prepare-complete-source.sh; then
+  fail "complete source still requires Core as a portable bundle member"
+fi
+if rg -Fq 'core_system=' native/streaming_worker/audit_bundle.sh; then
+  fail "portable worker audit still has Core-specific system dependencies"
+fi
+for workflow in .github/workflows/ci.yml .github/workflows/release.yml; do
+  rg -Fq "rpm -qp --qf '%{NAME}'" "$workflow" || \
+    fail "$workflow selects RPMs by fragile filenames"
+done
+
 # Package smoke tests must support both conventional /usr/libexec and the
 # Arch /usr/lib/vocotype helper layout.
 for package_test in   packaging/tests/audit-built-package.sh   packaging/tests/smoke-installed-package.sh   packaging/tests/smoke-binary-runtime.sh; do

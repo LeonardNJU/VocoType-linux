@@ -12,10 +12,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ -f "$SOURCE" && -d "$BUNDLE" && -n "$OUTPUT" ]] || { echo "source, bundle, and output are required" >&2; exit 2; }
-for path in bin/vocotype-core bin/vocotype-streaming-worker bin/vocotype-offline-worker lib/libfunasr.so share/licenses/onnxruntime/LICENSE share/licenses/funasr/LICENSE; do
+for path in bin/vocotype-streaming-worker bin/vocotype-offline-worker lib/libfunasr.so share/licenses/onnxruntime/LICENSE share/licenses/funasr/LICENSE; do
   [[ -e "$BUNDLE/$path" ]] || { echo "Incomplete native bundle: $path" >&2; exit 1; }
 done
-for executable in vocotype-core vocotype-streaming-worker vocotype-offline-worker; do
+for executable in vocotype-streaming-worker vocotype-offline-worker; do
   [[ -x "$BUNDLE/bin/$executable" ]] || { echo "Not executable: $executable" >&2; exit 1; }
 done
 while IFS= read -r entry; do

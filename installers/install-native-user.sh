@@ -191,7 +191,8 @@ verify_fcitx_addon_enabled() {
 
 build_source_runtime() {
   install_deps
-  if [[ ! -x "$PROJECT_DIR/native/streaming_worker/build/bundle/bin/vocotype-core" ]]; then
+  if [[ ! -x "$PROJECT_DIR/native/streaming_worker/build/bundle/bin/vocotype-streaming-worker" ||
+        ! -x "$PROJECT_DIR/native/streaming_worker/build/bundle/bin/vocotype-offline-worker" ]]; then
     log "Building pinned FunASR/ONNX native runtime…"
     "$PROJECT_DIR/packaging/tools/build-native-streaming-release.sh" \
       "$PROJECT_DIR/dist/native" >/tmp/vocotype-native-release-path.txt
@@ -199,6 +200,13 @@ build_source_runtime() {
   rm -rf "$STREAMING_HOME"
   mkdir -p "$STREAMING_HOME"
   cp -a "$PROJECT_DIR/native/streaming_worker/build/bundle/." "$STREAMING_HOME/"
+
+  local core_build="$PROJECT_DIR/build/native-core-user-$FRAMEWORK"
+  log "Building native Core for this distribution…"
+  cmake -S "$PROJECT_DIR/native/core" -B "$core_build" \
+    -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+  cmake --build "$core_build" --target vocotype-core --parallel "${JOBS:-2}"
+  install -m755 "$core_build/vocotype-core" "$STREAMING_HOME/bin/vocotype-core"
   (
     cd "$STREAMING_HOME"
     find bin lib -maxdepth 1 \( -type f -o -type l \) -print0 \

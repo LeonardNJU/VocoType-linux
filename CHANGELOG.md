@@ -38,6 +38,7 @@ No unreleased changes.
 - Fixed native Core parsing of legacy boolean settings. Numeric/string values such as `asr_streaming.enabled = 1` and `slm.enabled = 1` no longer silently fall back to disabled, so enabling 2-pass now starts the online worker and produces live partial text.
 - Fixed upgrades from the legacy standalone Fcitx input method. Install / repair now backs up and migrates `~/.config/fcitx5/profile`, removes stale `Name=vocotype` entries, restores Rime or another valid default input method, detects disabled addons through `GetAddons`, enables `vocotype` through `SetAddonsState`, restarts Fcitx, and verifies the active addon state. Doctor now reports both addon state and legacy profile references.
 - Fixed native IBus component metadata so the engine binary, user registration, and packaged system component all report the repository release version instead of a hard-coded V3 value.
+- Build `vocotype-core` separately on each target distribution while keeping only the FunASR workers and inference libraries portable, avoiding cross-distribution libc/libcurl symbol-version leakage.
 
 ### Removed
 

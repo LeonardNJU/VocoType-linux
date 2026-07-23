@@ -183,11 +183,15 @@ jobs:
         run: |
           . packaging/tools/package-common.sh
           version=$(vocotype_version "$PWD")
-          rpm_version=$(vocotype_version_field "$version" rpm_version)
-          rpm_release=$(vocotype_version_field "$version" rpm_release)
           for flavor in universal ibus fcitx5; do
             package_name=$(vocotype_flavor_field "$flavor" package_name)
-            package=$(find dist/packages -maxdepth 1 -name "${package_name}-${rpm_version}-${rpm_release}*.x86_64.rpm" ! -name '*debug*' -print -quit)
+            package=
+            for candidate in dist/packages/*.x86_64.rpm; do
+              test -f "$candidate" || continue
+              test "$(rpm -qp --qf '%{NAME}' "$candidate")" = "$package_name" || continue
+              package=$candidate
+              break
+            done
             test -n "$package"
             packaging/tests/audit-built-package.sh "$package" "$version" "$flavor"
             dnf install -y "$package"
