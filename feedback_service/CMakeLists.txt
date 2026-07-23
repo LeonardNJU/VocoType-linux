@@ -10,7 +10,7 @@ include(CTest)
 find_package(OpenSSL REQUIRED)
 find_package(SQLite3 REQUIRED)
 find_package(Threads REQUIRED)
-find_package(nlohmann_json 3.11 REQUIRED)
+find_package(nlohmann_json 3.10 REQUIRED)
 
 if(TARGET SQLite3::SQLite3)
   set(VOCOTYPE_SQLITE_TARGET SQLite3::SQLite3)

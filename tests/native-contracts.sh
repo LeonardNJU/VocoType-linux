@@ -162,6 +162,11 @@ for package_test in   packaging/tests/audit-built-package.sh   packaging/tests/s
 done
 rg -Fq '/usr/lib64/vocotype' packaging/tests/smoke-removed-package.sh ||   fail "package removal smoke does not check private runtime cleanup"
 
+# Ubuntu 22.04 ships nlohmann-json 3.10.5 and is a supported build target.
+for cmake_file in native/core/CMakeLists.txt native/desktop/CMakeLists.txt feedback_service/CMakeLists.txt; do
+  rg -Fq 'find_package(nlohmann_json 3.10 REQUIRED)' "$cmake_file" ||     fail "$cmake_file requires a newer nlohmann-json than Ubuntu 22.04 provides"
+done
+
 # Native package metadata has no Python build/runtime dependency.
 for format in debian rpm arch; do
   case "$format" in

@@ -4,7 +4,7 @@ project(vocotype_core LANGUAGES CXX)
 include(CTest)
 find_package(Threads REQUIRED)
 find_package(CURL REQUIRED)
-find_package(nlohmann_json 3.11 REQUIRED)
+find_package(nlohmann_json 3.10 REQUIRED)
 
 add_library(vocotype_core_lib
     src/config.cpp
