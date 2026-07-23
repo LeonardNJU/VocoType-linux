@@ -200,7 +200,11 @@ if [[ "${STRIP_NATIVE_BUNDLE:-1}" == "1" ]]; then
         "$BUNDLE_DIR/bin/vocotype-offline-worker" \
         "$BUNDLE_DIR/lib/libfunasr.so" 2>/dev/null || true
 fi
-bash "$SCRIPT_DIR/audit_bundle.sh" "$BUNDLE_DIR"
+audit_arguments=()
+if [[ ${VOCOTYPE_BUNDLE_AUDIT_MODE:-portable} == nix-store ]]; then
+    audit_arguments+=(--nix-store)
+fi
+bash "$SCRIPT_DIR/audit_bundle.sh" "${audit_arguments[@]}" "$BUNDLE_DIR"
 printf '%s\n' \
     "$BUNDLE_DIR/bin/vocotype-streaming-worker" \
     "$BUNDLE_DIR/bin/vocotype-offline-worker"

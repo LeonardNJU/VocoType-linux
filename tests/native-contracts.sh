@@ -369,6 +369,12 @@ if rg -Fq 'compgen -G' native/streaming_worker/build.sh; then
 fi
 rg -Fq 'bash "$SCRIPT_DIR/audit_bundle.sh"' native/streaming_worker/build.sh || \
   fail "native worker audit relies on an FHS /usr/bin/env shebang"
+for token in '--nix-store' 'mode=nix-store' '/nix/store/*' 'ldd "$path"'; do
+  rg -Fq -- "$token" native/streaming_worker/audit_bundle.sh || \
+    fail "native bundle audit is missing Nix-store rule: $token"
+done
+rg -Fq 'VOCOTYPE_BUNDLE_AUDIT_MODE=nix-store' nix/package.nix || \
+  fail "Nix workers do not request Nix-store bundle auditing"
 rg -Fq 'VOCOTYPE_FCITX5_BACKEND_PATH' fcitx5/module/CMakeLists.txt || \
   fail "Fcitx module cannot receive a Nix store backend path"
 

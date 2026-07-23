@@ -71,6 +71,7 @@ let
       export VOCOTYPE_NATIVE_CACHE_DIR="$TMPDIR/worker-cache"
       export VOCOTYPE_NATIVE_BUILD_DIR="$TMPDIR/worker-build"
       export STRIP_NATIVE_BUNDLE=0
+      export VOCOTYPE_BUNDLE_AUDIT_MODE=nix-store
       export JOBS="$NIX_BUILD_CORES"
       bash native/streaming_worker/build.sh
       runHook postBuild

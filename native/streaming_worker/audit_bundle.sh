@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
-root=${1:?usage: $0 BUNDLE_DIR}
+
+mode=portable
+if [[ ${1:-} == --nix-store ]]; then
+  mode=nix-store
+  shift
+fi
+
+root=${1:?usage: $0 [--nix-store] BUNDLE_DIR}
 root=$(realpath "$root")
 lib_dir="$root/lib"
 [[ -d "$lib_dir" ]] || { echo "Missing bundle lib directory" >&2; exit 1; }
@@ -13,17 +20,37 @@ for path in "${paths[@]}"; do
   bundled=" $(find "$lib_dir" -maxdepth 1 -printf '%f ' | tr '\n' ' ')"
   allowed="$allowed_host"
   while IFS= read -r dependency; do
-    [[ "$bundled" == *" $dependency "* || "$allowed" == *" $dependency "* ]] || {
-      echo "$(basename "$path"): unbundled dependency $dependency" >&2
-      errors=1
-    }
+    if [[ "$bundled" == *" $dependency "* || "$allowed" == *" $dependency "* ]]; then
+      continue
+    fi
+    if [[ "$mode" == nix-store ]]; then
+      continue
+    fi
+    echo "$(basename "$path"): unbundled dependency $dependency" >&2
+    errors=1
   done < <(sed -n 's/.*Shared library: \[\([^]]*\)\].*/\1/p' <<<"$section")
+
+  if [[ "$mode" == nix-store ]]; then
+    unresolved=$(ldd "$path" 2>/dev/null | sed -n '/not found/p' || true)
+    if [[ -n "$unresolved" ]]; then
+      echo "$(basename "$path"): unresolved Nix dependency: $unresolved" >&2
+      errors=1
+    fi
+  fi
+
   while IFS= read -r runpath; do
     IFS=: read -ra entries <<<"$runpath"
     for entry in "${entries[@]}"; do
-      [[ "$entry" != /* ]] || { echo "$(basename "$path"): absolute RUNPATH $entry" >&2; errors=1; }
+      if [[ "$entry" != /* ]]; then
+        continue
+      fi
+      if [[ "$mode" == nix-store && "$entry" == /nix/store/* ]]; then
+        continue
+      fi
+      echo "$(basename "$path"): absolute RUNPATH $entry" >&2
+      errors=1
     done
   done < <(sed -n 's/.*Library \(rpath\|runpath\): \[\([^]]*\)\].*/\2/p' <<<"$section")
 done
 (( errors == 0 )) || exit 1
-echo "Native bundle audit passed: $root"
+echo "Native bundle audit passed: $root mode=$mode"
