@@ -170,12 +170,16 @@ cp -a "$BUILD_DIR/cmake/third_party/yaml-cpp"/libyaml-cpp.so* "$BUNDLE_DIR/lib/"
 cp -a "$BUILD_DIR/cmake/third_party/openfst/src/lib"/libfst.so* "$BUNDLE_DIR/lib/"
 cp -a "$BUILD_DIR/cmake/third_party/glog"/libglog.so* "$BUNDLE_DIR/lib/"
 cp -a "$ONNXRUNTIME_DIR/lib"/libonnxruntime.so* "$BUNDLE_DIR/lib/"
-if compgen -G "$ONNXRUNTIME_DIR/lib/libonnxruntime_providers_shared.so*" >/dev/null; then
-    cp -a "$ONNXRUNTIME_DIR/lib"/libonnxruntime_providers_shared.so* "$BUNDLE_DIR/lib/"
+shopt -s nullglob
+provider_libraries=("$ONNXRUNTIME_DIR/lib"/libonnxruntime_providers_shared.so*)
+cpuinfo_libraries=("$ONNXRUNTIME_DIR/lib"/libcpuinfo.so*)
+if ((${#provider_libraries[@]})); then
+    cp -a "${provider_libraries[@]}" "$BUNDLE_DIR/lib/"
 fi
-if compgen -G "$ONNXRUNTIME_DIR/lib/libcpuinfo.so*" >/dev/null; then
-    cp -a "$ONNXRUNTIME_DIR/lib"/libcpuinfo.so* "$BUNDLE_DIR/lib/"
+if ((${#cpuinfo_libraries[@]})); then
+    cp -a "${cpuinfo_libraries[@]}" "$BUNDLE_DIR/lib/"
 fi
+shopt -u nullglob
 mkdir -p "$BUNDLE_DIR/share/licenses/onnxruntime" "$BUNDLE_DIR/share/licenses/funasr"
 for notice in LICENSE ThirdPartyNotices.txt Privacy.md; do
     [[ -f "$ONNXRUNTIME_DIR/$notice" ]] &&
@@ -196,7 +200,7 @@ if [[ "${STRIP_NATIVE_BUNDLE:-1}" == "1" ]]; then
         "$BUNDLE_DIR/bin/vocotype-offline-worker" \
         "$BUNDLE_DIR/lib/libfunasr.so" 2>/dev/null || true
 fi
-"$SCRIPT_DIR/audit_bundle.sh" "$BUNDLE_DIR"
+bash "$SCRIPT_DIR/audit_bundle.sh" "$BUNDLE_DIR"
 printf '%s\n' \
     "$BUNDLE_DIR/bin/vocotype-streaming-worker" \
     "$BUNDLE_DIR/bin/vocotype-offline-worker"
