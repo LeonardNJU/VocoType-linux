@@ -11,7 +11,7 @@ rm -rf "$DESTINATION"; mkdir -p "$DESTINATION"
 declare -A seen=()
 count=0
 while IFS= read -r -d '' path; do
-  name=$(basename "$path"); normalized=${name//~/.}
+  name=$(basename "$path"); normalized=${name//\~/.}
   [[ "$normalized" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]] || { echo "Unsafe asset name: $name" >&2; exit 1; }
   if [[ "$INSTALLERS_ONLY" == true ]]; then
     case "$normalized" in

@@ -7,7 +7,7 @@ shift
 VERSION=""
 while [[ $# -gt 0 ]]; do case "$1" in --version) VERSION=${2:?}; shift 2;; *) echo "Unknown argument $1" >&2; exit 2;; esac; done
 [[ -n "$VERSION" ]] || { echo "--version required" >&2; exit 2; }
-DEB=$(vocotype_version_field "$VERSION" debian); DEB=${DEB//~/.}
+DEB=$(vocotype_version_field "$VERSION" debian); DEB=${DEB//\~/.}
 ARCH=$(vocotype_version_field "$VERSION" arch)
 RPM_VERSION=$(vocotype_version_field "$VERSION" rpm_version)
 RPM_RELEASE=$(vocotype_version_field "$VERSION" rpm_release)

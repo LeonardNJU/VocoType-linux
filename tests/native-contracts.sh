@@ -216,6 +216,29 @@ for package_test in   packaging/tests/audit-built-package.sh   packaging/tests/s
 done
 rg -Fq '/usr/lib64/vocotype' packaging/tests/smoke-removed-package.sh ||   fail "package removal smoke does not check private runtime cleanup"
 
+# GitHub Release assets normalize Debian's '~' prerelease separator to '.'
+# after filtering package-build metadata. Bash requires the tilde pattern to be
+# escaped inside parameter substitution; `${value//~/.}` leaves it unchanged.
+(
+  work=$(mktemp -d)
+  trap 'rm -rf "$work"' EXIT
+  mkdir -p "$work/source"
+  touch "$work/source/vocotype-linux_4.0.0~beta1-1_amd64.deb"
+  touch "$work/source/vocotype-linux_4.0.0~beta1-1_amd64.buildinfo"
+  touch "$work/source/vocotype-linux_4.0.0~beta1-1_amd64.changes"
+  touch "$work/source/vocotype-linux-4.0.0-0.beta1.src.rpm"
+  packaging/tools/collect-release-assets.sh \
+    "$work/source" "$work/final" --installers-only >/dev/null
+  [[ -f "$work/final/vocotype-linux_4.0.0.beta1-1_amd64.deb" ]] || \
+    fail "release collector did not normalize Debian prerelease separator"
+  [[ $(find "$work/final" -maxdepth 1 -type f | wc -l) -eq 1 ]] || \
+    fail "release collector included non-installer build metadata"
+)
+rg -Fq '${name//\~/.}' packaging/tools/collect-release-assets.sh || \
+  fail "release collector uses ineffective unescaped tilde substitution"
+rg -Fq '${DEB//\~/.}' packaging/tools/validate-final-release-assets.sh || \
+  fail "final asset validator uses ineffective unescaped tilde substitution"
+
 # Fedora's libcurl package exposes the OpenSSL symbol version in ELF but not
 # as an RPM provide. The spec must filter only that generated requirement and
 # retain an explicit dependency on the full libcurl implementation.
