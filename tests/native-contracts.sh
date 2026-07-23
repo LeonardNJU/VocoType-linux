@@ -201,6 +201,13 @@ rg -Fq 'RPM_ALL_FLAVORS_VALIDATION_OK' packaging/tests/validate-rpm-flavors.sh |
 rg -Fq "! -name '*.src.rpm'" packaging/tools/find-rpm-package.sh || \
   fail "RPM metadata lookup helper does not exclude source RPM archives"
 
+# Archive audits must only pass existing library roots to find; IBus-only RPMs
+# may contain /usr/lib64 without creating /usr/lib in the extracted package.
+rg -Fq 'library_roots=()' packaging/tests/audit-built-package.sh || \
+  fail "built-package audit does not handle flavor-specific library roots"
+rg -Fq 'find "${library_roots[@]}"' packaging/tests/audit-built-package.sh || \
+  fail "built-package audit still scans nonexistent library roots"
+
 # Package smoke tests must support both conventional /usr/libexec and the
 # Arch /usr/lib/vocotype helper layout.
 for package_test in   packaging/tests/audit-built-package.sh   packaging/tests/smoke-installed-package.sh   packaging/tests/smoke-binary-runtime.sh; do

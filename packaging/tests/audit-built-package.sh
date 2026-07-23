@@ -49,9 +49,20 @@ if find "$work/root" -type f \( -name '*.py' -o -name '*.pyc' -o -name '*.whl' \
   exit 1
 fi
 
-native_dir=$(find "$work/root/usr/lib" "$work/root/usr/lib64" 2>/dev/null \
+library_roots=()
+for candidate in "$work/root/usr/lib" "$work/root/usr/lib64"; do
+  [[ -d "$candidate" ]] && library_roots+=("$candidate")
+done
+[[ ${#library_roots[@]} -gt 0 ]] || {
+  echo "package contains no library root" >&2
+  exit 1
+}
+native_dir=$(find "${library_roots[@]}" \
   -path '*/vocotype/.native-payload.sha256' -printf '%h\n' -quit)
-test -n "$native_dir"
+[[ -n "$native_dir" ]] || {
+  echo "package contains no native payload checksum" >&2
+  exit 1
+}
 (cd "$native_dir" && sha256sum -c .native-payload.sha256)
 for executable in vocotype-core vocotype-streaming-worker vocotype-offline-worker; do
   test -x "$native_dir/$executable"
@@ -79,7 +90,7 @@ esac
 case "$expected_flavor" in
   universal|fcitx5)
     test -f "$work/root/usr/share/fcitx5/addon/vocotype.conf"
-    find "$work/root/usr/lib" "$work/root/usr/lib64" \
+    find "${library_roots[@]}" \
       -path '*/fcitx5/vocotype.so' -print -quit | grep -q .
     ;;
   ibus)
