@@ -68,6 +68,7 @@ endif()
 
 if(VOCOTYPE_BUILD_IBUS)
   add_executable(vocotype-ibus-engine src/ibus_main.cpp src/rime_session.cpp)
+  target_compile_definitions(vocotype-ibus-engine PRIVATE VOCOTYPE_VERSION="${VOCOTYPE_VERSION}")
   target_link_libraries(vocotype-ibus-engine PRIVATE vocotype_desktop_common PkgConfig::IBUS)
   if(VOCOTYPE_BUILD_RIME)
     target_compile_definitions(vocotype-ibus-engine PRIVATE VOCOTYPE_HAVE_RIME=1)

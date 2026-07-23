@@ -19,7 +19,7 @@ VoCoType 仍把完整 PCM 交给原来的 Contextual Paraformer，并继续使�
 
 ## Release 安装方式
 
-v3 的 DEB、RPM 与 Arch Release 包已经包含预编译的 `vocotype-streaming-worker`、FunASR runtime、ONNX Runtime 私有动态库和第三方许可证。用户不需要克隆源码或运行 CMake；在线 Paraformer 模型仍在首次启用该功能时按需下载。
+V4 的 DEB、RPM 与 Arch Release 包已经包含预编译的 `vocotype-streaming-worker`、FunASR runtime、ONNX Runtime 私有动态库和第三方许可证。用户不需要克隆源码或运行 CMake；在线 Paraformer 模型仍在首次启用该功能时按需下载。
 
 Release CI 在 Ubuntu 22.04 上独立构建并审计 portable bundle，检查相对 RUNPATH、未打包动态依赖和许可证。三个发行版软件包消费同一份 CI artifact，并以 `--require-streaming-bundle` 构建；缺少 runtime 时整次 Release 失败。
 
@@ -27,7 +27,7 @@ Release CI 在 Ubuntu 22.04 上独立构建并审计 portable bundle，检查相
 
 ## 开启方式
 
-安装 v3 Release 包后，在设置中心的“通用设置”页面开启“实时识别预览（2-pass）”，保存后：
+安装 V4 Release 包后，在设置中心的“通用设置”页面开启“实时识别预览（2-pass）”，保存后：
 
 - Fcitx 5 后端会自动重启，但不会立即加载在线模型；
 - IBus 会在下一次开始录音前重新载入配置；

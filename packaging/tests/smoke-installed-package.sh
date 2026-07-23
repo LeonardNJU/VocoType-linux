@@ -50,7 +50,10 @@ if [[ "$includes_ibus" == true ]]; then
   file /usr/libexec/vocotype-ibus-engine | grep -q ELF
   ldd -r /usr/libexec/vocotype-ibus-engine >/dev/null
   /usr/libexec/vocotype-ibus-engine --help >/dev/null
-  /usr/libexec/vocotype-ibus-engine --xml | grep -q '<name>vocotype</name>'
+  ibus_xml=$(/usr/libexec/vocotype-ibus-engine --xml)
+  grep -q '<name>vocotype</name>' <<<"$ibus_xml"
+  grep -Fq "<version>$expected_version</version>" <<<"$ibus_xml"
+  grep -Fq "<version>$expected_version</version>" /usr/share/ibus/component/vocotype.xml
 else
   [[ ! -e /usr/share/ibus/component/vocotype.xml ]]
   [[ ! -e /usr/libexec/vocotype-ibus-engine ]]

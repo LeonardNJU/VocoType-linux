@@ -1,13 +1,16 @@
-vocotype-linux (3.0.0~beta4-1) unstable; urgency=medium
+vocotype-linux (4.0.0~beta1-1) unstable; urgency=medium
 
-  * Complete the C++ migration for core, Fcitx 5, IBus, settings, audio,
+  * Complete the native C++ rewrite for core, Fcitx 5, IBus, settings, audio,
     model management, feedback service, packaging, tests, and documentation.
   * Remove all Python source, dependency manifests, wheelhouse, venv, and
     runtime fallback paths from the repository and distribution packages.
-  * Fix ordered Ctrl+F9 surrounding-text replacement in gedit and GTK clients.
-  * Show polish elapsed/timeout status and the rough ASR text in the Fcitx pane.
+  * Restore the full Beta 3 settings experience in native GTK.
+  * Fix ordered Ctrl+F9 replacement, persistent Core lifecycle, legacy boolean
+    parsing, and 2-pass live previews.
+  * Migrate legacy Fcitx profiles, restore Rime, enable disabled addons, and
+    verify repair through the desktop session.
 
- -- Leonard Li <leo@lsamc.website>  Thu, 23 Jul 2026 21:30:00 +0800
+ -- Leonard Li <leo@lsamc.website>  Thu, 23 Jul 2026 12:00:00 +0000
 
 vocotype-linux (3.0.0~beta3-1) unstable; urgency=medium
 

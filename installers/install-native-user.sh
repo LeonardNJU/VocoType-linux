@@ -360,7 +360,7 @@ install_ibus() {
   [[ -x "$engine" ]] || { echo "native IBus engine is missing" >&2; exit 1; }
   mkdir -p "$USER_COMPONENT_DIR" "$USER_LIBEXEC"
   install -m755 "$engine" "$USER_LIBEXEC/ibus-engine-vocotype"
-  local version=3
+  local version=development
   [[ -f "$PROJECT_DIR/VERSION" ]] && version=$(tr -d '[:space:]' < "$PROJECT_DIR/VERSION")
   cat > "$USER_COMPONENT_DIR/vocotype.xml" <<EOF_COMPONENT
 <?xml version="1.0" encoding="utf-8"?>

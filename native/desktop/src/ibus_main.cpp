@@ -21,6 +21,10 @@
 
 using vocotype::desktop::Json;
 
+#ifndef VOCOTYPE_VERSION
+#define VOCOTYPE_VERSION "development"
+#endif
+
 namespace {
 
 struct Snapshot {
@@ -685,7 +689,7 @@ void print_xml(const char *executable) {
       "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
       "<component><name>org.vocotype.IBus.VoCoType</name>"
       "<description>VoCoType Voice Input Method</description>"
-      "<exec>%s --ibus</exec><version>3</version><author>VoCoType</author>"
+      "<exec>%s --ibus</exec><version>%s</version><author>VoCoType</author>"
       "<license>GPL</license><homepage>https://github.com/LeonardNJU/"
       "VocoType-linux</homepage>"
       "<textdomain>vocotype</textdomain><engines><engine><name>vocotype</name>"
@@ -693,7 +697,7 @@ void print_xml(const char *executable) {
       "<layout>default</layout><longname>VoCoType Voice Input</longname>"
       "<description>Push-to-Talk Voice Input (F9)</description><rank>50</rank>"
       "<symbol>🎤</symbol></engine></engines></component>\n",
-      executable);
+      executable, VOCOTYPE_VERSION);
 }
 
 } // namespace

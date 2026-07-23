@@ -17,19 +17,17 @@
 
 > Windows / macOS 用户请使用 VoCoType 官方桌面版：[vocotype.com](https://vocotype.com/)
 
-## 📰 V3 Beta 现已发布
+## 📰 V4 Beta 1：完整原生重写
 
-VocoType Linux V3 Beta 已开放使用。这一版本把项目从语音输入脚本升级为完整的 Linux 桌面语音输入工具：
+VoCoType Linux V4 Beta 1 将整个产品路径迁移为 C++/CMake/shell：native core、FunASR worker、Fcitx 5、IBus、设置中心、反馈服务、安装、打包、测试和文档发布均不再依赖 Python。
 
-- 统一图形设置中心，可完成安装、修复、模型下载、麦克风测试、AI 配置、Doctor 和反馈；
-- Fcitx 5 全局 Module，无需切换输入法即可在现有 Rime、拼音、Mozc 等输入法中使用 `F9`；
-- IBus 与 Fcitx 5 统一支持 `F9` 离线语音输入、`Shift+F9` AI 润色和 `Ctrl+F9` 语音编辑；
-- 支持实时 2-pass preedit、用户术语、原生热词、确定性中文 ITN 和 OpenAI-compatible API；
-- 新增完整原生打包：Debian/Ubuntu `.deb`、Fedora/RHEL `.rpm`、Arch Linux `.pkg.tar.zst`，并分别提供通用版、IBus 专用版和 Fcitx 5 专用版，共 9 个安装包。
+- 原生 GTK 设置中心覆盖安装/修复、模型、音频、2-pass、ITN、术语、AI、Doctor 和反馈；
+- Fcitx 5 是全局 Module，可继续使用现有 Rime、拼音、Mozc 等输入法；
+- IBus 与 Fcitx 5 统一支持 `F9`、`Shift+F9` 和 `Ctrl+F9`；
+- 修复 gedit 全文替换、Core/socket 生命周期、旧布尔配置、2-pass 不生效，以及旧 Fcitx profile/addon 迁移；
+- 提供 Debian/Ubuntu、Fedora/RHEL 和 Arch Linux 的 universal、IBus-only、Fcitx5-only 共 9 个安装包。
 
-欢迎试用 [V3 Beta 3](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v3.0.0-beta.3)。遇到问题请直接提交 [GitHub Issue](https://github.com/LeonardNJU/VocoType-linux/issues)；如需稳定环境，可回退到最后一个已知可用的 V2 正式版 [v2.1.3](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v2.1.3)。
-
-> 若截至 **2026 年 7 月 26 日** 未发现阻塞性问题，Beta 3 将晋升为 **v3.0.0 正式版**。
+欢迎试用 [V4 Beta 1](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v4.0.0-beta.1)。升级自 V3 时，请在设置中心对当前框架执行一次“安装 / 修复”。遇到问题请运行 Doctor 并提交 [GitHub Issue](https://github.com/LeonardNJU/VocoType-linux/issues)。
 
 ## 为什么使用 VoCoType Linux
 
@@ -84,17 +82,22 @@ sudo pacman -U ./vocotype-linux-*.pkg.tar.zst
 
 Release 提供通用版、IBus 专用版和 Fcitx 5 专用版。每款都包含编译后的 native C++ core、FunASR worker、原生录音器、模型管理器和 GTK 设置中心；相应输入法集成也为 ELF/C++。安装后不创建 Python 环境，不打包 wheelhouse，也不处理 `PYTHONPATH`。语音模型作为用户缓存，由原生模型管理器校验或下载。AI 润色与语音编辑统一连接 OpenAI-compatible API；端点可位于本机、局域网或云端，VoCoType 不启动或管理模型进程。
 
-### 2. 从源码启动图形安装器
+### 2. 从源码构建并安装
 
 适用于尚未提供原生包的发行版，或希望直接使用最新源码的用户：
 
 ```bash
 git clone https://github.com/LeonardNJU/VocoType-linux.git
 cd VocoType-linux
-bash installers/launch-settings.sh
+
+# Fcitx 5
+bash fcitx5/scripts/install.sh --install-system-deps --download-models
+
+# 或 IBus
+bash ibus/scripts/install.sh --install-system-deps --download-models
 ```
 
-后续操作与发行包相同，均在 **VoCoType 设置** 中完成。
+安装器会编译 C++ 组件；完成后从应用菜单打开 **VoCoType 设置**。日常运行不需要编译器或 Python。
 
 ### 3. 命令行安装（兼容旧版 / 无桌面环境）
 

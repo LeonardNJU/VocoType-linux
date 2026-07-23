@@ -2,7 +2,7 @@
 
 `vocotype-core` is the default speech backend for packaged Fcitx 5 and IBus
 installations. It preserves the existing Unix-socket JSON protocol, so the
-Fcitx module and the IBus Python/GObject shell share one implementation of ASR,
+Fcitx module and the native IBus engine share one implementation of ASR,
 normalization, polishing, and voice editing.
 
 ## Implemented
@@ -26,14 +26,10 @@ normalization, polishing, and voice editing.
 
 ## Framework integration
 
-- Fcitx 5 launches `vocotype-core` directly when it is installed.
-- IBus retains its GObject/input-method shell and Rime adapter in Python, but
-  delegates preview, final ASR, ITN, terminology, polishing, and edit planning
-  to a dedicated native-core socket.
-- `VOCOTYPE_BACKEND=python` forces the legacy Python inference path for
-  rollback. `VOCOTYPE_BACKEND=cpp` requires the native core and fails clearly
-  when it is absent. The default `auto` mode prefers native and falls back only
-  when no native binary is installed.
+- Fcitx 5 uses a global native module and launches the persistent user Core service on demand.
+- IBus uses a compiled `IBusEngine` with direct librime integration.
+- Both integrations use the same native socket protocol, recorder, ASR workers, terminology, ITN, SLM client, and voice-edit planner.
+- The installed runtime has no Python backend or fallback path.
 
 ## Build and test
 

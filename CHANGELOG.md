@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
-## [3.0.0-beta.4] - 2026-07-23
+## [4.0.0-beta.1] - 2026-07-23
 
 ### Added
 
@@ -37,6 +37,7 @@ No unreleased changes.
 - Fixed settings startup with Beta3/legacy configurations that stored switches as numeric `0/1` values instead of JSON booleans.
 - Fixed native Core parsing of legacy boolean settings. Numeric/string values such as `asr_streaming.enabled = 1` and `slm.enabled = 1` no longer silently fall back to disabled, so enabling 2-pass now starts the online worker and produces live partial text.
 - Fixed upgrades from the legacy standalone Fcitx input method. Install / repair now backs up and migrates `~/.config/fcitx5/profile`, removes stale `Name=vocotype` entries, restores Rime or another valid default input method, detects disabled addons through `GetAddons`, enables `vocotype` through `SetAddonsState`, restarts Fcitx, and verifies the active addon state. Doctor now reports both addon state and legacy profile references.
+- Fixed native IBus component metadata so the engine binary, user registration, and packaged system component all report the repository release version instead of a hard-coded V3 value.
 
 ### Removed
 

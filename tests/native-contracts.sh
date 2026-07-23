@@ -79,6 +79,11 @@ rg -Fq 'gtk_widget_set_visible(window.rime_resource_row, ibus)' "$settings" || \
   fail "IBus Rime initialization is not conditional"
 rg -Fq 'gtk_widget_set_visible(window.rime_schema_row, ibus)' "$settings" || \
   fail "IBus Rime schema is not conditional"
+rg -Fq 'VOCOTYPE_VERSION' native/desktop/src/ibus_main.cpp || \
+  fail "native IBus XML does not use the repository version"
+if rg -Fq '<version>3</version>' native/desktop/src/ibus_main.cpp; then
+  fail "native IBus XML still hard-codes the V3 version"
+fi
 rg -Fq 'gtk_widget_set_visible(window.fcitx_composing_row, !ibus)' "$settings" || \
   fail "Fcitx-specific controls are not conditional"
 for token in \

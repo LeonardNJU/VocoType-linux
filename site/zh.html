@@ -210,8 +210,8 @@
           <p>两个前端共享同一套语音识别核心，同时分别遵循各自输入法框架的原生协议。</p>
         </div>
         <div class="frameworks">
-          <article class="framework"><div class="framework-top"><h3>IBus</h3><span class="badge">完整支持</span></div><p>适合 GNOME，以及默认采用 IBus 的 Linux 发行版。</p><ul><li>Python 输入法引擎</li><li>极速与润色听写</li><li>基于输入框上下文的语音编辑</li></ul></article>
-          <article class="framework"><div class="framework-top"><h3>Fcitx 5</h3><span class="badge">完整支持</span></div><p>适合 KDE，以及偏好模块化 Fcitx 5 生态的用户。</p><ul><li>全局 C++ Module + Python 后端</li><li>极速听写与实时 ASR 预览</li><li>基于 surrounding text 的语音编辑</li></ul></article>
+          <article class="framework"><div class="framework-top"><h3>IBus</h3><span class="badge">完整支持</span></div><p>适合 GNOME，以及默认采用 IBus 的 Linux 发行版。</p><ul><li>原生 C++ IBus 引擎 + librime</li><li>极速与润色听写</li><li>基于输入框上下文的语音编辑</li></ul></article>
+          <article class="framework"><div class="framework-top"><h3>Fcitx 5</h3><span class="badge">完整支持</span></div><p>适合 KDE，以及偏好模块化 Fcitx 5 生态的用户。</p><ul><li>全局 C++ Module + 原生 Core</li><li>极速听写与实时 ASR 预览</li><li>基于 surrounding text 的语音编辑</li></ul></article>
         </div>
       </div>
     </section>
@@ -220,7 +220,7 @@
       <div class="section-inner">
         <div class="section-head">
           <div><p class="kicker">先装软件包，再用 GUI</p><h2>安装一次，图形化完成配置。</h2></div>
-          <p>原生软件包安装应用和系统集成；设置中心随后准备用户运行时、下载模型，并安装或修复 IBus 与 Fcitx 5。</p>
+          <p>原生软件包安装应用和系统集成；设置中心随后校验并下载模型、配置音频，并安装或修复 IBus 与 Fcitx 5。</p>
         </div>
         <div class="install-grid">
           <article class="install-card"><div class="install-title"><strong>原生软件包</strong><span>推荐</span></div><pre><span class="prompt">#</span> Debian / Ubuntu
@@ -233,9 +233,9 @@ sudo dnf install ./vocotype-linux-*.rpm
 sudo pacman -U ./vocotype-linux-*.pkg.tar.zst</pre><a class="install-link" href="https://github.com/LeonardNJU/VocoType-linux/releases">前往 GitHub Releases 下载 →</a></article>
           <article class="install-card"><div class="install-title"><strong>最新源码</strong><span>同一套图形流程</span></div><pre><span class="prompt">$</span> git clone https://github.com/LeonardNJU/VocoType-linux.git
 <span class="prompt">$</span> cd VocoType-linux
-<span class="prompt">$</span> bash installers/launch-settings.sh</pre><a class="install-link" href="docs/getting-started/installation/">查看完整安装文档 →</a></article>
+<span class="prompt">$</span> bash fcitx5/scripts/install.sh --install-system-deps --download-models</pre><a class="install-link" href="docs/getting-started/installation/">查看完整安装文档 →</a></article>
         </div>
-        <p class="requirements">Linux · 源码安装需要 Python 3.11–3.12 · 最低 4 GB 内存 · 纯 CPU 推理 · 无桌面环境和旧版用户仍可使用 CLI 安装器</p>
+        <p class="requirements">Linux · 源码构建需要 C++20/CMake 工具链 · 最低 4 GB 内存 · 纯 CPU 推理 · 运行时不需要 Python</p>
       </div>
     </section>
   </main>

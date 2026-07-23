@@ -1,7 +1,7 @@
 /*
  * VoCoType Fcitx5 Addon - IPC Client
  *
- * IPC 客户端，负责与 Python Backend 通过 Unix Socket 通信
+ * IPC 客户端，负责与 native Core 通过 Unix Socket 通信
  */
 
 #ifndef VOCOTYPE_IPC_CLIENT_H
@@ -110,7 +110,7 @@ struct PolishPollResult {
 /**
  * IPC 客户端
  *
- * 通过 Unix Socket 与 Python Backend 通信
+ * 通过 Unix Socket 与 native Core 通信
  */
 class IPCClient {
 public:

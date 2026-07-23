@@ -210,8 +210,8 @@
           <p>The two front ends share the same recognition core while integrating with their native input-method protocols.</p>
         </div>
         <div class="frameworks">
-          <article class="framework"><div class="framework-top"><h3>IBus</h3><span class="badge">Full support</span></div><p>Best suited to GNOME and distributions where IBus is the default input framework.</p><ul><li>Python input engine</li><li>Fast and polished dictation</li><li>Voice editing with surrounding text</li></ul></article>
-          <article class="framework"><div class="framework-top"><h3>Fcitx 5</h3><span class="badge">Full support</span></div><p>Designed for KDE and users who prefer the modular Fcitx 5 ecosystem.</p><ul><li>Global C++ Module + Python backend</li><li>Fast dictation and live ASR preview</li><li>Voice editing with surrounding text</li></ul></article>
+          <article class="framework"><div class="framework-top"><h3>IBus</h3><span class="badge">Full support</span></div><p>Best suited to GNOME and distributions where IBus is the default input framework.</p><ul><li>Native C++ IBus engine + librime</li><li>Fast and polished dictation</li><li>Voice editing with surrounding text</li></ul></article>
+          <article class="framework"><div class="framework-top"><h3>Fcitx 5</h3><span class="badge">Full support</span></div><p>Designed for KDE and users who prefer the modular Fcitx 5 ecosystem.</p><ul><li>Global C++ Module + native Core</li><li>Fast dictation and live ASR preview</li><li>Voice editing with surrounding text</li></ul></article>
         </div>
       </div>
     </section>
@@ -220,7 +220,7 @@
       <div class="section-inner">
         <div class="section-head">
           <div><p class="kicker">Package first, GUI after</p><h2>Install once. Configure visually.</h2></div>
-          <p>Native packages add the application and system integration. The settings center then prepares your user runtime, downloads the model, and installs or repairs IBus and Fcitx 5.</p>
+          <p>Native packages add the application and system integration. The settings center downloads and verifies models, configures audio, and installs or repairs IBus and Fcitx 5.</p>
         </div>
         <div class="install-grid">
           <article class="install-card"><div class="install-title"><strong>Native package</strong><span>recommended</span></div><pre><span class="prompt">#</span> Debian / Ubuntu
@@ -233,9 +233,9 @@ sudo dnf install ./vocotype-linux-*.rpm
 sudo pacman -U ./vocotype-linux-*.pkg.tar.zst</pre><a class="install-link" href="https://github.com/LeonardNJU/VocoType-linux/releases">Download from GitHub Releases →</a></article>
           <article class="install-card"><div class="install-title"><strong>Latest source</strong><span>same graphical flow</span></div><pre><span class="prompt">$</span> git clone https://github.com/LeonardNJU/VocoType-linux.git
 <span class="prompt">$</span> cd VocoType-linux
-<span class="prompt">$</span> bash installers/launch-settings.sh</pre><a class="install-link" href="docs/getting-started/installation/">Open the installation guide →</a></article>
+<span class="prompt">$</span> bash fcitx5/scripts/install.sh --install-system-deps --download-models</pre><a class="install-link" href="docs/getting-started/installation/">Open the installation guide →</a></article>
         </div>
-        <p class="requirements">Linux · Python 3.11–3.12 for source installs · 4 GB RAM minimum · CPU-only inference · CLI installers remain available for headless and legacy setups</p>
+        <p class="requirements">Linux · C++20/CMake toolchain for source builds · 4 GB RAM minimum · CPU-only inference · no Python runtime</p>
       </div>
     </section>
   </main>
