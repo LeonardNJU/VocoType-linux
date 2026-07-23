@@ -63,7 +63,7 @@ jobs:
           test -f result-universal/share/fcitx5/addon/vocotype.conf
           test -f result-universal/share/ibus/component/vocotype.xml
           result-universal/bin/vocotype-settings --check-hotkey Alt_R             | jq -e '.success == true' >/dev/null
-          nix path-info -Sh result-workers result-fcitx5 result-ibus result-universal
+          nix path-info -Sh ./result-workers ./result-fcitx5 ./result-ibus ./result-universal
 
   release-contract:
     runs-on: ubuntu-24.04

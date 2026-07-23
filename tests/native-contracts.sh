@@ -383,6 +383,9 @@ for token in 'vocotype-streaming-worker --help' 'vocotype-offline-worker --help'
   rg -Fq "$token" .github/workflows/ci.yml || \
     fail "Nix smoke coverage is missing: $token"
 done
+rg -Fq 'nix path-info -Sh ./result-workers ./result-fcitx5 ./result-ibus ./result-universal' \
+  .github/workflows/ci.yml || \
+  fail "Nix size smoke treats result symlinks as flake registry names"
 rg -Fq 'VOCOTYPE_FCITX5_BACKEND_PATH' fcitx5/module/CMakeLists.txt || \
   fail "Fcitx module cannot receive a Nix store backend path"
 
