@@ -44,6 +44,13 @@ namespace sui = vocotype::desktop::settings_ui;
 
 namespace {
 
+#if GLIB_CHECK_VERSION(2, 74, 0)
+constexpr GApplicationFlags kDefaultApplicationFlags =
+    G_APPLICATION_DEFAULT_FLAGS;
+#else
+constexpr GApplicationFlags kDefaultApplicationFlags = G_APPLICATION_FLAGS_NONE;
+#endif
+
 struct SettingsWindow {
   GtkApplication *application = nullptr;
   GtkWidget *window = nullptr;
@@ -3344,7 +3351,7 @@ int main(int argc, char **argv) {
   const bool probing = std::getenv("VOCOTYPE_SETTINGS_UI_PROBE") != nullptr;
   GtkApplication *application = gtk_application_new(
       "io.github.LeonardNJU.VoCoType.Settings",
-      probing ? G_APPLICATION_NON_UNIQUE : G_APPLICATION_DEFAULT_FLAGS);
+      probing ? G_APPLICATION_NON_UNIQUE : kDefaultApplicationFlags);
   auto window = std::make_unique<SettingsWindow>();
   g_signal_connect(application, "activate", G_CALLBACK(activate), window.get());
   const int status = g_application_run(G_APPLICATION(application), argc, argv);

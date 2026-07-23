@@ -179,6 +179,11 @@ for metadata_source in packaging/tools/render-package-metadata.sh installers/ins
   fi
 done
 
+# Ubuntu 22.04 ships GLib 2.72, before G_APPLICATION_DEFAULT_FLAGS was
+# introduced. The native settings app must retain the older zero-flags path.
+rg -Fq 'GLIB_CHECK_VERSION(2, 74, 0)' native/desktop/src/settings_main.cpp ||   fail "native settings does not gate newer GApplication flags by GLib version"
+rg -Fq 'G_APPLICATION_FLAGS_NONE' native/desktop/src/settings_main.cpp ||   fail "native settings does not support Ubuntu 22.04 GLib"
+
 # Ubuntu 22.04 ships nlohmann-json 3.10.5 and is a supported build target.
 for cmake_file in native/core/CMakeLists.txt native/desktop/CMakeLists.txt feedback_service/CMakeLists.txt; do
   rg -Fq 'find_package(nlohmann_json 3.10 REQUIRED)' "$cmake_file" ||     fail "$cmake_file requires a newer nlohmann-json than Ubuntu 22.04 provides"
