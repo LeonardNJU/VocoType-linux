@@ -1,3 +1,12 @@
+vocotype-linux (4.1.0~beta2-1) unstable; urgency=medium
+
+  * Remove the settings center's distribution-specific yaml-cpp ABI dependency.
+  * Share one native terms parser between Core and the settings center.
+  * Reject packages that reintroduce a system yaml-cpp dependency in metadata
+    or the settings executable.
+
+ -- Leonard Li <leo@lsamc.website>  Thu, 23 Jul 2026 16:00:00 +0000
+
 vocotype-linux (4.1.0~beta1-1) unstable; urgency=medium
 
   * Add recorded shortcuts for transcription, AI polishing, and voice editing.
