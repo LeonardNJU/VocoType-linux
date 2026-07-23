@@ -907,13 +907,42 @@ bool set_fcitx_addon_enabled(const std::string &name, bool enabled,
   return result.value("success", false);
 }
 
+Json restart_fcitx_desktop_session() {
+  const std::string manager = vocotype::desktop::find_executable(
+      std::string("system") + "ctl", {"/usr/bin/systemctl", "/bin/systemctl"});
+  if (!manager.empty()) {
+    const std::string unit = "app-org.fcitx.Fcitx5@autostart.service";
+    const Json load_state = run_command(
+        {manager, "--user", "show", unit, "-p", "LoadState", "--value"});
+    if (load_state.value("success", false) &&
+        load_state.value("output", "").find("loaded") != std::string::npos) {
+      const Json restarted = run_command({manager, "--user", "restart", unit});
+      if (restarted.value("success", false))
+        return {{"success", true}, {"method", "systemd-autostart"}};
+    }
+  }
+
+  const bool graphical =
+      (std::getenv("DISPLAY") && *std::getenv("DISPLAY")) ||
+      (std::getenv("WAYLAND_DISPLAY") && *std::getenv("WAYLAND_DISPLAY"));
+  if (graphical) {
+    const Json restarted = run_command(
+        {"sh", "-c", "exec env -u FCITX_ADDON_DIRS fcitx5 -r -d"});
+    if (restarted.value("success", false))
+      return {{"success", true}, {"method", "desktop-process"}};
+  }
+
+  const Json reloaded = run_command({"fcitx5-remote", "-r"});
+  if (reloaded.value("success", false))
+    return {{"success", true}, {"method", "remote-reload"}};
+  return {{"success", false},
+          {"error", "无法通过桌面会话重启 Fcitx 5；请重新登录桌面后重试"}};
+}
+
 Json restart_fcitx_with_vocotype() {
-  Json restart = run_command({"fcitx5-remote", "-r"});
+  Json restart = restart_fcitx_desktop_session();
   if (!restart.value("success", false))
-    restart = run_command({"fcitx5", "-r", "-d"});
-  if (!restart.value("success", false))
-    return {{"success", false},
-            {"error", restart.value("error", "无法重启 Fcitx 5")}};
+    return restart;
 
   bool enable_attempted = false;
   std::string details;
@@ -926,9 +955,7 @@ Json restart_fcitx_with_vocotype() {
       enable_attempted = true;
       if (!set_fcitx_addon_enabled("vocotype", true, &details))
         return {{"success", false}, {"error", details}};
-      restart = run_command({"fcitx5-remote", "-r"});
-      if (!restart.value("success", false))
-        restart = run_command({"fcitx5", "-r", "-d"});
+      restart = restart_fcitx_desktop_session();
       if (!restart.value("success", false))
         return {{"success", false},
                 {"error", "addon 已启用，但再次重启 Fcitx 失败：" +

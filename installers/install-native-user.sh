@@ -77,6 +77,12 @@ manager_available() {
     manager_user show-environment >/dev/null 2>&1
 }
 
+desktop_session_available() {
+  [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]] && return 0
+  manager_available || return 1
+  manager_user show-environment 2>/dev/null | grep -Eq '^(DISPLAY|WAYLAND_DISPLAY)='
+}
+
 restart_fcitx_desktop() {
   local unit='app-org.fcitx.Fcitx5@autostart.service'
   if manager_available; then
@@ -146,7 +152,7 @@ verify_fcitx_addon_enabled() {
     echo "native settings helper is missing; cannot verify the Fcitx addon" >&2
     return 1
   }
-  if [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
+  if ! desktop_session_available; then
     log "Fcitx addon verification deferred because no graphical session is available."
     return 0
   fi
