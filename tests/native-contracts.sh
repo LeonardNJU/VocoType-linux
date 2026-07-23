@@ -193,6 +193,8 @@ for workflow in .github/workflows/ci.yml .github/workflows/release.yml; do
 done
 test -x packaging/tools/find-rpm-package.sh || \
   fail "RPM metadata lookup helper is missing or not executable"
+rg -Fq "! -name '*.src.rpm'" packaging/tools/find-rpm-package.sh || \
+  fail "RPM metadata lookup helper does not exclude source RPM archives"
 
 # Package smoke tests must support both conventional /usr/libexec and the
 # Arch /usr/lib/vocotype helper layout.

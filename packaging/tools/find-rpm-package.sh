@@ -17,7 +17,7 @@ while IFS= read -r -d '' candidate; do
   arch=$(rpm -qp --qf '%{ARCH}' "$candidate" 2>/dev/null || true)
   [[ "$name" == "$package_name" && "$arch" != src ]] || continue
   matches+=("$candidate")
-done < <(find "$directory" -maxdepth 1 -type f -name '*.rpm' -print0 | sort -z)
+done < <(find "$directory" -maxdepth 1 -type f -name '*.rpm' ! -name '*.src.rpm' -print0 | sort -z)
 
 if [[ ${#matches[@]} -ne 1 ]]; then
   echo "Expected exactly one binary RPM named $package_name; found ${#matches[@]}" >&2
@@ -26,7 +26,7 @@ if [[ ${#matches[@]} -ne 1 ]]; then
       "$candidate" \
       "$(rpm -qp --qf '%{NAME}' "$candidate" 2>/dev/null || echo unreadable)" \
       "$(rpm -qp --qf '%{ARCH}' "$candidate" 2>/dev/null || echo unreadable)" >&2
-  done < <(find "$directory" -maxdepth 1 -type f -name '*.rpm' -print0 | sort -z)
+  done < <(find "$directory" -maxdepth 1 -type f -name '*.rpm' ! -name '*.src.rpm' -print0 | sort -z)
   exit 1
 fi
 printf '%s\n' "${matches[0]}"
