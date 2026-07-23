@@ -151,6 +151,14 @@ if rg -n 'setup-python|mkdocs|requirements-docs|pip install' \
   fail "Python documentation build dependency remains"
 fi
 
+# Package smoke tests must support both conventional /usr/libexec and the
+# Arch /usr/lib/vocotype helper layout.
+for package_test in   packaging/tests/audit-built-package.sh   packaging/tests/smoke-installed-package.sh; do
+  rg -Fq '/usr/libexec/' "$package_test" ||     fail "$package_test does not support the standard libexec layout"
+  rg -Fq '/usr/lib/vocotype/' "$package_test" ||     fail "$package_test does not support the Arch helper layout"
+done
+rg -Fq '/usr/lib64/vocotype' packaging/tests/smoke-removed-package.sh ||   fail "package removal smoke does not check private runtime cleanup"
+
 # Native package metadata has no Python build/runtime dependency.
 for format in debian rpm arch; do
   case "$format" in
