@@ -117,6 +117,9 @@ sed \
 SOURCE_COPY="$BUILD_DIR/funasr-source"
 rm -rf "$SOURCE_COPY"
 cp -a "$RUNTIME_SOURCE" "$SOURCE_COPY"
+# Fixed-output sources in the Nix store are read-only. Project overlays are
+# applied only to this disposable copy, so make the copy writable explicitly.
+chmod -R u+w "$SOURCE_COPY"
 cat "$OVERLAY" >> "$SOURCE_COPY/bin/CMakeLists.txt"
 # Upstream's bundled Kaldi/OpenFST snapshot predates modern GCC/Clang. Apply
 # only mechanical toolchain fixes in the disposable source copy; online ASR

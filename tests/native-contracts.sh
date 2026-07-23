@@ -362,6 +362,8 @@ for token in \
 done
 rg -Fq 'NLOHMANN_JSON_INCLUDE_DIR' native/streaming_worker/build.sh || \
   fail "native worker build cannot consume Nix-provided nlohmann headers"
+rg -Fq 'chmod -R u+w "$SOURCE_COPY"' native/streaming_worker/build.sh || \
+  fail "native worker build cannot overlay read-only Nix sources"
 rg -Fq 'VOCOTYPE_FCITX5_BACKEND_PATH' fcitx5/module/CMakeLists.txt || \
   fail "Fcitx module cannot receive a Nix store backend path"
 
