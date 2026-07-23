@@ -47,7 +47,11 @@ jobs:
           nix build .#vocotype-universal --out-link result-universal -L
       - name: Smoke-test Nix outputs
         run: |
+          result-workers/bin/vocotype-streaming-worker --help >/dev/null
+          result-workers/bin/vocotype-offline-worker --help >/dev/null
+
           result-fcitx5/bin/vocotype-core --help >/dev/null
+          readelf -Ws result-fcitx5/libexec/vocotype-settings | grep -Fq 'XGrabKey'
           result-fcitx5/bin/vocotype-settings --check-hotkey F8             | jq -e '.success == true and .kind == "available"' >/dev/null
           test -f result-fcitx5/share/fcitx5/addon/vocotype.conf
           find result-fcitx5/lib -path '*/fcitx5/vocotype.so' -print -quit             | grep -q .

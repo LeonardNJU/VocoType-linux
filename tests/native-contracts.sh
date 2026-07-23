@@ -375,6 +375,14 @@ for token in '--nix-store' 'mode=nix-store' '/nix/store/*' 'ldd "$path"'; do
 done
 rg -Fq 'VOCOTYPE_BUNDLE_AUDIT_MODE=nix-store' nix/package.nix || \
   fail "Nix workers do not request Nix-store bundle auditing"
+for token in 'autoPatchelfHook' 'alsa-lib' 'libX11' 'libXdmcp' 'libsysprof-capture'; do
+  rg -Fq "$token" nix/package.nix || \
+    fail "Nix runtime closure is missing dependency: $token"
+done
+for token in 'vocotype-streaming-worker --help' 'vocotype-offline-worker --help' "grep -Fq 'XGrabKey'"; do
+  rg -Fq "$token" .github/workflows/ci.yml || \
+    fail "Nix smoke coverage is missing: $token"
+done
 rg -Fq 'VOCOTYPE_FCITX5_BACKEND_PATH' fcitx5/module/CMakeLists.txt || \
   fail "Fcitx module cannot receive a Nix store backend path"
 

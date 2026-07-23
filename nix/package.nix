@@ -4,9 +4,14 @@
   source,
   flavor ? "universal",
   fetchFromGitHub,
+  autoPatchelfHook,
+  alsa-lib,
   cmake,
   pkg-config,
   patchelf,
+  libX11,
+  libXdmcp,
+  libsysprof-capture,
   ibusMinimal,
   patch,
   fcitx5,
@@ -108,12 +113,17 @@ stdenv.mkDerivation (finalAttrs: {
   src = source;
 
   nativeBuildInputs = [
+    autoPatchelfHook
     cmake
     pkg-config
   ];
   buildInputs = [
+    alsa-lib
     curl
     gtk3
+    libX11
+    libXdmcp
+    libsysprof-capture
     nlohmann_json
     openssl
     portaudio
