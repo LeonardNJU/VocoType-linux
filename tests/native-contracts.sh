@@ -342,7 +342,7 @@ for token in \
 done
 for token in \
   'bd6e72142f1cca3c30b7651bf5fa567dfe969810' \
-  'sha256-4HxsobXHDN9SSLofoANhEHtqm3U+FPvRro088ZvNWoQ=' \
+  'sha256-3abFrokYBHCfoRlxXnF92pwBleypRX4E1eFL+tTXAI8=' \
   'pythonSupport = false' \
   'native/streaming_worker/build.sh' \
   'native/core' \

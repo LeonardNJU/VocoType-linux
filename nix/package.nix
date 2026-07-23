@@ -38,7 +38,7 @@ let
     repo = "FunASR";
     rev = "bd6e72142f1cca3c30b7651bf5fa567dfe969810";
     sparseCheckout = [ "runtime/onnxruntime" "LICENSE" ];
-    hash = "sha256-4HxsobXHDN9SSLofoANhEHtqm3U+FPvRro088ZvNWoQ=";
+    hash = "sha256-3abFrokYBHCfoRlxXnF92pwBleypRX4E1eFL+tTXAI8=";
   };
 
   workers = stdenv.mkDerivation {
