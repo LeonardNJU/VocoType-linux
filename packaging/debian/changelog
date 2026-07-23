@@ -1,3 +1,13 @@
+vocotype-linux (4.1.0~beta1-1) unstable; urgency=medium
+
+  * Add recorded shortcuts for transcription, AI polishing, and voice editing.
+  * Reject unsafe input/navigation keys, duplicate bindings, and detected
+    Fcitx, KDE, GNOME, or X11 global-shortcut conflicts.
+  * Add locked source-built Nix packages for universal, IBus-only, and
+    Fcitx5-only installations on x86_64-linux and aarch64-linux.
+
+ -- Leonard Li <leo@lsamc.website>  Thu, 23 Jul 2026 10:00:00 +0000
+
 vocotype-linux (4.0.0~beta1-1) unstable; urgency=medium
 
   * Complete the native C++ rewrite for core, Fcitx 5, IBus, settings, audio,

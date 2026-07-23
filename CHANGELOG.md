@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [4.1.0-beta.1] - 2026-07-23
+
+### Added
+
+- Added recorded, independently configurable shortcuts for normal transcription, AI polishing, and voice editing across Fcitx 5 and IBus. The settings center rejects unsafe printable/navigation keys, duplicate VoCoType bindings, known Fcitx/KDE/GNOME conflicts, and occupied X11 root grabs.
+- Added a locked source-built Nix flake for `x86_64-linux` and `aarch64-linux`, with universal, IBus-only, and Fcitx5-only outputs plus a full GitHub Actions build/smoke job.
+- Added a headless shortcut validation probe and deterministic regression tests for unsafe keys, desktop conflicts, and right-side modifier shortcuts such as `Alt_R`.
+
+### Changed
+
+- Fcitx and IBus now select voice mode from the configured action shortcut rather than inferring polishing/editing from Shift/Ctrl on one hard-coded F9 key.
+- The native Fcitx module accepts compile-time or environment-injected recorder/backend paths so Nix store installations do not depend on FHS `/usr` paths or a systemd user unit.
+- Invalid shortcut values written manually to JSON or Fcitx configuration are rejected again by the runtime and fall back to the safe defaults.
+
 ## [4.0.0-beta.1] - 2026-07-23
 
 ### Added
