@@ -65,7 +65,7 @@ jobs:
 
           artifacts_json=$(gh api \
             "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100")
-          for required in source-deb rpm arch; do
+          for required in source-deb rpm arch final-release-assets; do
             count=$(jq -r --arg name "$required" \
               '[.artifacts[] | select(.name == $name and (.expired | not))] | length' \
               <<<"$artifacts_json")
@@ -111,24 +111,10 @@ jobs:
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
           run-id: ${{ inputs.source_run_id }}
-          path: assets
-          merge-multiple: true
+          name: final-release-assets
+          path: final-assets
 
-      - name: Collect installer-only GitHub Release assets
-        run: |
-          packaging/scripts/collect-release-assets.sh \
-            assets final-assets --installers-only
-
-      - name: Write installer checksums
-        run: |
-          (
-            cd final-assets
-            find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 \
-              | sort -z | xargs -0 sha256sum \
-              | sed 's#  \./#  #' > SHA256SUMS
-          )
-
-      - name: Validate the exact downloadable asset set
+      - name: Revalidate the exact assembled downloadable asset set
         run: |
           packaging/scripts/validate-final-release-assets.sh final-assets \
             --version "${{ steps.verify.outputs.version }}"

@@ -518,6 +518,20 @@ if rg -Fq 'if (keyval == IBUS_KEY_F9)' src/desktop/src/ibus_main.cpp; then
   fail "IBus still hard-codes F9 in its key event handler"
 fi
 
+# The tested-release publisher must consume the single assembled artifact.  It
+# must never merge package-job artifacts with final-release-assets, which would
+# duplicate every installer at publication time.
+for token in \
+  'name: final-release-assets' \
+  'path: final-assets' \
+  'Revalidate the exact assembled downloadable asset set'; do
+  rg -Fq "$token" .github/workflows/publish-tested-release.yml || \
+    fail "tested-release final artifact contract is missing: $token"
+done
+if rg -Fq 'merge-multiple: true' .github/workflows/publish-tested-release.yml; then
+  fail "tested-release publisher still merges package and assembled artifacts"
+fi
+
 # Nix support must remain source-built, locked, and cover all integration flavors.
 for path in flake.nix flake.lock packaging/nix/package.nix docs/getting-started/nix.md; do
   test -f "$path" || fail "missing Nix support file: $path"
