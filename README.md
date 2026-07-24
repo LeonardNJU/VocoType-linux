@@ -17,10 +17,11 @@
 
 > Windows / macOS 用户请使用 VoCoType 官方桌面版：[vocotype.com](https://vocotype.com/)
 
-## 📰 V4.1 Beta 1 已发布：可录制快捷键与 Nix / NixOS
+## 📰 V4.1 Beta 2 已发布：跨 Ubuntu 安装修复与可录制快捷键
 
-**[VoCoType Linux v4.1.0-beta.1](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v4.1.0-beta.1) 已发布。** 本版本继续基于 V4 的完整 C++ 原生架构，加入可录制的语音快捷键和锁定的 Nix 源码构建支持；现有模型、术语和 AI 配置无需迁移。
+**[VoCoType Linux v4.1.0-beta.2](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v4.1.0-beta.2) 已发布。** 本版本继续基于 V4 的完整 C++ 原生架构，修复新版 Ubuntu 无法安装 DEB 的 `libyaml-cpp0.7` ABI 依赖，同时包含可录制语音快捷键和锁定的 Nix 源码构建支持；现有模型、术语和 AI 配置无需迁移。
 
+- DEB 设置中心不再动态依赖发行版特定的 `libyaml-cpp` SONAME，可在新版 Ubuntu 上正常解析依赖；
 - 普通识别、AI 润色和语音编辑可分别录制快捷键，默认仍为 `F9`、`Shift+F9` 和 `Ctrl+F9`；
 - 支持 `Alt_R`、`Control_R`、`Super_R` 等右侧修饰键和其他安全组合；
 - 自动拒绝裸字母、数字、导航键、常用系统快捷键、VoCoType 内部重复项和已检测到的 Fcitx/KDE/GNOME/X11 全局冲突；
@@ -28,7 +29,7 @@
 - 新增锁定的 Nix flake，源码构建 universal、IBus-only、Fcitx5-only，并支持 `x86_64-linux` 与 `aarch64-linux`；
 - Release 继续提供 Debian/Ubuntu、Fedora/RHEL 和 Arch Linux 的三种 flavor，共 9 个安装包。
 
-[前往 V4.1 Beta 1 Release 下载](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v4.1.0-beta.1)。Release 包含 9 个发行包和统一的 `SHA256SUMS`；Nix 用户也可直接使用本次 tag 的 flake。升级后请打开 **通用设置 → 语音快捷键** 录制或确认按键。遇到问题请运行 Doctor 并提交 [GitHub Issue](https://github.com/LeonardNJU/VocoType-linux/issues)。
+[前往 V4.1 Beta 2 Release 下载](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v4.1.0-beta.2)。Release 包含 9 个发行包和统一的 `SHA256SUMS`；Nix 用户也可直接使用本次 tag 的 flake。升级后请打开 **通用设置 → 语音快捷键** 录制或确认按键。遇到问题请运行 Doctor 并提交 [GitHub Issue](https://github.com/LeonardNJU/VocoType-linux/issues)。
 
 ## 为什么使用 VoCoType Linux
 
@@ -63,7 +64,7 @@ https://github.com/user-attachments/assets/4b936014-9477-4794-8d04-aa31d34577a0
 
 ### 1. 安装发行包（推荐）
 
-在 [V4.1 Beta 1 Release](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v4.1.0-beta.1) 下载适合当前发行版与输入法框架的软件包，并可使用同页的 `SHA256SUMS` 校验文件：
+在 [V4.1 Beta 2 Release](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v4.1.0-beta.2) 下载适合当前发行版与输入法框架的软件包，并可使用同页的 `SHA256SUMS` 校验文件：
 
 ```bash
 # Debian / Ubuntu
@@ -107,10 +108,10 @@ bash scripts/install/ibus/install.sh --install-system-deps --download-models
 仓库提供锁定的源码构建 flake：
 
 ```bash
-nix run github:LeonardNJU/VocoType-linux/v4.1.0-beta.1#settings
-nix build github:LeonardNJU/VocoType-linux/v4.1.0-beta.1#vocotype-fcitx5
-nix build github:LeonardNJU/VocoType-linux/v4.1.0-beta.1#vocotype-ibus
-nix build github:LeonardNJU/VocoType-linux/v4.1.0-beta.1#vocotype-universal
+nix run github:LeonardNJU/VocoType-linux/v4.1.0-beta.2#settings
+nix build github:LeonardNJU/VocoType-linux/v4.1.0-beta.2#vocotype-fcitx5
+nix build github:LeonardNJU/VocoType-linux/v4.1.0-beta.2#vocotype-ibus
+nix build github:LeonardNJU/VocoType-linux/v4.1.0-beta.2#vocotype-universal
 ```
 
 NixOS 用户应把 Fcitx flavor 放入 `i18n.inputMethod.fcitx5.addons`，或把 IBus flavor 放入 `i18n.inputMethod.ibus.engines`。详见 [Nix 与 NixOS 文档](docs/getting-started/nix.md)。
