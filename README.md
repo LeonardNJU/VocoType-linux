@@ -17,19 +17,17 @@
 
 > Windows / macOS 用户请使用 VoCoType 官方桌面版：[vocotype.com](https://vocotype.com/)
 
-## 📰 V4.1.1 Beta 1 已发布：仓库结构完成系统化整理
+## 📰 V4.1.1 Beta 2 已发布：修复 Fcitx 松键与残留快捷键冲突
 
-**[VoCoType Linux v4.1.1-beta.1](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v4.1.1-beta.1) 已发布。** 本版本不改变 V4.1 Beta 2 的用户配置和运行语义，而是把完整原生实现整理为边界清晰、适合长期维护与外部贡献的开源仓库结构；九个 DEB、RPM、Arch 安装包均从整理后的源码重新构建并校验。
+**[VoCoType Linux v4.1.1-beta.2](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v4.1.1-beta.2) 已发布。** 本版本修复 V4.1 可录制快捷键在 Fcitx 5 下暴露的两个实机问题：按下快捷键能够开始录音但松开后不结束，以及已卸载 addon 的残留配置被误判为有效冲突。
 
-- 产品代码统一进入 `src/`，Core、Desktop、Fcitx 5、IBus、FunASR worker 与服务实现不再散落在多个顶层目录；
-- Fcitx 5 与 IBus 位于 `src/integrations/`，反馈服务的源码、测试和部署配置集中在 `src/services/feedback/`；
-- Nix 实现移动到 `packaging/nix/package.nix`，与 Debian、RPM、Arch 打包实现同层；根目录保留标准 `flake.nix` / `flake.lock` 入口；
-- 安装、诊断、站点生成、基准与仓库级测试按职责归入 `scripts/`，发行构建与包级审计集中在 `packaging/`；
-- 所有用户、开发、架构、集成和服务文档统一归入 `docs/`，项目主页归入 `web/`，静态资源归入 `resources/`；
-- 新增仓库结构 ADR 与 contract，旧目录、散落文档和过期路径会直接导致 CI 失败；
-- 继续包含 Beta 2 的新版 Ubuntu DEB 修复、三套可录制快捷键和 Nix / NixOS 支持。
+- 修复 `F9`、`Shift+F9`、`Ctrl+F9` 和自定义快捷键松开后录音仍持续的问题；
+- 修复 `Alt_R` 等按键被已卸载 Fcitx addon 的残留 `~/.config/fcitx5/conf/*.conf` 错误占用的问题；
+- 仍会拦截 Fcitx 主配置、当前已安装 addon、KDE、GNOME 与 X11 的真实全局快捷键冲突；
+- 增加按下/释放状态回归约束，以及“残留 addon 应忽略、已安装 addon 必须拒绝”的 headless 测试；
+- 候选版本完整 CI 七项全绿，九个 DEB、RPM、Arch 安装包均已下载并通过统一 `SHA256SUMS` 校验。
 
-[前往 V4.1.1 Beta 1 Release 下载](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v4.1.1-beta.1)。Release 包含 9 个发行包和统一的 `SHA256SUMS`；用户配置、模型缓存、术语和 AI 配置无需迁移。
+[前往 V4.1.1 Beta 2 Release 下载](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v4.1.1-beta.2)。用户配置、模型缓存、术语和 AI 配置无需迁移；Fcitx 5 用户升级后请重点测试“按住说话、松开识别”和自定义 `Alt_R`。
 
 ## 为什么使用 VoCoType Linux
 
@@ -51,6 +49,7 @@ https://github.com/user-attachments/assets/4b936014-9477-4794-8d04-aa31d34577a0
 
 ## 最近更新
 
+- **Fcitx 松键修复**：录音会话会保留本次活动快捷键直到释放完成；已卸载 addon 遗留的快捷键配置不再形成假冲突。
 - **模块化仓库结构**：源码、输入法集成、服务、打包、脚本、文档、资源与网站已按所有权边界重新组织，并由结构 contract 锁定。
 - **全图形化配置**：安装、修复、模型下载、术语、ITN 和 AI 配置均可在设置中心完成。
 - **自动诊断与反馈**：Doctor、Playground、安装完整性检查、脱敏支持包和官方反馈入口已经集成。
@@ -65,7 +64,7 @@ https://github.com/user-attachments/assets/4b936014-9477-4794-8d04-aa31d34577a0
 
 ### 1. 安装发行包（推荐）
 
-在 [V4.1.1 Beta 1 Release](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v4.1.1-beta.1) 下载适合当前发行版与输入法框架的软件包，并可使用同页的 `SHA256SUMS` 校验文件：
+在 [V4.1.1 Beta 2 Release](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v4.1.1-beta.2) 下载适合当前发行版与输入法框架的软件包，并可使用同页的 `SHA256SUMS` 校验文件：
 
 ```bash
 # Debian / Ubuntu
@@ -109,10 +108,10 @@ bash scripts/install/ibus/install.sh --install-system-deps --download-models
 仓库提供锁定的源码构建 flake：
 
 ```bash
-nix run github:LeonardNJU/VocoType-linux/v4.1.1-beta.1#settings
-nix build github:LeonardNJU/VocoType-linux/v4.1.1-beta.1#vocotype-fcitx5
-nix build github:LeonardNJU/VocoType-linux/v4.1.1-beta.1#vocotype-ibus
-nix build github:LeonardNJU/VocoType-linux/v4.1.1-beta.1#vocotype-universal
+nix run github:LeonardNJU/VocoType-linux/v4.1.1-beta.2#settings
+nix build github:LeonardNJU/VocoType-linux/v4.1.1-beta.2#vocotype-fcitx5
+nix build github:LeonardNJU/VocoType-linux/v4.1.1-beta.2#vocotype-ibus
+nix build github:LeonardNJU/VocoType-linux/v4.1.1-beta.2#vocotype-universal
 ```
 
 NixOS 用户应把 Fcitx flavor 放入 `i18n.inputMethod.fcitx5.addons`，或把 IBus flavor 放入 `i18n.inputMethod.ibus.engines`。详见 [Nix 与 NixOS 文档](docs/getting-started/nix.md)。
