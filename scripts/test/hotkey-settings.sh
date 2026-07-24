@@ -5,7 +5,7 @@ test -x "$settings"
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-mkdir -p "$tmp/.config/fcitx5/conf"
+mkdir -p "$tmp/.config/fcitx5/conf" "$tmp/.local/share/fcitx5/addon"
 cat > "$tmp/.config/kglobalshortcutsrc" <<'KDE'
 [kwin]
 TestAction=Alt+F8,Alt+F8,Test action
@@ -14,10 +14,24 @@ cat > "$tmp/.config/fcitx5/config" <<'FCITX'
 [Hotkey]
 EnumerateForwardKeys=Control+F8
 FCITX
+cat > "$tmp/.config/fcitx5/conf/removed-vinput.conf" <<'STALE'
+[Hotkey]
+TriggerKey=Alt_R
+STALE
+cat > "$tmp/.config/fcitx5/conf/installed-addon.conf" <<'ACTIVE'
+[Hotkey]
+TriggerKey=Ctrl+Alt+F11
+ACTIVE
+cat > "$tmp/.local/share/fcitx5/addon/installed-addon.conf" <<'ADDON'
+[Addon]
+Name=Installed test addon
+ADDON
 
 probe() {
   env -u DISPLAY -u WAYLAND_DISPLAY -u DBUS_SESSION_BUS_ADDRESS \
-    HOME="$tmp" XDG_CONFIG_HOME="$tmp/.config" "$settings" --check-hotkey "$1"
+    HOME="$tmp" XDG_CONFIG_HOME="$tmp/.config" \
+    XDG_DATA_HOME="$tmp/.local/share" XDG_DATA_DIRS="$tmp/system-share" \
+    "$settings" --check-hotkey "$1"
 }
 
 set +e
@@ -30,6 +44,9 @@ fcitx=$(probe Ctrl+F8); fcitx_rc=$?
 set -e
 available=$(probe Ctrl+Shift+F12)
 right_alt=$(probe Alt_R)
+set +e
+installed_addon=$(probe Ctrl+Alt+F11); installed_addon_rc=$?
+set -e
 
 for item in "$plain" "$shift_printable" "$navigation" "$reserved"; do
   jq -e '.success == false and .kind == "unsafe"' <<<"$item" >/dev/null
@@ -45,5 +62,8 @@ jq -e '.success == false and .kind == "occupied" and (.reason | contains("Fcitx"
 test "$fcitx_rc" -eq 21
 jq -e '.success == true and .kind == "available"' <<<"$available" >/dev/null
 jq -e '.success == true and .shortcut == "Alt_R"' <<<"$right_alt" >/dev/null
+jq -e '.success == false and .kind == "occupied" and (.reason | contains("installed-addon.conf"))' \
+  <<<"$installed_addon" >/dev/null
+test "$installed_addon_rc" -eq 21
 
 echo HOTKEY_SETTINGS_TEST_OK

@@ -494,6 +494,21 @@ for token in 'PolishKey' 'EditKey' 'hotkeyModeForKey' 'active_hotkey_'; do
     src/integrations/fcitx5/module/vocotype_module.cpp || \
     fail "Fcitx configurable-shortcut contract is missing: $token"
 done
+python3 - <<'PY_CONTRACT' || fail "Fcitx PTT session initialization clears the active release key"
+from pathlib import Path
+source = Path("src/integrations/fcitx5/module/vocotype_module.cpp").read_text()
+body = source.split("void VoCoTypeModule::armPendingRecordingStart(", 1)[1].split(
+    "void VoCoTypeModule::cancelPendingRecordingStart", 1
+)[0]
+cancel = body.index("cancelPendingRecordingStart();")
+pending = body.index("pending_ptt_key_ = pressed_key.normalize();")
+active = body.index("active_hotkey_ = configured_hotkey;")
+assert cancel < pending < active
+PY_CONTRACT
+for token in 'fcitx_addon_is_installed' 'XDG_DATA_HOME' 'XDG_DATA_DIRS'; do
+  rg -Fq "$token" src/desktop/src/settings_main.cpp || \
+    fail "stale Fcitx addon shortcut filter is missing: $token"
+done
 for token in 'hotkeys.value("transcribe"' 'hotkeys.value("polish"' \
              'hotkeys.value("edit"' 'hotkey_mask'; do
   rg -Fq "$token" src/desktop/src/ibus_main.cpp || \

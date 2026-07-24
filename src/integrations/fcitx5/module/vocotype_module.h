@@ -162,7 +162,9 @@ private:
 
   void armPendingRecordingStart(fcitx::InputContext *ic, bool long_mode,
                                   bool edit_mode,
-                                  const VoiceEditSnapshot &edit_snapshot);
+                                  const VoiceEditSnapshot &edit_snapshot,
+                                  const fcitx::Key &pressed_key,
+                                  const fcitx::Key &configured_hotkey);
     void cancelPendingRecordingStart();
     void armPendingPttRelease(fcitx::InputContext *ic);
     void cancelPendingPttRelease();

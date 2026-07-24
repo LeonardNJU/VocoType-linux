@@ -38,7 +38,7 @@ VoCoType 会拒绝明显不适合作为按住说话键的组合，包括：
 
 保存前会尽力检查：
 
-- Fcitx 5 全局配置与 addon 配置；
+- Fcitx 5 全局配置与当前仍已安装的 addon 配置（已卸载 addon 遗留的配置文件不会阻止录制）；
 - KDE `kglobalshortcutsrc`；
 - GNOME/Mutter 与媒体键 GSettings；
 - GNOME 自定义快捷键；

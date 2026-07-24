@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [4.1.1-beta.2] - 2026-07-24
+
+### Fixed
+
+- Fixed the Fcitx 5 push-to-talk regression introduced with recordable shortcuts: beginning a recording no longer clears the active shortcut before its key-release event arrives, so releasing `F9`, `Alt_R`, or another configured key now stops recording and starts transcription.
+- Fixed false shortcut conflicts caused by configuration files left behind by uninstalled Fcitx addons. Addon-specific shortcut files are scanned only while matching addon metadata is still installed; active Fcitx, KDE, GNOME, and X11 conflicts remain blocked.
+
+### Added
+
+- Added regression contracts for Fcitx press/release session initialization and headless tests covering both stale and installed addon shortcut configurations.
+
 ## [4.1.1-beta.1] - 2026-07-24
 
 ### Changed

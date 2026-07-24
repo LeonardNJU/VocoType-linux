@@ -438,6 +438,48 @@ std::optional<std::string> x11_hotkey_conflict(const Hotkey &) {
 }
 #endif
 
+std::vector<std::filesystem::path> fcitx_addon_data_roots() {
+  std::vector<std::filesystem::path> roots;
+  const auto home = vocotype::desktop::home_path();
+  if (const char *data_home = std::getenv("XDG_DATA_HOME");
+      data_home && *data_home) {
+    roots.emplace_back(data_home);
+  } else {
+    roots.push_back(home / ".local/share");
+  }
+
+  const char *data_dirs = std::getenv("XDG_DATA_DIRS");
+  const std::string directories =
+      data_dirs && *data_dirs ? data_dirs : "/usr/local/share:/usr/share";
+  std::size_t offset = 0;
+  while (offset <= directories.size()) {
+    const auto separator = directories.find(':', offset);
+    const std::string item = directories.substr(
+        offset, separator == std::string::npos ? std::string::npos
+                                               : separator - offset);
+    if (!item.empty())
+      roots.emplace_back(item);
+    if (separator == std::string::npos)
+      break;
+    offset = separator + 1;
+  }
+  return roots;
+}
+
+bool fcitx_addon_is_installed(const std::filesystem::path &user_config) {
+  if (user_config.extension() != ".conf")
+    return false;
+  const auto addon_metadata = user_config.filename();
+  std::error_code error;
+  for (const auto &root : fcitx_addon_data_roots()) {
+    if (std::filesystem::is_regular_file(root / "fcitx5/addon" / addon_metadata,
+                                         error))
+      return true;
+    error.clear();
+  }
+  return false;
+}
+
 std::optional<std::string> external_hotkey_conflict(const Hotkey &candidate) {
   if (const auto conflict = x11_hotkey_conflict(candidate))
     return *conflict;
@@ -451,7 +493,8 @@ std::optional<std::string> external_hotkey_conflict(const Hotkey &candidate) {
   if (std::filesystem::is_directory(conf_dir, error)) {
     for (const auto &entry :
          std::filesystem::directory_iterator(conf_dir, error)) {
-      if (entry.path().filename() == "vocotype.conf")
+      if (entry.path().filename() == "vocotype.conf" ||
+          !fcitx_addon_is_installed(entry.path()))
         continue;
       if (const auto conflict =
               shortcut_conflict_in_ini(entry.path(), candidate, false))

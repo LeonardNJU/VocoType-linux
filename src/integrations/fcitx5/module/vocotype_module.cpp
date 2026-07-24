@@ -868,11 +868,9 @@ void VoCoTypeModule::handleKeyEvent(fcitx::KeyEvent &event) {
                              " bytes=" + std::to_string(edit_snapshot.text.size()) +
                              " text=" + debugClip(edit_snapshot.text));
             }
-    pending_ptt_key_ = key.normalize();
-    active_hotkey_ = configured_hotkey;
             active_ic_ = ic->watch();
     armPendingRecordingStart(ic, mode == VoiceHotkeyMode::Polish, edit_mode,
-                edit_snapshot);
+                             edit_snapshot, key, configured_hotkey);
         }
 
     event.filterAndAccept();
@@ -902,8 +900,11 @@ void VoCoTypeModule::handleFocusOut(fcitx::InputContextEvent &event) {
 
 void VoCoTypeModule::armPendingRecordingStart(
     fcitx::InputContext *ic, bool long_mode, bool edit_mode,
-    const VoiceEditSnapshot &edit_snapshot) {
+    const VoiceEditSnapshot &edit_snapshot, const fcitx::Key &pressed_key,
+    const fcitx::Key &configured_hotkey) {
     cancelPendingRecordingStart();
+    pending_ptt_key_ = pressed_key.normalize();
+    active_hotkey_ = configured_hotkey;
     ptt_pressed_ = true;
     pending_long_mode_ = long_mode;
     pending_edit_mode_ = edit_mode;
