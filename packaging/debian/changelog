@@ -1,3 +1,13 @@
+vocotype-linux (4.1.1~beta1-1) unstable; urgency=medium
+
+  * Reorganize source, integration, service, packaging, scripts, documentation,
+    resources, and website files by module ownership.
+  * Move the Nix package implementation beside Debian, RPM, and Arch packaging
+    while retaining standard root flake entry points.
+  * Add repository-layout architecture documentation and structural contracts.
+
+ -- Leonard Li <leo@lsamc.website>  Fri, 24 Jul 2026 02:00:00 +0000
+
 vocotype-linux (4.1.0~beta2-1) unstable; urgency=medium
 
   * Remove the settings center's distribution-specific yaml-cpp ABI dependency.

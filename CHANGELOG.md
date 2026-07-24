@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [4.1.1-beta.1] - 2026-07-24
+
+### Changed
+
+- Reorganized the repository around module ownership: product code now lives under `src/`, input-method adapters under `src/integrations/`, the feedback service owns its deployment assets under `src/services/feedback/`, and the project website lives under `web/`.
+- Consolidated installation, diagnostics, site generation, benchmarks, and repository-level tests under `scripts/`, while keeping package builders and package audits together under `packaging/`.
+- Moved the Nix implementation beside Debian, RPM, and Arch packaging at `packaging/nix/package.nix`; standard `flake.nix` and `flake.lock` entry points remain at the repository root.
+- Centralized user, developer, architecture, integration, and service documentation under `docs/`, removing duplicate component README files.
+
+### Added
+
+- Added a repository-layout ADR and architecture guide documenting ownership boundaries, entry points, and the rationale for colocating implementation, tests, and deployment assets.
+- Added structural contract checks that reject obsolete top-level directories, scattered component documentation, stale source paths, and unsupported repository layouts.
+
+### Removed
+
+- Removed legacy top-level `native`, `fcitx5`, `ibus`, `feedback_service`, `deploy`, `installers`, `tools`, `tests`, `site`, `data`, and `nix` implementation directories after migrating their maintained contents into the new module structure.
+
 ## [4.1.0-beta.1] - 2026-07-23
 
 ### Added
