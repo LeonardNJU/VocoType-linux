@@ -438,6 +438,12 @@ std::optional<std::string> x11_hotkey_conflict(const Hotkey &) {
 }
 #endif
 
+std::filesystem::path user_config_root() {
+  if (const char *xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg)
+    return xdg;
+  return vocotype::desktop::home_path() / ".config";
+}
+
 std::vector<std::filesystem::path> fcitx_addon_data_roots() {
   std::vector<std::filesystem::path> roots;
   const auto home = vocotype::desktop::home_path();
@@ -484,7 +490,7 @@ std::optional<std::string> external_hotkey_conflict(const Hotkey &candidate) {
   if (const auto conflict = x11_hotkey_conflict(candidate))
     return *conflict;
   const auto home = vocotype::desktop::home_path();
-  const auto fcitx_root = home / ".config/fcitx5";
+  const auto fcitx_root = user_config_root() / "fcitx5";
   if (const auto conflict =
           shortcut_conflict_in_ini(fcitx_root / "config", candidate, false))
     return "Fcitx 5 " + *conflict;
@@ -1379,13 +1385,11 @@ Json run_command(const std::vector<std::string> &arguments) {
 constexpr const char *kFcitxService = "org.fcitx.Fcitx5";
 constexpr const char *kFcitxControllerPath = "/controller";
 constexpr const char *kFcitxControllerInterface = "org.fcitx.Fcitx.Controller1";
+constexpr const char *kFcitxVoCoTypeConfigUri =
+    "fcitx://config/addon/vocotype";
 
 std::filesystem::path fcitx_profile_path() {
-  const char *xdg = std::getenv("XDG_CONFIG_HOME");
-  const auto config_root = xdg && *xdg
-                               ? std::filesystem::path(xdg)
-                               : vocotype::desktop::home_path() / ".config";
-  return config_root / "fcitx5/profile";
+  return user_config_root() / "fcitx5/profile";
 }
 
 vocotype::desktop::FcitxAddonState
@@ -1631,7 +1635,7 @@ Json create_support_bundle(const std::string &doctor) {
 }
 
 std::filesystem::path fcitx_config_path() {
-  return vocotype::desktop::home_path() / ".config/fcitx5/conf/vocotype.conf";
+  return user_config_root() / "fcitx5/conf/vocotype.conf";
 }
 
 std::string config_value(const std::filesystem::path &path,
@@ -1645,7 +1649,35 @@ std::string config_value(const std::filesystem::path &path,
   return fallback;
 }
 
-void update_fcitx_config(
+Json query_live_fcitx_config() {
+  const Json result = run_command(
+      {"busctl", "--user", "--json=short", "call", kFcitxService,
+       kFcitxControllerPath, kFcitxControllerInterface, "GetConfig", "s",
+       kFcitxVoCoTypeConfigUri});
+  if (!result.value("success", false))
+    return {{"success", false}, {"error", result.value("error", "")}};
+  try {
+    const Json response = Json::parse(result.value("output", ""));
+    const Json &data = response.at("data").at(0).at("data");
+    if (!data.is_object())
+      throw std::runtime_error("配置值不是对象");
+    Json values = Json::object();
+    for (auto iterator = data.begin(); iterator != data.end(); ++iterator) {
+      if (iterator.value().is_object() &&
+          iterator.value().value("type", "") == "s" &&
+          iterator.value().contains("data") &&
+          iterator.value()["data"].is_string())
+        values[iterator.key()] = iterator.value()["data"];
+    }
+    return {{"success", true}, {"values", values}};
+  } catch (const std::exception &error) {
+    return {{"success", false},
+            {"error", std::string("无法解析 Fcitx GetConfig：") +
+                          error.what()}};
+  }
+}
+
+void write_fcitx_config_file(
     const std::vector<std::pair<std::string, std::string>> &values) {
   const auto path = fcitx_config_path();
   std::vector<std::string> lines;
@@ -1669,6 +1701,93 @@ void update_fcitx_config(
   for (const auto &entry : lines)
     output << entry << '\n';
   write_text_atomic(path, output.str());
+}
+
+void verify_fcitx_config_values(
+    const Json &live,
+    const std::vector<std::pair<std::string, std::string>> &values) {
+  if (!live.value("success", false) || !live.contains("values"))
+    throw std::runtime_error(
+        "Fcitx 运行配置无法读回：" + live.value("error", "unknown"));
+  const Json &actual = live["values"];
+  for (const auto &[key, expected] : values) {
+    const std::string observed = actual.value(key, "");
+    if (observed != expected)
+      throw std::runtime_error("Fcitx 运行配置未生效：" + key + " 期望 " +
+                               expected + "，实际 " + observed);
+    const std::string persisted = config_value(fcitx_config_path(), key, "");
+    if (persisted != expected)
+      throw std::runtime_error("Fcitx 配置未持久化：" + key + " 期望 " +
+                               expected + "，文件中为 " + persisted);
+  }
+}
+
+void set_live_fcitx_config(
+    const std::vector<std::pair<std::string, std::string>> &values) {
+  std::vector<std::string> command{
+      "busctl", "--user", "call", kFcitxService, kFcitxControllerPath,
+      kFcitxControllerInterface, "SetConfig", "sv", kFcitxVoCoTypeConfigUri,
+      "a{sv}", std::to_string(values.size())};
+  for (const auto &[key, value] : values) {
+    command.push_back(key);
+    command.push_back("s");
+    command.push_back(value);
+  }
+  const Json result = run_command(command);
+  if (!result.value("success", false))
+    throw std::runtime_error("无法更新 Fcitx 运行配置：" +
+                             result.value("error", "unknown"));
+  verify_fcitx_config_values(query_live_fcitx_config(), values);
+}
+
+Json reconcile_live_fcitx_config(
+    const std::vector<std::pair<std::string, std::string>> &values) {
+  Json live = query_live_fcitx_config();
+  if (!live.value("success", false) || !live.contains("values"))
+    return {{"success", false},
+            {"error", live.value("error", "Fcitx 运行配置不可用")}};
+
+  bool changed = false;
+  for (const auto &[key, expected] : values) {
+    changed = changed || live["values"].value(key, "") != expected ||
+              config_value(fcitx_config_path(), key, "") != expected;
+  }
+  if (changed)
+    set_live_fcitx_config(values);
+  else
+    verify_fcitx_config_values(live, values);
+  return {{"success", true}, {"changed", changed}};
+}
+
+void update_fcitx_config(
+    const std::vector<std::pair<std::string, std::string>> &values) {
+  Json live = query_live_fcitx_config();
+  const bool installed = framework_installed("fcitx5");
+  if (!live.value("success", false) && installed) {
+    const Json restarted = restart_fcitx_with_vocotype();
+    if (!restarted.value("success", false))
+      throw std::runtime_error(
+          "Fcitx 已安装但无法载入 VoCoType 配置：" +
+          restarted.value("error", live.value("error", "unknown")));
+    live = query_live_fcitx_config();
+    if (!live.value("success", false))
+      throw std::runtime_error(
+          "Fcitx 已重启，但 VoCoType 运行配置仍不可用：" +
+          live.value("error", "unknown"));
+  }
+
+  if (live.value("success", false)) {
+    set_live_fcitx_config(values);
+    return;
+  }
+
+  // The Fcitx integration is not installed, so no running addon can overwrite
+  // this file. Store the desired values for a later installation/startup.
+  write_fcitx_config_file(values);
+  Json persisted = Json::object();
+  for (const auto &[key, value] : values)
+    persisted[key] = value;
+  verify_fcitx_config_values({{"success", true}, {"values", persisted}}, values);
 }
 
 std::string yaml_scalar_value(const std::filesystem::path &path,
@@ -1922,10 +2041,45 @@ void populate_from_config(SettingsWindow &window) {
     window.edit_hotkey = default_edit;
     set_hotkey_status(window, "检测到无效或重复的旧快捷键配置，已恢复默认值",
                       "status-warn");
+  } else if (!hotkeys.empty()) {
+    const std::vector<std::pair<std::string, std::string>> desired{
+        {"PTTKey", fcitx_hotkey_string(window.transcribe_hotkey)},
+        {"PolishKey", fcitx_hotkey_string(window.polish_hotkey)},
+        {"EditKey", fcitx_hotkey_string(window.edit_hotkey)},
+    };
+    try {
+      const Json reconciliation = reconcile_live_fcitx_config(desired);
+      if (reconciliation.value("success", false)) {
+        set_hotkey_status(
+            window,
+            reconciliation.value("changed", false)
+                ? "✓ 已自动修复旧版本未应用的快捷键，并验证运行配置与文件一致"
+                : "✓ 快捷键已与 Fcitx 运行配置和磁盘配置核对一致");
+      } else {
+        set_hotkey_status(
+            window,
+            "点击任一按键开始录制；保存时会写入并读回验证 Fcitx 实际配置");
+      }
+    } catch (const std::exception &error) {
+      const Json live = query_live_fcitx_config();
+      if (live.value("success", false) && live.contains("values")) {
+        const Json &actual = live["values"];
+        window.transcribe_hotkey = vocotype::desktop::parse_hotkey(
+            actual.value("PTTKey", "F9"), default_transcribe);
+        window.polish_hotkey = vocotype::desktop::parse_hotkey(
+            actual.value("PolishKey", "Shift+F9"), default_polish);
+        window.edit_hotkey = vocotype::desktop::parse_hotkey(
+            actual.value("EditKey", "Control+F9"), default_edit);
+      }
+      set_hotkey_status(
+          window, std::string("保存值与 Fcitx 运行值不一致，未假报成功：") +
+                      error.what(),
+          "status-warn");
+    }
   } else {
     set_hotkey_status(
         window,
-        "点击任一按键开始录制；会拒绝普通输入键、重复项和已检测到的系统冲突");
+        "点击任一按键开始录制；保存时会写入并读回验证 Fcitx 实际配置");
   }
   for (const HotkeySlot slot :
        {HotkeySlot::transcribe, HotkeySlot::polish, HotkeySlot::edit})
@@ -3348,6 +3502,45 @@ std::string doctor_report() {
     check("旧版 Fcitx profile 条目", references.empty(),
           references.empty() ? "未发现 DefaultIM=vocotype 或 Name=vocotype"
                              : legacy_details.str());
+    const Json runtime = load_config();
+    const Json runtime_hotkeys =
+        runtime.contains("hotkeys") && runtime["hotkeys"].is_object()
+            ? runtime["hotkeys"]
+            : Json::object();
+    const std::string json_ptt = runtime_hotkeys.value(
+        "transcribe", config_value(fcitx_config_path(), "PTTKey", "F9"));
+    const std::string json_polish = runtime_hotkeys.value(
+        "polish", config_value(fcitx_config_path(), "PolishKey", "Shift+F9"));
+    const std::string json_edit = runtime_hotkeys.value(
+        "edit", config_value(fcitx_config_path(), "EditKey", "Control+F9"));
+    const std::string file_ptt =
+        config_value(fcitx_config_path(), "PTTKey", "missing");
+    const std::string file_polish =
+        config_value(fcitx_config_path(), "PolishKey", "missing");
+    const std::string file_edit =
+        config_value(fcitx_config_path(), "EditKey", "missing");
+    const Json live = query_live_fcitx_config();
+    const Json live_values = live.value("success", false) && live.contains("values")
+                                 ? live["values"]
+                                 : Json::object();
+    const std::string live_ptt = live_values.value("PTTKey", "unavailable");
+    const std::string live_polish =
+        live_values.value("PolishKey", "unavailable");
+    const std::string live_edit = live_values.value("EditKey", "unavailable");
+    const bool hotkeys_consistent =
+        live.value("success", false) &&
+        fcitx_hotkey_string(vocotype::desktop::parse_hotkey(json_ptt)) ==
+            live_ptt &&
+        fcitx_hotkey_string(vocotype::desktop::parse_hotkey(json_polish)) ==
+            live_polish &&
+        fcitx_hotkey_string(vocotype::desktop::parse_hotkey(json_edit)) ==
+            live_edit &&
+        live_ptt == file_ptt && live_polish == file_polish &&
+        live_edit == file_edit;
+    check("Fcitx 快捷键三层一致性", hotkeys_consistent,
+          "JSON=" + json_ptt + "/" + json_polish + "/" + json_edit +
+              "；运行态=" + live_ptt + "/" + live_polish + "/" + live_edit +
+              "；文件=" + file_ptt + "/" + file_polish + "/" + file_edit);
   }
   bool python_runtime = false;
   DIR *directory = opendir("/proc");
@@ -3879,8 +4072,6 @@ void activate(GtkApplication *application, gpointer user_data) {
       save, "clicked", G_CALLBACK(+[](SettingsWindow *self) {
         try {
           save_config(*self);
-          if (framework_installed("fcitx5"))
-            (void)restart_fcitx_with_vocotype();
           const bool ready = restart_core_for_settings();
           show_settings_message(
               *self, GTK_MESSAGE_INFO, "设置已保存",
@@ -3940,6 +4131,86 @@ void activate(GtkApplication *application, gpointer user_data) {
 } // namespace
 
 int main(int argc, char **argv) {
+  if (argc >= 2 &&
+      std::string(argv[1]) == "--reconcile-fcitx-hotkeys-from-config") {
+    try {
+      const Json config = load_config();
+      if (!config.contains("hotkeys") || !config["hotkeys"].is_object())
+        throw std::runtime_error("配置中没有 hotkeys 对象");
+      const Json &hotkeys = config["hotkeys"];
+      const Hotkey transcribe = vocotype::desktop::parse_hotkey(
+          hotkeys.value("transcribe", "F9"));
+      const Hotkey polish = vocotype::desktop::parse_hotkey(
+          hotkeys.value("polish", "Shift+F9"));
+      const Hotkey edit = vocotype::desktop::parse_hotkey(
+          hotkeys.value("edit", "Ctrl+F9"));
+      for (const Hotkey &hotkey : {transcribe, polish, edit}) {
+        const std::string error = vocotype::desktop::hotkey_safety_error(hotkey);
+        if (!error.empty())
+          throw std::runtime_error(error);
+      }
+      if (vocotype::desktop::hotkeys_equal(transcribe, polish) ||
+          vocotype::desktop::hotkeys_equal(transcribe, edit) ||
+          vocotype::desktop::hotkeys_equal(polish, edit))
+        throw std::runtime_error("快捷键不能重复");
+      const std::vector<std::pair<std::string, std::string>> values{
+          {"PTTKey", fcitx_hotkey_string(transcribe)},
+          {"PolishKey", fcitx_hotkey_string(polish)},
+          {"EditKey", fcitx_hotkey_string(edit)},
+      };
+      Json result = reconcile_live_fcitx_config(values);
+      if (!result.value("success", false))
+        throw std::runtime_error(result.value("error", "Fcitx 运行配置不可用"));
+      result["values"] = Json{{"PTTKey", values[0].second},
+                               {"PolishKey", values[1].second},
+                               {"EditKey", values[2].second}};
+      std::cout << result.dump() << std::endl;
+      return 0;
+    } catch (const std::exception &error) {
+      std::cout << Json{{"success", false}, {"error", error.what()}}.dump()
+                << std::endl;
+      return 23;
+    }
+  }
+  if (argc >= 2 && std::string(argv[1]) == "--apply-fcitx-hotkeys") {
+    if (argc != 5) {
+      std::cerr << "usage: vocotype-settings --apply-fcitx-hotkeys "
+                   "TRANSCRIBE POLISH EDIT\n";
+      return 2;
+    }
+    try {
+      const Hotkey transcribe = vocotype::desktop::parse_hotkey(argv[2]);
+      const Hotkey polish = vocotype::desktop::parse_hotkey(argv[3]);
+      const Hotkey edit = vocotype::desktop::parse_hotkey(argv[4]);
+      for (const Hotkey &hotkey : {transcribe, polish, edit}) {
+        const std::string error = vocotype::desktop::hotkey_safety_error(hotkey);
+        if (!error.empty())
+          throw std::runtime_error(error);
+      }
+      if (vocotype::desktop::hotkeys_equal(transcribe, polish) ||
+          vocotype::desktop::hotkeys_equal(transcribe, edit) ||
+          vocotype::desktop::hotkeys_equal(polish, edit))
+        throw std::runtime_error("快捷键不能重复");
+      const std::vector<std::pair<std::string, std::string>> values{
+          {"PTTKey", fcitx_hotkey_string(transcribe)},
+          {"PolishKey", fcitx_hotkey_string(polish)},
+          {"EditKey", fcitx_hotkey_string(edit)},
+      };
+      update_fcitx_config(values);
+      std::cout << Json{{"success", true},
+                        {"path", fcitx_config_path().string()},
+                        {"values", Json{{"PTTKey", values[0].second},
+                                        {"PolishKey", values[1].second},
+                                        {"EditKey", values[2].second}}}}
+                       .dump()
+                << std::endl;
+      return 0;
+    } catch (const std::exception &error) {
+      std::cout << Json{{"success", false}, {"error", error.what()}}.dump()
+                << std::endl;
+      return 22;
+    }
+  }
   if (argc >= 2 && std::string(argv[1]) == "--check-hotkey") {
     const std::string requested = argc >= 3 ? argv[2] : "";
     const Hotkey hotkey = vocotype::desktop::parse_hotkey(requested);

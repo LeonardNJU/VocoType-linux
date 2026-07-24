@@ -1,3 +1,13 @@
+vocotype-linux (4.1.1~beta3-1) unstable; urgency=medium
+
+  * Apply recorded shortcuts through the live Fcitx Controller1.SetConfig API.
+  * Verify both running and persisted Fcitx values before reporting success.
+  * Automatically reconcile Beta 2 JSON shortcuts that remained F9 in Fcitx.
+  * Honor XDG_CONFIG_HOME and report JSON/live/file shortcut drift in Doctor.
+  * Add end-to-end persistence and upgrade regression coverage.
+
+ -- Leonard Li <leo@lsamc.website>  Fri, 24 Jul 2026 17:10:00 +0000
+
 vocotype-linux (4.1.1~beta2-1) unstable; urgency=medium
 
   * Preserve the active Fcitx push-to-talk key until its release event, fixing

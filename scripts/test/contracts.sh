@@ -465,7 +465,8 @@ done
 for path in \
   src/desktop/include/vocotype/desktop/hotkey.hpp \
   src/desktop/src/hotkey.cpp \
-  scripts/test/hotkey-settings.sh; do
+  scripts/test/hotkey-settings.sh \
+  scripts/test/fake-fcitx-controller.sh; do
   test -f "$path" || fail "missing recorded-shortcut component: $path"
 done
 for token in \
@@ -509,6 +510,29 @@ for token in 'fcitx_addon_is_installed' 'XDG_DATA_HOME' 'XDG_DATA_DIRS'; do
   rg -Fq "$token" src/desktop/src/settings_main.cpp || \
     fail "stale Fcitx addon shortcut filter is missing: $token"
 done
+for token in \
+  'fcitx://config/addon/vocotype' \
+  '"SetConfig", "sv"' \
+  'query_live_fcitx_config()' \
+  'reconcile_live_fcitx_config' \
+  '--reconcile-fcitx-hotkeys-from-config' \
+  'verify_fcitx_config_values' \
+  'user_config_root()' \
+  '已自动修复旧版本未应用的快捷键' \
+  'Fcitx 快捷键三层一致性'; do
+  rg -Fq -- "$token" src/desktop/src/settings_main.cpp || \
+    fail "live Fcitx hotkey persistence contract is missing: $token"
+done
+python3 - <<'PY_FCITX_SAVE' || fail "settings still restarts Fcitx after writing shortcut files"
+from pathlib import Path
+source = Path("src/desktop/src/settings_main.cpp").read_text()
+old_sequence = """save_config(*self);
+          if (framework_installed("fcitx5"))
+            (void)restart_fcitx_with_vocotype();"""
+assert old_sequence not in source
+assert '"SetConfig", "sv"' in source
+assert "verify_fcitx_config_values(query_live_fcitx_config(), values);" in source
+PY_FCITX_SAVE
 for token in 'hotkeys.value("transcribe"' 'hotkeys.value("polish"' \
              'hotkeys.value("edit"' 'hotkey_mask'; do
   rg -Fq "$token" src/desktop/src/ibus_main.cpp || \

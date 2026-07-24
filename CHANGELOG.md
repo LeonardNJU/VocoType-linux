@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [4.1.1-beta.3] - 2026-07-24
+
+### Fixed
+
+- Fixed recorded Fcitx shortcuts that appeared saved in the settings UI but remained `F9` in the running addon and `vocotype.conf`. The settings center now updates the live addon through Fcitx `Controller1.SetConfig` instead of editing the file and immediately restarting Fcitx, which allowed the old in-memory configuration to overwrite the new value.
+- Saving now reads back and verifies both the running Fcitx configuration and the persisted configuration file before reporting success. Installed Fcitx integrations no longer fall back to an unverified direct file write.
+- Existing Beta 2 installations are repaired automatically: when the saved VoCoType JSON contains `Alt_R` or another recorded shortcut but Fcitx still reports the old value, opening the settings center reconciles the live addon and file through the same verified path.
+- Fcitx configuration and conflict scanning now consistently honor `XDG_CONFIG_HOME` instead of assuming `~/.config`.
+
+### Added
+
+- Added an end-to-end fake Fcitx controller test covering settings application, live readback, disk persistence, restart-free behavior, Beta 2 migration, and idempotent second startup.
+- Doctor now reports the shortcut values from VoCoType JSON, the running Fcitx addon, and `vocotype.conf` as one consistency check, so future reports expose configuration drift immediately.
+
 ## [4.1.1-beta.2] - 2026-07-24
 
 ### Fixed
