@@ -20,7 +20,7 @@ void handle_signal(int) {
 }
 
 struct Options {
-  std::filesystem::path config_path = "~/.config/vocotype/fcitx5-backend.json";
+  std::filesystem::path config_path = "~/.config/vocotype/config.json";
   std::string socket_path;
   bool require_config = false;
   bool enable_final_asr = false;
@@ -61,7 +61,20 @@ Options parse_options(int argc, char **argv) {
 
 int main(int argc, char **argv) {
   try {
-    const Options options = parse_options(argc, argv);
+    Options options = parse_options(argc, argv);
+    if (!options.require_config &&
+        !std::filesystem::is_regular_file(
+            vocotype::core::expand_user_path(options.config_path))) {
+      for (const std::filesystem::path legacy :
+           {std::filesystem::path("~/.config/vocotype/fcitx5-backend.json"),
+            std::filesystem::path("~/.config/vocotype/ibus.json")}) {
+        if (std::filesystem::is_regular_file(
+                vocotype::core::expand_user_path(legacy))) {
+          options.config_path = legacy;
+          break;
+        }
+      }
+    }
     vocotype::core::AppConfig config = vocotype::core::load_config(
         options.config_path, !options.require_config);
     if (!options.socket_path.empty()) {

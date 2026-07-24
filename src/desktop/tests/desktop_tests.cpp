@@ -5,13 +5,45 @@
 #include "vocotype/desktop/ipc.hpp"
 #include "vocotype/desktop/wav.hpp"
 #include <cassert>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <string>
 #include <sys/stat.h>
 #include <unistd.h>
 int main() {
   using namespace vocotype::desktop;
+  const auto require = [](bool condition, const char *message) {
+    if (!condition) {
+      std::cerr << "FAIL: " << message << "\n";
+      std::exit(1);
+    }
+  };
+  int stderr_pipe[2]{};
+  require(pipe(stderr_pipe) == 0, "create stderr capture pipe");
+  const int saved_stderr = dup(STDERR_FILENO);
+  require(saved_stderr >= 0, "duplicate stderr");
+  std::fflush(stderr);
+  require(dup2(stderr_pipe[1], STDERR_FILENO) >= 0, "capture stderr");
+  close(stderr_pipe[1]);
+  (void)list_audio_devices();
+  std::fflush(stderr);
+  require(dup2(saved_stderr, STDERR_FILENO) >= 0, "restore stderr");
+  close(saved_stderr);
+  std::string audio_probe_stderr;
+  char audio_probe_buffer[4096];
+  ssize_t audio_probe_bytes = 0;
+  while ((audio_probe_bytes = read(stderr_pipe[0], audio_probe_buffer,
+                                   sizeof(audio_probe_buffer))) > 0) {
+    audio_probe_stderr.append(audio_probe_buffer,
+                              static_cast<std::size_t>(audio_probe_bytes));
+  }
+  close(stderr_pipe[0]);
+  require(audio_probe_stderr.empty(),
+          "audio enumeration must not emit ALSA/JACK probe noise");
+
   const std::vector<std::int16_t> source{0, 1000, 2000, 3000};
   const auto doubled = resample_linear(source, 4, 8);
   assert(doubled.size() == 8);
@@ -174,5 +206,61 @@ protect:
   assert(stat(profile.c_str(), &migrated_stat) == 0);
   assert((migrated_stat.st_mode & 0777) == 0600);
   std::filesystem::remove_all(test_root);
+
+  const auto layout_root =
+      std::filesystem::temp_directory_path() /
+      ("vocotype-config-layout-test-" + std::to_string(getpid()));
+  std::filesystem::remove_all(layout_root);
+  std::filesystem::create_directories(layout_root / "vocotype");
+  const char *old_xdg_raw = std::getenv("XDG_CONFIG_HOME");
+  const char *old_custom_raw = std::getenv("VOCOTYPE_CONFIG");
+  const std::optional<std::string> old_xdg =
+      old_xdg_raw ? std::optional<std::string>(old_xdg_raw) : std::nullopt;
+  const std::optional<std::string> old_custom =
+      old_custom_raw ? std::optional<std::string>(old_custom_raw)
+                     : std::nullopt;
+  setenv("XDG_CONFIG_HOME", layout_root.c_str(), 1);
+  unsetenv("VOCOTYPE_CONFIG");
+  write_json_file_atomic(legacy_runtime_config_path(),
+                         Json{{"audio", Json{{"sample_rate", 48000}}},
+                              {"slm", Json{{"enabled", true}}},
+                              {"hotkeys", Json{{"transcribe", "Alt_R"},
+                                               {"polish", "Shift+F8"},
+                                               {"edit", "Ctrl+F8"}}}});
+  const auto layout_migration = migrate_config_layout();
+  require(layout_migration.changed && layout_migration.shared_created &&
+              layout_migration.ibus_normalized &&
+              layout_migration.legacy_archived,
+          "legacy runtime config migrates into role-specific files");
+  const Json shared_config = read_json_file(shared_config_path(), false);
+  require(!shared_config.contains("hotkeys"),
+          "shared config must not contain runtime hotkeys");
+  require(shared_config["audio"].value("sample_rate", 0) == 48000,
+          "shared config preserves audio settings");
+  const Json ibus_config = read_json_file(ibus_config_path(), false);
+  require(ibus_config.size() == 1 && ibus_config.contains("hotkeys") &&
+              ibus_config["hotkeys"].size() == 3 &&
+              ibus_config["hotkeys"].value("transcribe", "") == "Alt_R" &&
+              ibus_config["hotkeys"].value("polish", "") == "Shift+F8" &&
+              ibus_config["hotkeys"].value("edit", "") == "Ctrl+F8",
+          "IBus config contains exactly three migrated IBus hotkeys");
+  require(!std::filesystem::exists(legacy_runtime_config_path()) &&
+              std::filesystem::is_regular_file(
+                  legacy_runtime_config_path().string() + ".migrated"),
+          "legacy Fcitx backend JSON is archived after migration");
+  require(runtime_config_path() == shared_config_path(),
+          "runtime config resolves to the shared config");
+  require(!migrate_config_layout().changed,
+          "config layout migration is idempotent");
+  if (old_xdg)
+    setenv("XDG_CONFIG_HOME", old_xdg->c_str(), 1);
+  else
+    unsetenv("XDG_CONFIG_HOME");
+  if (old_custom)
+    setenv("VOCOTYPE_CONFIG", old_custom->c_str(), 1);
+  else
+    unsetenv("VOCOTYPE_CONFIG");
+  std::filesystem::remove_all(layout_root);
+
   std::cout << "desktop tests passed\n";
 }

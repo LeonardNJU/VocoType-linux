@@ -20,6 +20,10 @@ struct AudioOutputDevice {
   int default_sample_rate = 48000;
   bool is_default = false;
 };
+struct AudioDeviceInventory {
+  std::vector<AudioDevice> inputs;
+  std::vector<AudioOutputDevice> outputs;
+};
 class PortAudioRuntime {
 public:
   PortAudioRuntime();
@@ -27,6 +31,7 @@ public:
   PortAudioRuntime(const PortAudioRuntime &) = delete;
   PortAudioRuntime &operator=(const PortAudioRuntime &) = delete;
 };
+AudioDeviceInventory list_audio_devices();
 std::vector<AudioDevice> list_input_devices();
 std::vector<AudioOutputDevice> list_output_devices();
 AudioDevice resolve_input_device(const AudioConfig &config);

@@ -15,13 +15,15 @@ No unreleased changes.
 
 - Fixed recorded Fcitx shortcuts that appeared saved in the settings UI but remained `F9` in the running addon and `vocotype.conf`. The settings center now updates the live addon through Fcitx `Controller1.SetConfig` instead of editing the file and immediately restarting Fcitx, which allowed the old in-memory configuration to overwrite the new value.
 - Saving now reads back and verifies both the running Fcitx configuration and the persisted configuration file before reporting success. Installed Fcitx integrations no longer fall back to an unverified direct file write.
-- Existing Beta 2 installations are repaired automatically: when the saved VoCoType JSON contains `Alt_R` or another recorded shortcut but Fcitx still reports the old value, opening the settings center reconciles the live addon and file through the same verified path.
+- Removed the duplicate Fcitx shortcut copy from VoCoType JSON. `config.json` now owns shared audio/ASR/AI/UI settings only, `ibus.json` owns IBus shortcuts only, and `vocotype.conf` is the sole persistent source for Fcitx shortcuts and Fcitx-specific options.
+- Added an idempotent legacy-layout migration: shared fields move from `fcitx5-backend.json` into `config.json`, IBus shortcuts move into `ibus.json`, and the legacy file is archived. Existing `vocotype.conf` always wins; legacy JSON seeds Fcitx only when no persistent Fcitx config exists.
 - Fcitx configuration and conflict scanning now consistently honor `XDG_CONFIG_HOME` instead of assuming `~/.config`.
+- Suppressed harmless ALSA/JACK backend-probe diagnostics during audio-device enumeration and enumerate input/output devices in one PortAudio session, so launching the settings center no longer prints repeated error-looking noise to the terminal.
 
 ### Added
 
-- Added an end-to-end fake Fcitx controller test covering settings application, live readback, disk persistence, restart-free behavior, Beta 2 migration, and idempotent second startup.
-- Doctor now reports the shortcut values from VoCoType JSON, the running Fcitx addon, and `vocotype.conf` as one consistency check, so future reports expose configuration drift immediately.
+- Added end-to-end fake Fcitx controller coverage for settings application, live readback, disk persistence, restart-free behavior, role-specific layout migration, existing-Fcitx precedence, missing-Fcitx initialization, and idempotent second startup.
+- Doctor now reports shared-config responsibility, IBus shortcut configuration, and Fcitx persistent/live synchronization as separate checks instead of presenting three copies as peer configuration sources.
 
 ## [4.1.1-beta.2] - 2026-07-24
 

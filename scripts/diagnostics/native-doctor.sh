@@ -9,7 +9,7 @@ check "native recorder ELF" find_exec vocotype-audio-recorder
 check "native settings ELF" find_exec vocotype-settings
 check "native model manager ELF" find_exec vocotype-model-manager
 check "core socket" test -S "$socket"
-check "runtime config" test -f "$HOME/.config/vocotype/fcitx5-backend.json"
+check "shared config" test -f "${XDG_CONFIG_HOME:-$HOME/.config}/vocotype/config.json"
 check "terms file" test -f "$HOME/.config/vocotype/terms.yaml"
 if pgrep -af 'python.*(vocotype|fcitx5_server|ibus\.main|settings_center)' >/dev/null; then
   echo "[FAIL] zero Python client processes"; ((fail+=1))

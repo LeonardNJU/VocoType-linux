@@ -132,7 +132,7 @@ for token in \
   'gtk_header_bar_new' 'gtk_stack_sidebar_new' '1120, 760' \
   '概览与安装' '通用设置' 'Playground' '用户词典' 'AI 功能' \
   '诊断' '教程' '反馈' \
-  'list_output_devices' 'play_pcm16' 'draw_waveform' 'edit_audio' \
+  'list_audio_devices' 'play_pcm16' 'draw_waveform' 'edit_audio' \
   'query_latest_release' 'create_support_bundle' 'submit_feedback' \
   'uninstall_integration' 'verify_native_payload' \
   'discover_rime_schemas' 'gtk_combo_box_text_new' \
@@ -140,6 +140,16 @@ for token in \
   rg -Fq "$token" "$settings" "$ui" || \
     fail "native settings capability missing: $token"
 done
+python3 - <<'PY_AUDIO_ENUM' || fail "settings reverted to duplicate PortAudio enumeration"
+from pathlib import Path
+source = Path("src/desktop/src/settings_main.cpp").read_text()
+body = source.split("void refresh_devices(SettingsWindow &window) {", 1)[1].split(
+    "bool terminate_owned_core()", 1
+)[0]
+assert body.count("list_audio_devices(") == 1
+assert "list_input_devices(" not in body
+assert "list_output_devices(" not in body
+PY_AUDIO_ENUM
 ! rg -q 'gtk_notebook_new|GtkEntry \*rime_schema' "$settings" || \
   fail "legacy notebook or free-text Rime schema returned"
 rg -Fq 'gtk_widget_set_visible(window.rime_resource_row, ibus)' "$settings" || \
@@ -486,7 +496,7 @@ for token in \
   'XGrabKey' \
   'kglobalshortcutsrc' \
   'org.gnome.desktop.wm.keybindings' \
-  'config["hotkeys"]'; do
+  'write_ibus_hotkeys' 'write_shared_config'; do
   rg -Fq "$token" src/desktop/src/settings_main.cpp || \
     fail "settings shortcut recorder/conflict contract is missing: $token"
 done
@@ -518,11 +528,32 @@ for token in \
   '--reconcile-fcitx-hotkeys-from-config' \
   'verify_fcitx_config_values' \
   'user_config_root()' \
-  '已自动修复旧版本未应用的快捷键' \
-  'Fcitx 快捷键三层一致性'; do
+  'Fcitx 配置与运行实例同步' \
+  '共享配置职责' \
+  'IBus 快捷键配置'; do
   rg -Fq -- "$token" src/desktop/src/settings_main.cpp || \
     fail "live Fcitx hotkey persistence contract is missing: $token"
 done
+for token in 'shared_config_path' 'ibus_config_path' \
+             'legacy_runtime_config_path' 'migrate_config_layout' \
+             'write_shared_config' 'write_ibus_hotkeys'; do
+  rg -Fq "$token" src/desktop/include/vocotype/desktop/config.hpp \
+    src/desktop/src/config.cpp || \
+    fail "role-specific config layout is missing: $token"
+done
+! rg -Fq 'window.config["hotkeys"]' src/desktop/src/settings_main.cpp || \
+  fail "shared settings still own runtime hotkeys"
+! rg -Fq 'write_json_file_atomic(directory / "fcitx5-backend.json"' \
+  src/desktop/src/settings_main.cpp || \
+  fail "settings still writes the legacy Fcitx backend JSON"
+rg -Fq 'value.erase("hotkeys")' src/desktop/src/config.cpp || \
+  fail "shared config writer does not enforce its no-hotkeys responsibility"
+rg -Fq '{"transcribe", hotkeys.value("transcribe", "F9")}' \
+  src/desktop/src/config.cpp || \
+  fail "IBus config writer does not normalize to the three supported shortcuts"
+rg -Fq '已有 `vocotype.conf` 始终优先' docs/guides/shortcuts.md || \
+  fail "shortcut documentation does not define Fcitx source precedence"
+
 python3 - <<'PY_FCITX_SAVE' || fail "settings still restarts Fcitx after writing shortcut files"
 from pathlib import Path
 source = Path("src/desktop/src/settings_main.cpp").read_text()

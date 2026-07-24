@@ -160,8 +160,9 @@ Snapshot capture_snapshot(VocotypeEngine *engine) {
 
 void load_engine_config(EngineState &state) {
   try {
-    const Json config = vocotype::desktop::read_json_file(
-        vocotype::desktop::runtime_config_path(), true);
+    (void)vocotype::desktop::migrate_config_layout();
+    const Json config = vocotype::desktop::read_shared_config(true);
+    const Json ibus_config = vocotype::desktop::read_ibus_config(true);
     if (config.contains("audio") && config["audio"].is_object())
       state.min_recording_ms =
           std::max(0, config["audio"].value("min_recording_ms", 1000));
@@ -171,8 +172,13 @@ void load_engine_config(EngineState &state) {
       state.polish_timeout_ms = std::max(1000, slm.value("timeout_ms", 20000));
       state.enable_thinking = slm.value("enable_thinking", false);
     }
-    if (config.contains("hotkeys") && config["hotkeys"].is_object()) {
-      const auto &hotkeys = config["hotkeys"];
+    const Json hotkeys =
+        ibus_config.contains("hotkeys") && ibus_config["hotkeys"].is_object()
+            ? ibus_config["hotkeys"]
+            : (config.contains("hotkeys") && config["hotkeys"].is_object()
+                   ? config["hotkeys"]
+                   : Json::object());
+    if (!hotkeys.empty()) {
       state.transcribe_hotkey = vocotype::desktop::parse_hotkey(
           hotkeys.value("transcribe", "F9"), kDefaultTranscribeHotkey);
       state.polish_hotkey = vocotype::desktop::parse_hotkey(

@@ -770,8 +770,8 @@ GtkWidget *row(const char *caption, GtkWidget *control) {
 }
 
 Json load_config() {
-  Json config = vocotype::desktop::read_json_file(
-      vocotype::desktop::runtime_config_path(), true);
+  (void)vocotype::desktop::migrate_config_layout();
+  Json config = vocotype::desktop::read_shared_config(true);
   if (!config.is_object())
     config = Json::object();
   if (!config.contains("audio") || !config["audio"].is_object())
@@ -892,12 +892,6 @@ void save_config(SettingsWindow &window) {
       throw std::runtime_error(std::string(hotkey_slot_name(slot)) +
                                "快捷键无效：" + error);
   }
-  auto &hotkeys = window.config["hotkeys"];
-  hotkeys["transcribe"] =
-      vocotype::desktop::hotkey_to_string(window.transcribe_hotkey);
-  hotkeys["polish"] = vocotype::desktop::hotkey_to_string(window.polish_hotkey);
-  hotkeys["edit"] = vocotype::desktop::hotkey_to_string(window.edit_hotkey);
-
   auto &audio = window.config["audio"];
   const int active =
       gtk_combo_box_get_active(GTK_COMBO_BOX(window.audio_device));
@@ -955,11 +949,15 @@ void save_config(SettingsWindow &window) {
           ? "fcitx5"
           : "ibus";
 
-  const auto directory = vocotype::desktop::config_dir();
-  vocotype::desktop::write_json_file_atomic(directory / "fcitx5-backend.json",
-                                            window.config);
-  vocotype::desktop::write_json_file_atomic(directory / "ibus.json",
-                                            window.config);
+  const Json runtime_hotkeys{
+      {"transcribe",
+       vocotype::desktop::hotkey_to_string(window.transcribe_hotkey)},
+      {"polish", vocotype::desktop::hotkey_to_string(window.polish_hotkey)},
+      {"edit", vocotype::desktop::hotkey_to_string(window.edit_hotkey)},
+  };
+  window.config.erase("hotkeys");
+  vocotype::desktop::write_shared_config(window.config);
+  vocotype::desktop::write_ibus_hotkeys(runtime_hotkeys);
 
   update_fcitx_config({
       {"PTTKey", fcitx_hotkey_string(window.transcribe_hotkey)},
@@ -988,8 +986,9 @@ void refresh_devices(SettingsWindow &window) {
   if (window.audio_output)
     gtk_combo_box_text_remove_all(window.audio_output);
 
-  window.devices = vocotype::desktop::list_input_devices();
-  window.output_devices = vocotype::desktop::list_output_devices();
+  auto inventory = vocotype::desktop::list_audio_devices();
+  window.devices = std::move(inventory.inputs);
+  window.output_devices = std::move(inventory.outputs);
   const auto configured = vocotype::desktop::load_audio_config();
   int selected = -1;
   for (std::size_t index = 0; index < window.devices.size(); ++index) {
@@ -2006,22 +2005,32 @@ void populate_from_config(SettingsWindow &window) {
   const Hotkey default_transcribe = vocotype::desktop::parse_hotkey("F9");
   const Hotkey default_polish = vocotype::desktop::parse_hotkey("Shift+F9");
   const Hotkey default_edit = vocotype::desktop::parse_hotkey("Ctrl+F9");
-  const Json hotkeys =
-      window.config.contains("hotkeys") && window.config["hotkeys"].is_object()
-          ? window.config["hotkeys"]
+  const std::string framework =
+      window.config["ui"].value("lifecycle_framework", "fcitx5");
+  const Json ibus_config = vocotype::desktop::read_ibus_config(true);
+  const Json ibus_hotkeys =
+      ibus_config.contains("hotkeys") && ibus_config["hotkeys"].is_object()
+          ? ibus_config["hotkeys"]
           : Json::object();
-  window.transcribe_hotkey = vocotype::desktop::parse_hotkey(
-      hotkeys.value("transcribe",
-                    config_value(fcitx_config_path(), "PTTKey", "F9")),
-      default_transcribe);
-  window.polish_hotkey = vocotype::desktop::parse_hotkey(
-      hotkeys.value("polish",
-                    config_value(fcitx_config_path(), "PolishKey", "Shift+F9")),
-      default_polish);
-  window.edit_hotkey = vocotype::desktop::parse_hotkey(
-      hotkeys.value("edit",
-                    config_value(fcitx_config_path(), "EditKey", "Control+F9")),
-      default_edit);
+  const bool has_fcitx_config =
+      std::filesystem::is_regular_file(fcitx_config_path());
+
+  auto configured_hotkey = [&](const char *fcitx_key, const char *ibus_key,
+                               const char *fallback,
+                               const Hotkey &default_hotkey) {
+    const std::string value =
+        framework == "fcitx5" && has_fcitx_config
+            ? config_value(fcitx_config_path(), fcitx_key, fallback)
+            : ibus_hotkeys.value(ibus_key, fallback);
+    return vocotype::desktop::parse_hotkey(value, default_hotkey);
+  };
+  window.transcribe_hotkey =
+      configured_hotkey("PTTKey", "transcribe", "F9", default_transcribe);
+  window.polish_hotkey =
+      configured_hotkey("PolishKey", "polish", "Shift+F9", default_polish);
+  window.edit_hotkey =
+      configured_hotkey("EditKey", "edit", "Control+F9", default_edit);
+
   bool reset_hotkeys = false;
   for (const Hotkey &hotkey :
        {window.transcribe_hotkey, window.polish_hotkey, window.edit_hotkey}) {
@@ -2039,47 +2048,33 @@ void populate_from_config(SettingsWindow &window) {
     window.transcribe_hotkey = default_transcribe;
     window.polish_hotkey = default_polish;
     window.edit_hotkey = default_edit;
-    set_hotkey_status(window, "检测到无效或重复的旧快捷键配置，已恢复默认值",
+    set_hotkey_status(window, "检测到无效或重复的快捷键配置，已恢复默认值",
                       "status-warn");
-  } else if (!hotkeys.empty()) {
+  } else if (framework == "fcitx5") {
     const std::vector<std::pair<std::string, std::string>> desired{
         {"PTTKey", fcitx_hotkey_string(window.transcribe_hotkey)},
         {"PolishKey", fcitx_hotkey_string(window.polish_hotkey)},
         {"EditKey", fcitx_hotkey_string(window.edit_hotkey)},
     };
     try {
-      const Json reconciliation = reconcile_live_fcitx_config(desired);
-      if (reconciliation.value("success", false)) {
-        set_hotkey_status(
-            window,
-            reconciliation.value("changed", false)
-                ? "✓ 已自动修复旧版本未应用的快捷键，并验证运行配置与文件一致"
-                : "✓ 快捷键已与 Fcitx 运行配置和磁盘配置核对一致");
+      Json reconciliation;
+      if (has_fcitx_config) {
+        reconciliation = reconcile_live_fcitx_config(desired);
       } else {
-        set_hotkey_status(
-            window,
-            "点击任一按键开始录制；保存时会写入并读回验证 Fcitx 实际配置");
+        update_fcitx_config(desired);
+        reconciliation = {{"success", true}, {"changed", true}};
       }
+      set_hotkey_status(window, reconciliation.value("changed", false)
+                                    ? "✓ 已从 Fcitx 持久配置更新运行实例"
+                                    : "✓ Fcitx 持久配置与运行实例已同步");
     } catch (const std::exception &error) {
-      const Json live = query_live_fcitx_config();
-      if (live.value("success", false) && live.contains("values")) {
-        const Json &actual = live["values"];
-        window.transcribe_hotkey = vocotype::desktop::parse_hotkey(
-            actual.value("PTTKey", "F9"), default_transcribe);
-        window.polish_hotkey = vocotype::desktop::parse_hotkey(
-            actual.value("PolishKey", "Shift+F9"), default_polish);
-        window.edit_hotkey = vocotype::desktop::parse_hotkey(
-            actual.value("EditKey", "Control+F9"), default_edit);
-      }
-      set_hotkey_status(
-          window, std::string("保存值与 Fcitx 运行值不一致，未假报成功：") +
-                      error.what(),
-          "status-warn");
+      set_hotkey_status(window,
+                        std::string("Fcitx 运行实例未能同步：") + error.what(),
+                        "status-warn");
     }
   } else {
     set_hotkey_status(
-        window,
-        "点击任一按键开始录制；保存时会写入并读回验证 Fcitx 实际配置");
+        window, "✓ 已从 IBus 专属配置加载快捷键；保存时会同步到两个运行时");
   }
   for (const HotkeySlot slot :
        {HotkeySlot::transcribe, HotkeySlot::polish, HotkeySlot::edit})
@@ -2140,8 +2135,6 @@ void populate_from_config(SettingsWindow &window) {
       yaml_scalar_value(vocotype::desktop::config_dir() / "rime/user.yaml",
                         "previously_selected_schema", "luna_pinyin"));
 
-  const std::string framework =
-      window.config["ui"].value("lifecycle_framework", "fcitx5");
   if (framework == "ibus")
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(window.ibus_framework_radio),
                                  TRUE);
@@ -3502,17 +3495,26 @@ std::string doctor_report() {
     check("旧版 Fcitx profile 条目", references.empty(),
           references.empty() ? "未发现 DefaultIM=vocotype 或 Name=vocotype"
                              : legacy_details.str());
-    const Json runtime = load_config();
-    const Json runtime_hotkeys =
-        runtime.contains("hotkeys") && runtime["hotkeys"].is_object()
-            ? runtime["hotkeys"]
+    const Json shared = load_config();
+    const bool shared_clean = !shared.contains("hotkeys") &&
+                              std::filesystem::is_regular_file(
+                                  vocotype::desktop::shared_config_path());
+    check("共享配置职责", shared_clean,
+          vocotype::desktop::shared_config_path().string() +
+              (shared.contains("hotkeys") ? "（错误包含运行时快捷键）"
+                                          : "（不含运行时快捷键）"));
+
+    const Json ibus = vocotype::desktop::read_ibus_config(true);
+    const Json ibus_hotkeys =
+        ibus.contains("hotkeys") && ibus["hotkeys"].is_object()
+            ? ibus["hotkeys"]
             : Json::object();
-    const std::string json_ptt = runtime_hotkeys.value(
-        "transcribe", config_value(fcitx_config_path(), "PTTKey", "F9"));
-    const std::string json_polish = runtime_hotkeys.value(
-        "polish", config_value(fcitx_config_path(), "PolishKey", "Shift+F9"));
-    const std::string json_edit = runtime_hotkeys.value(
-        "edit", config_value(fcitx_config_path(), "EditKey", "Control+F9"));
+    const std::string ibus_ptt = ibus_hotkeys.value("transcribe", "missing");
+    const std::string ibus_polish = ibus_hotkeys.value("polish", "missing");
+    const std::string ibus_edit = ibus_hotkeys.value("edit", "missing");
+    check("IBus 快捷键配置", !ibus_hotkeys.empty(),
+          "IBus=" + ibus_ptt + "/" + ibus_polish + "/" + ibus_edit);
+
     const std::string file_ptt =
         config_value(fcitx_config_path(), "PTTKey", "missing");
     const std::string file_polish =
@@ -3528,19 +3530,11 @@ std::string doctor_report() {
         live_values.value("PolishKey", "unavailable");
     const std::string live_edit = live_values.value("EditKey", "unavailable");
     const bool hotkeys_consistent =
-        live.value("success", false) &&
-        fcitx_hotkey_string(vocotype::desktop::parse_hotkey(json_ptt)) ==
-            live_ptt &&
-        fcitx_hotkey_string(vocotype::desktop::parse_hotkey(json_polish)) ==
-            live_polish &&
-        fcitx_hotkey_string(vocotype::desktop::parse_hotkey(json_edit)) ==
-            live_edit &&
-        live_ptt == file_ptt && live_polish == file_polish &&
-        live_edit == file_edit;
-    check("Fcitx 快捷键三层一致性", hotkeys_consistent,
-          "JSON=" + json_ptt + "/" + json_polish + "/" + json_edit +
-              "；运行态=" + live_ptt + "/" + live_polish + "/" + live_edit +
-              "；文件=" + file_ptt + "/" + file_polish + "/" + file_edit);
+        live.value("success", false) && live_ptt == file_ptt &&
+        live_polish == file_polish && live_edit == file_edit;
+    check("Fcitx 配置与运行实例同步", hotkeys_consistent,
+          "持久配置=" + file_ptt + "/" + file_polish + "/" + file_edit +
+              "；运行实例=" + live_ptt + "/" + live_polish + "/" + live_edit);
   }
   bool python_runtime = false;
   DIR *directory = opendir("/proc");
@@ -4134,16 +4128,25 @@ int main(int argc, char **argv) {
   if (argc >= 2 &&
       std::string(argv[1]) == "--reconcile-fcitx-hotkeys-from-config") {
     try {
-      const Json config = load_config();
-      if (!config.contains("hotkeys") || !config["hotkeys"].is_object())
-        throw std::runtime_error("配置中没有 hotkeys 对象");
-      const Json &hotkeys = config["hotkeys"];
+      const auto migration = vocotype::desktop::migrate_config_layout();
+      const Json ibus = vocotype::desktop::read_ibus_config(true);
+      const Json ibus_hotkeys =
+          ibus.contains("hotkeys") && ibus["hotkeys"].is_object()
+              ? ibus["hotkeys"]
+              : Json::object();
+      const bool has_persisted =
+          std::filesystem::is_regular_file(fcitx_config_path());
       const Hotkey transcribe = vocotype::desktop::parse_hotkey(
-          hotkeys.value("transcribe", "F9"));
+          has_persisted ? config_value(fcitx_config_path(), "PTTKey", "F9")
+                        : ibus_hotkeys.value("transcribe", "F9"));
       const Hotkey polish = vocotype::desktop::parse_hotkey(
-          hotkeys.value("polish", "Shift+F9"));
+          has_persisted
+              ? config_value(fcitx_config_path(), "PolishKey", "Shift+F9")
+              : ibus_hotkeys.value("polish", "Shift+F9"));
       const Hotkey edit = vocotype::desktop::parse_hotkey(
-          hotkeys.value("edit", "Ctrl+F9"));
+          has_persisted
+              ? config_value(fcitx_config_path(), "EditKey", "Control+F9")
+              : ibus_hotkeys.value("edit", "Ctrl+F9"));
       for (const Hotkey &hotkey : {transcribe, polish, edit}) {
         const std::string error = vocotype::desktop::hotkey_safety_error(hotkey);
         if (!error.empty())
@@ -4158,9 +4161,17 @@ int main(int argc, char **argv) {
           {"PolishKey", fcitx_hotkey_string(polish)},
           {"EditKey", fcitx_hotkey_string(edit)},
       };
-      Json result = reconcile_live_fcitx_config(values);
+      Json result;
+      if (has_persisted) {
+        result = reconcile_live_fcitx_config(values);
+      } else {
+        update_fcitx_config(values);
+        result = {{"success", true}, {"changed", true}};
+      }
       if (!result.value("success", false))
         throw std::runtime_error(result.value("error", "Fcitx 运行配置不可用"));
+      result["source"] = fcitx_config_path().string();
+      result["layout_migrated"] = migration.changed;
       result["values"] = Json{{"PTTKey", values[0].second},
                                {"PolishKey", values[1].second},
                                {"EditKey", values[2].second}};

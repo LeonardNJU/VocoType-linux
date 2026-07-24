@@ -244,10 +244,12 @@ build_source_runtime() {
 }
 
 write_default_config() {
-  local path="$CONFIG_DIR/fcitx5-backend.json"
-  [[ -f "$path" ]] && return 0
+  local shared="$CONFIG_DIR/config.json"
+  local legacy="$CONFIG_DIR/fcitx5-backend.json"
+  local ibus="$CONFIG_DIR/ibus.json"
   umask 077
-  cat > "$path" <<'JSON'
+  if [[ ! -f "$shared" && ! -f "$legacy" ]]; then
+    cat > "$shared" <<'JSON'
 {
   "audio": {"sample_rate": 16000, "block_ms": 20, "device": null, "min_recording_ms": 1000},
   "asr": {"native_enabled": true, "use_vad": false, "use_punc": true, "itn": true},
@@ -256,7 +258,20 @@ write_default_config() {
   "slm": {"enabled": false, "endpoint": "http://127.0.0.1:18080/v1/chat/completions", "model": "Qwen/Qwen3.5-0.8B", "timeout_ms": 20000, "remote_stream": true, "min_chars": 8, "max_tokens": 128, "enable_thinking": false, "edit_enabled": true, "edit_max_tokens": 1024}
 }
 JSON
+  fi
+  if [[ ! -f "$ibus" ]]; then
+    cat > "$ibus" <<'JSON'
+{
+  "hotkeys": {
+    "transcribe": "F9",
+    "polish": "Shift+F9",
+    "edit": "Ctrl+F9"
+  }
 }
+JSON
+  fi
+}
+
 
 write_terms_template() {
   local path="$CONFIG_DIR/terms.yaml"

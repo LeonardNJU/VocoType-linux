@@ -12,8 +12,17 @@ struct AudioConfig {
   int sample_rate = 16000;
   int block_ms = 20;
 };
+struct ConfigLayoutMigration {
+  bool changed = false;
+  bool shared_created = false;
+  bool ibus_normalized = false;
+  bool legacy_archived = false;
+};
 std::filesystem::path home_path();
 std::filesystem::path config_dir();
+std::filesystem::path shared_config_path();
+std::filesystem::path ibus_config_path();
+std::filesystem::path legacy_runtime_config_path();
 std::filesystem::path runtime_config_path();
 std::filesystem::path audio_config_path();
 std::filesystem::path terms_path();
@@ -21,6 +30,11 @@ std::filesystem::path expand_user(const std::filesystem::path &path);
 Json read_json_file(const std::filesystem::path &path, bool missing_ok = true);
 void write_json_file_atomic(const std::filesystem::path &path,
                             const Json &value);
+ConfigLayoutMigration migrate_config_layout();
+Json read_shared_config(bool missing_ok = true);
+Json read_ibus_config(bool missing_ok = true);
+void write_shared_config(Json value);
+void write_ibus_hotkeys(const Json &hotkeys);
 AudioConfig load_audio_config(const std::filesystem::path &path = {});
 std::string backend_socket_path();
 std::string

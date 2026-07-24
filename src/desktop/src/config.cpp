@@ -4,6 +4,7 @@
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+#include <system_error>
 #include <unistd.h>
 namespace vocotype::desktop {
 namespace {
@@ -25,14 +26,34 @@ std::filesystem::path config_dir() {
     return std::filesystem::path(xdg) / "vocotype";
   return home_path() / ".config/vocotype";
 }
+std::filesystem::path shared_config_path() {
+  return config_dir() / "config.json";
+}
+std::filesystem::path ibus_config_path() { return config_dir() / "ibus.json"; }
+std::filesystem::path legacy_runtime_config_path() {
+  return config_dir() / "fcitx5-backend.json";
+}
 std::filesystem::path runtime_config_path() {
   if (const char *value = std::getenv("VOCOTYPE_CONFIG"); value && *value)
     return expand_user(value);
-  const auto fcitx = config_dir() / "fcitx5-backend.json";
-  const auto ibus = config_dir() / "ibus.json";
-  if (std::filesystem::exists(fcitx))
-    return fcitx;
-  return ibus;
+  const auto shared = shared_config_path();
+  if (std::filesystem::exists(shared))
+    return shared;
+  const auto legacy = legacy_runtime_config_path();
+  if (std::filesystem::exists(legacy))
+    return legacy;
+  const auto ibus = ibus_config_path();
+  if (std::filesystem::exists(ibus)) {
+    try {
+      const Json value = read_json_file(ibus, false);
+      for (auto iterator = value.begin(); iterator != value.end(); ++iterator) {
+        if (iterator.key() != "hotkeys")
+          return ibus;
+      }
+    } catch (const std::exception &) {
+    }
+  }
+  return shared;
 }
 std::filesystem::path audio_config_path() {
   return config_dir() / "audio.conf";
@@ -78,6 +99,98 @@ void write_json_file_atomic(const std::filesystem::path &path,
                                    std::filesystem::perms::owner_write,
                                std::filesystem::perm_options::replace);
   std::filesystem::rename(temporary, expanded);
+}
+
+ConfigLayoutMigration migrate_config_layout() {
+  ConfigLayoutMigration result;
+  if (const char *custom = std::getenv("VOCOTYPE_CONFIG"); custom && *custom)
+    return result;
+
+  const auto shared_path = shared_config_path();
+  const auto ibus_path = ibus_config_path();
+  const auto legacy_path = legacy_runtime_config_path();
+  Json legacy = Json::object();
+  Json existing_ibus = Json::object();
+
+  if (std::filesystem::is_regular_file(legacy_path))
+    legacy = read_json_file(legacy_path, false);
+  if (std::filesystem::is_regular_file(ibus_path))
+    existing_ibus = read_json_file(ibus_path, false);
+
+  if (!std::filesystem::is_regular_file(shared_path)) {
+    Json shared = !legacy.empty() ? legacy : existing_ibus;
+    if (!shared.is_object())
+      shared = Json::object();
+    shared.erase("hotkeys");
+    write_json_file_atomic(shared_path, shared);
+    result.changed = true;
+    result.shared_created = true;
+  } else {
+    Json shared = read_json_file(shared_path, false);
+    if (shared.erase("hotkeys") > 0) {
+      write_json_file_atomic(shared_path, shared);
+      result.changed = true;
+    }
+  }
+
+  const Json source_hotkeys =
+      existing_ibus.contains("hotkeys") && existing_ibus["hotkeys"].is_object()
+          ? existing_ibus["hotkeys"]
+          : (legacy.contains("hotkeys") && legacy["hotkeys"].is_object()
+                 ? legacy["hotkeys"]
+                 : Json::object());
+  const Json hotkeys{
+      {"transcribe", source_hotkeys.value("transcribe", "F9")},
+      {"polish", source_hotkeys.value("polish", "Shift+F9")},
+      {"edit", source_hotkeys.value("edit", "Ctrl+F9")},
+  };
+  const Json normalized_ibus = {{"hotkeys", hotkeys}};
+  if (existing_ibus != normalized_ibus) {
+    write_json_file_atomic(ibus_path, normalized_ibus);
+    result.changed = true;
+    result.ibus_normalized = true;
+  }
+
+  if (std::filesystem::is_regular_file(legacy_path) &&
+      std::filesystem::is_regular_file(shared_path)) {
+    const auto archive = legacy_path.string() + ".migrated";
+    std::error_code error;
+    if (!std::filesystem::exists(archive)) {
+      std::filesystem::rename(legacy_path, archive, error);
+    } else {
+      std::filesystem::remove(legacy_path, error);
+    }
+    if (error)
+      throw std::runtime_error("cannot archive legacy config: " +
+                               error.message());
+    result.changed = true;
+    result.legacy_archived = true;
+  }
+  return result;
+}
+Json read_shared_config(bool missing_ok) {
+  return read_json_file(runtime_config_path(), missing_ok);
+}
+Json read_ibus_config(bool missing_ok) {
+  return read_json_file(ibus_config_path(), missing_ok);
+}
+void write_shared_config(Json value) {
+  if (!value.is_object())
+    throw std::runtime_error("shared config root must be an object");
+  value.erase("hotkeys");
+  const char *custom = std::getenv("VOCOTYPE_CONFIG");
+  write_json_file_atomic(
+      custom && *custom ? expand_user(custom) : shared_config_path(), value);
+}
+void write_ibus_hotkeys(const Json &hotkeys) {
+  if (!hotkeys.is_object())
+    throw std::runtime_error("IBus hotkeys must be an object");
+  const Json normalized{
+      {"transcribe", hotkeys.value("transcribe", "F9")},
+      {"polish", hotkeys.value("polish", "Shift+F9")},
+      {"edit", hotkeys.value("edit", "Ctrl+F9")},
+  };
+  write_json_file_atomic(ibus_config_path(), Json{{"hotkeys", normalized}});
 }
 AudioConfig load_audio_config(const std::filesystem::path &requested) {
   AudioConfig config;

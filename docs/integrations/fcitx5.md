@@ -69,7 +69,7 @@ Module 源码位于 `src/integrations/fcitx5/`，只拦截已配置的语音快�
 主要用户配置：
 
 ```text
-~/.config/vocotype/fcitx5-backend.json
+~/.config/vocotype/config.json
 ~/.config/vocotype/audio.conf
 ~/.config/vocotype/terms.yaml
 ~/.config/fcitx5/conf/vocotype.conf

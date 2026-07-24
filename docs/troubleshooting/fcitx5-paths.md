@@ -16,7 +16,7 @@
 ## Configuration
 
 ```text
-~/.config/vocotype/fcitx5-backend.json
+~/.config/vocotype/config.json
 ~/.config/vocotype/audio.conf
 ~/.config/vocotype/terms.yaml
 ~/.config/fcitx5/conf/vocotype.conf

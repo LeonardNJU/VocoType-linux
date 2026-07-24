@@ -1,8 +1,12 @@
 #include "vocotype/desktop/audio.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <fcntl.h>
+#include <mutex>
 #include <portaudio.h>
 #include <stdexcept>
+#include <unistd.h>
 #include <utility>
 namespace vocotype::desktop {
 namespace {
@@ -11,47 +15,94 @@ void check(PaError error, const char *operation) {
     throw std::runtime_error(std::string(operation) + ": " +
                              Pa_GetErrorText(error));
 }
+
+class ScopedStderrSilence {
+public:
+  ScopedStderrSilence() : lock_(redirect_mutex()) {
+    std::fflush(stderr);
+    saved_fd_ = dup(STDERR_FILENO);
+    if (saved_fd_ < 0)
+      return;
+    const int null_fd = open("/dev/null", O_WRONLY | O_CLOEXEC);
+    if (null_fd < 0 || dup2(null_fd, STDERR_FILENO) < 0) {
+      if (null_fd >= 0)
+        close(null_fd);
+      close(saved_fd_);
+      saved_fd_ = -1;
+      return;
+    }
+    close(null_fd);
+  }
+
+  ~ScopedStderrSilence() {
+    if (saved_fd_ < 0)
+      return;
+    std::fflush(stderr);
+    (void)dup2(saved_fd_, STDERR_FILENO);
+    close(saved_fd_);
+  }
+
+  ScopedStderrSilence(const ScopedStderrSilence &) = delete;
+  ScopedStderrSilence &operator=(const ScopedStderrSilence &) = delete;
+
+private:
+  static std::mutex &redirect_mutex() {
+    static std::mutex mutex;
+    return mutex;
+  }
+
+  std::unique_lock<std::mutex> lock_;
+  int saved_fd_ = -1;
+};
 } // namespace
 PortAudioRuntime::PortAudioRuntime() {
   check(Pa_Initialize(), "PortAudio initialization failed");
 }
 PortAudioRuntime::~PortAudioRuntime() { (void)Pa_Terminate(); }
+AudioDeviceInventory list_audio_devices() {
+  // PortAudio probes every compiled backend during initialization. ALSA and
+  // JACK print expected diagnostics for unavailable virtual devices directly
+  // to stderr even when usable devices are found. Keep those backend-probe
+  // messages out of the settings terminal while preserving PaError failures.
+  ScopedStderrSilence silence;
+  PortAudioRuntime runtime;
+  const int count = Pa_GetDeviceCount();
+  if (count < 0)
+    check(count, "cannot enumerate audio devices");
+
+  const PaDeviceIndex default_input = Pa_GetDefaultInputDevice();
+  const PaDeviceIndex default_output = Pa_GetDefaultOutputDevice();
+  AudioDeviceInventory inventory;
+  for (int id = 0; id < count; ++id) {
+    const PaDeviceInfo *info = Pa_GetDeviceInfo(id);
+    if (!info)
+      continue;
+    if (info->maxInputChannels > 0) {
+      inventory.inputs.push_back(
+          {id, info->name ? info->name : "Unknown input",
+           info->maxInputChannels,
+           static_cast<int>(std::lround(info->defaultSampleRate)),
+           id == default_input});
+    }
+    if (info->maxOutputChannels > 0) {
+      inventory.outputs.push_back(
+          {id, info->name ? info->name : "Unknown output",
+           info->maxOutputChannels,
+           static_cast<int>(std::lround(info->defaultSampleRate)),
+           id == default_output});
+    }
+  }
+  return inventory;
+}
+
 std::vector<AudioDevice> list_input_devices() {
-  PortAudioRuntime runtime;
-  const int count = Pa_GetDeviceCount();
-  if (count < 0)
-    check(count, "cannot enumerate audio devices");
-  const PaDeviceIndex default_id = Pa_GetDefaultInputDevice();
-  std::vector<AudioDevice> result;
-  for (int id = 0; id < count; ++id) {
-    const PaDeviceInfo *info = Pa_GetDeviceInfo(id);
-    if (!info || info->maxInputChannels <= 0)
-      continue;
-    result.push_back({id, info->name ? info->name : "Unknown input",
-                      info->maxInputChannels,
-                      static_cast<int>(std::lround(info->defaultSampleRate)),
-                      id == default_id});
-  }
-  return result;
+  return list_audio_devices().inputs;
 }
+
 std::vector<AudioOutputDevice> list_output_devices() {
-  PortAudioRuntime runtime;
-  const int count = Pa_GetDeviceCount();
-  if (count < 0)
-    check(count, "cannot enumerate audio devices");
-  const PaDeviceIndex default_id = Pa_GetDefaultOutputDevice();
-  std::vector<AudioOutputDevice> result;
-  for (int id = 0; id < count; ++id) {
-    const PaDeviceInfo *info = Pa_GetDeviceInfo(id);
-    if (!info || info->maxOutputChannels <= 0)
-      continue;
-    result.push_back({id, info->name ? info->name : "Unknown output",
-                      info->maxOutputChannels,
-                      static_cast<int>(std::lround(info->defaultSampleRate)),
-                      id == default_id});
-  }
-  return result;
+  return list_audio_devices().outputs;
 }
+
 AudioDevice resolve_input_device(const AudioConfig &config) {
   const auto devices = list_input_devices();
   if (!config.device_name.empty()) {

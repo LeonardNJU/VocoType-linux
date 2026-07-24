@@ -48,18 +48,12 @@ VoCoType 会拒绝明显不适合作为按住说话键的组合，包括：
 
 ## 配置格式
 
-设置中心将规范化后的值写入 `~/.config/vocotype/config.json`：
+快捷键不再存放在共享 `config.json` 中。配置职责如下：
 
-```json
-{
-  "hotkeys": {
-    "transcribe": "F9",
-    "polish": "Shift+F9",
-    "edit": "Ctrl+F9"
-  }
-}
-```
+- `~/.config/vocotype/config.json`：音频、ASR、AI、ITN 与界面等共享设置，不含快捷键；
+- `~/.config/vocotype/ibus.json`：仅保存 IBus 的三个语音快捷键；
+- `~/.config/fcitx5/conf/vocotype.conf`：保存 Fcitx 5 Module 的快捷键与 Fcitx 专属选项。
 
-Fcitx 5 的 `PTTKey`、`PolishKey` 与 `EditKey` 会通过运行中的 Fcitx 配置接口同步更新，并在保存成功前同时读回运行态与 `vocotype.conf` 验证。不要手工写入普通字母等无效组合；输入法进程检测到无效或重复配置时会恢复默认值。
+设置中心保存快捷键时会分别更新 IBus 配置和 Fcitx 配置。Fcitx 通过 `Controller1.SetConfig` 更新，随后读回持久配置及运行实例；运行实例只是 `vocotype.conf` 的已加载状态，不是第三份配置源。
 
-从 V4.1.1 Beta 2 升级时，如果设置 JSON 已记录新快捷键而 Fcitx 仍停留在 `F9`，打开设置中心会自动完成一次校准。Doctor 的“Fcitx 快捷键三层一致性”会同时显示 JSON、运行态和文件值。
+旧版 `fcitx5-backend.json` 会在首次启动新版设置中心或 IBus 引擎时迁移：共享字段进入 `config.json`，快捷键进入 `ibus.json`，原文件归档为 `fcitx5-backend.json.migrated`。已有 `vocotype.conf` 始终优先，不会再被旧 JSON 覆盖。
