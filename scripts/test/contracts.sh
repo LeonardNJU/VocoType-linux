@@ -124,6 +124,15 @@ rg -Fq '正在润色... （等待模型输出 ' src/integrations/fcitx5/module/v
 rg -Fq '粗识别文本：' src/integrations/fcitx5/module/vocotype_module.cpp || fail "rough recognition line missing"
 rg -Fq 'active_polish_started_us_' src/integrations/fcitx5/module/vocotype_module.cpp || fail "polish timer missing"
 
+# README must retain the public project-growth chart across documentation rewrites.
+for token in \
+  '## Star History' \
+  'https://www.star-history.com/#LeonardNJU/VocoType-linux&Date' \
+  'alt="VoCoType Linux Star History Chart"'; do
+  rg -Fq "$token" README.md || \
+    fail "README Star History block is missing: $token"
+done
+
 # The native settings window must preserve the Beta3 information architecture
 # while exposing framework-specific controls only in the active framework.
 settings=src/desktop/src/settings_main.cpp
