@@ -249,12 +249,12 @@ VoCoType Linux 基于 [VoCoType](https://github.com/233stone/vocotype-cli) 核�
 
 ## Star History
 
-<a href="https://www.star-history.com/#LeonardNJU/VocoType-linux&Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=LeonardNJU/VocoType-linux&type=date&theme=dark&legend=top-left&sealed_token=PxMzEEMfOA3R97IHVMG0zQqC1xVjuoA3cMbkfPzjtmhwAbL9n3oQVqHhhzNgKOwqwD0CShQpk_ostzzb2_m-8qA_U5IFphEK5su_nHoI1HKzcVq3-8oq8HZGL79TUmv5WtGBpBCqOtdrgrF8_KKxta_MCbS9IscnCEtMju92w8_qG8TtIZw_zZ68xYli">
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=LeonardNJU/VocoType-linux&type=date&legend=top-left&sealed_token=PxMzEEMfOA3R97IHVMG0zQqC1xVjuoA3cMbkfPzjtmhwAbL9n3oQVqHhhzNgKOwqwD0CShQpk_ostzzb2_m-8qA_U5IFphEK5su_nHoI1HKzcVq3-8oq8HZGL79TUmv5WtGBpBCqOtdrgrF8_KKxta_MCbS9IscnCEtMju92w8_qG8TtIZw_zZ68xYli">
-    <img alt="VoCoType Linux Star History Chart" src="https://api.star-history.com/chart?repos=LeonardNJU/VocoType-linux&type=date&legend=top-left&sealed_token=PxMzEEMfOA3R97IHVMG0zQqC1xVjuoA3cMbkfPzjtmhwAbL9n3oQVqHhhzNgKOwqwD0CShQpk_ostzzb2_m-8qA_U5IFphEK5su_nHoI1HKzcVq3-8oq8HZGL79TUmv5WtGBpBCqOtdrgrF8_KKxta_MCbS9IscnCEtMju92w8_qG8TtIZw_zZ68xYli">
-  </picture>
+<a href="https://www.star-history.com/?repos=LeonardNJU%2FVocoType-linux&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=LeonardNJU/VocoType-linux&type=date&theme=dark&legend=top-left&sealed_token=9qVwhB2qAFbyd-LfOlImyauJ8e-jHky6BFgdd0DX22zJt_sGU4tQSzqRnqdw21QbPGsjB0yiVov7pW8nazHO3vGR-jAXu4z7OHPZviKfz8AqEYV1unLwXg" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=LeonardNJU/VocoType-linux&type=date&legend=top-left&sealed_token=9qVwhB2qAFbyd-LfOlImyauJ8e-jHky6BFgdd0DX22zJt_sGU4tQSzqRnqdw21QbPGsjB0yiVov7pW8nazHO3vGR-jAXu4z7OHPZviKfz8AqEYV1unLwXg" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=LeonardNJU/VocoType-linux&type=date&legend=top-left&sealed_token=9qVwhB2qAFbyd-LfOlImyauJ8e-jHky6BFgdd0DX22zJt_sGU4tQSzqRnqdw21QbPGsjB0yiVov7pW8nazHO3vGR-jAXu4z7OHPZviKfz8AqEYV1unLwXg" />
+ </picture>
 </a>
 
 维护者：**Leonard Li** · [leo@lsamc.website](mailto:leo@lsamc.website)
