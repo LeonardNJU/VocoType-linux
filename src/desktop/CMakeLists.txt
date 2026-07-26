@@ -39,6 +39,7 @@ endif()
 
 add_library(vocotype_desktop_common
     ../common/src/terms_yaml.cpp
+    ../common/src/posix.cpp
     src/audio.cpp
     src/config.cpp
     src/fcitx_profile.cpp

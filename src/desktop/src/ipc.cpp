@@ -1,4 +1,5 @@
 #include "vocotype/desktop/ipc.hpp"
+#include "vocotype/common/posix.hpp"
 #include "vocotype/desktop/config.hpp"
 #include <algorithm>
 #include <cerrno>
@@ -8,7 +9,6 @@
 #include <filesystem>
 #include <signal.h>
 #include <stdexcept>
-#include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/un.h>
@@ -18,7 +18,8 @@
 namespace vocotype::desktop {
 Json unix_json_request(const std::string &socket_path, const Json &request,
                        int timeout_ms) {
-  const int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+  const int fd = vocotype::common::create_socket_close_on_exec(
+      AF_UNIX, SOCK_STREAM, 0);
   if (fd < 0)
     throw std::runtime_error("cannot create Unix socket");
   const int bounded = std::max(1, timeout_ms);
@@ -42,8 +43,8 @@ Json unix_json_request(const std::string &socket_path, const Json &request,
   const std::string payload = request.dump();
   std::size_t offset = 0;
   while (offset < payload.size()) {
-    const ssize_t sent = ::send(fd, payload.data() + offset,
-                                payload.size() - offset, MSG_NOSIGNAL);
+    const ssize_t sent = vocotype::common::send_without_sigpipe(
+        fd, payload.data() + offset, payload.size() - offset);
     if (sent < 0 && errno == EINTR)
       continue;
     if (sent <= 0) {
@@ -196,7 +197,7 @@ pid_t start_native_core(const std::string &requested_socket,
   if (child < 0)
     return -1;
   if (child == 0) {
-    (void)prctl(PR_SET_PDEATHSIG, SIGTERM);
+    vocotype::common::set_parent_death_signal(SIGTERM);
     if (getppid() == 1)
       _exit(125);
     const std::string config_string = config.string();

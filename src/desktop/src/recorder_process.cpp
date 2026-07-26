@@ -1,4 +1,5 @@
 #include "vocotype/desktop/recorder_process.hpp"
+#include "vocotype/common/posix.hpp"
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -18,9 +19,9 @@ void RecorderProcess::start(const std::string &executable,
     throw std::runtime_error("recorder is already running");
   int input_pipe[2]{};
   int output_pipe[2]{};
-  if (pipe2(input_pipe, O_CLOEXEC) != 0)
+  if (vocotype::common::create_pipe_close_on_exec(input_pipe) != 0)
     throw std::runtime_error("cannot create recorder input pipe");
-  if (pipe2(output_pipe, O_CLOEXEC) != 0) {
+  if (vocotype::common::create_pipe_close_on_exec(output_pipe) != 0) {
     close(input_pipe[0]);
     close(input_pipe[1]);
     throw std::runtime_error("cannot create recorder output pipe");

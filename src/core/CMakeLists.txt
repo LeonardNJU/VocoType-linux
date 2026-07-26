@@ -8,6 +8,7 @@ find_package(nlohmann_json 3.10 REQUIRED)
 
 add_library(vocotype_core_lib
     ../common/src/terms_yaml.cpp
+    ../common/src/posix.cpp
     src/config.cpp
     src/dispatcher.cpp
     src/json_line_worker.cpp

@@ -17,6 +17,7 @@
 #include <thread>
 #include <vector>
 
+#include "vocotype/common/posix.hpp"
 #include "vocotype/core/config.hpp"
 #include "vocotype/core/dispatcher.hpp"
 #include "vocotype/core/server.hpp"
@@ -130,8 +131,8 @@ private:
   static void send_all(int descriptor, const std::string &payload) {
     std::size_t offset = 0;
     while (offset < payload.size()) {
-      const ssize_t count = ::send(descriptor, payload.data() + offset,
-                                   payload.size() - offset, MSG_NOSIGNAL);
+      const ssize_t count = vocotype::common::send_without_sigpipe(
+          descriptor, payload.data() + offset, payload.size() - offset);
       if (count <= 0) {
         return;
       }
@@ -262,8 +263,8 @@ private:
   static void send_all(int descriptor, const std::string &payload) {
     std::size_t offset = 0;
     while (offset < payload.size()) {
-      const ssize_t count = ::send(descriptor, payload.data() + offset,
-                                   payload.size() - offset, MSG_NOSIGNAL);
+      const ssize_t count = vocotype::common::send_without_sigpipe(
+          descriptor, payload.data() + offset, payload.size() - offset);
       if (count <= 0) {
         return;
       }

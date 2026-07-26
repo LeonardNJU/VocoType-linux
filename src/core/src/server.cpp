@@ -1,4 +1,5 @@
 #include "vocotype/core/server.hpp"
+#include "vocotype/common/posix.hpp"
 
 #include <poll.h>
 #include <sys/socket.h>
@@ -83,7 +84,8 @@ void UnixJsonServer::run() {
   std::memcpy(address.sun_path, config_.socket_path.c_str(),
               config_.socket_path.size() + 1);
 
-  Fd listener(::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0));
+  Fd listener(vocotype::common::create_socket_close_on_exec(
+      AF_UNIX, SOCK_STREAM, 0));
   if (listener.get() < 0) {
     throw system_error("create Unix socket");
   }
@@ -112,7 +114,7 @@ void UnixJsonServer::run() {
       continue;
     }
     const int client =
-        ::accept4(listener.get(), nullptr, nullptr, SOCK_CLOEXEC);
+        vocotype::common::accept_close_on_exec(listener.get());
     if (client < 0) {
       if (errno == EINTR) {
         continue;
@@ -186,8 +188,8 @@ std::string UnixJsonServer::read_request(int client_fd) const {
 void UnixJsonServer::send_response(int client_fd, const std::string &response) {
   std::size_t sent = 0;
   while (sent < response.size()) {
-    const ssize_t count = ::send(client_fd, response.data() + sent,
-                                 response.size() - sent, MSG_NOSIGNAL);
+    const ssize_t count = vocotype::common::send_without_sigpipe(
+        client_fd, response.data() + sent, response.size() - sent);
     if (count < 0) {
       if (errno == EINTR) {
         continue;

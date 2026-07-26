@@ -1,4 +1,5 @@
 #include "vocotype/core/json_line_worker.hpp"
+#include "vocotype/common/posix.hpp"
 
 #include <fcntl.h>
 #include <poll.h>
@@ -37,13 +38,7 @@ Json error_response(const std::string &error) {
 } // namespace
 
 JsonLineWorker::JsonLineWorker() {
-  static std::once_flag sigpipe_once;
-  std::call_once(sigpipe_once, [] {
-    struct sigaction action{};
-    action.sa_handler = SIG_IGN;
-    ::sigemptyset(&action.sa_mask);
-    (void)::sigaction(SIGPIPE, &action, nullptr);
-  });
+  vocotype::common::ignore_sigpipe_once();
 }
 
 JsonLineWorker::~JsonLineWorker() { stop(); }
@@ -81,10 +76,10 @@ Json JsonLineWorker::start(const std::filesystem::path &executable,
   try {
     int input_pipe[2] = {-1, -1};
     int output_pipe[2] = {-1, -1};
-    if (::pipe2(input_pipe, O_CLOEXEC) != 0) {
+    if (vocotype::common::create_pipe_close_on_exec(input_pipe) != 0) {
       throw system_error("create worker input pipe");
     }
-    if (::pipe2(output_pipe, O_CLOEXEC) != 0) {
+    if (vocotype::common::create_pipe_close_on_exec(output_pipe) != 0) {
       ::close(input_pipe[0]);
       ::close(input_pipe[1]);
       throw system_error("create worker output pipe");
