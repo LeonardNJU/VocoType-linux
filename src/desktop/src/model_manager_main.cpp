@@ -136,7 +136,11 @@ std::filesystem::path default_cache() {
   if (const char *configured = std::getenv("MODELSCOPE_CACHE");
       configured && *configured)
     return std::filesystem::path(configured) / "models";
+#if defined(__APPLE__)
+  return vocotype::desktop::cache_dir() / "modelscope/hub/models";
+#else
   return vocotype::desktop::home_path() / ".cache/modelscope/hub/models";
+#endif
 }
 
 struct Progress {

@@ -20,8 +20,11 @@ struct ConfigLayoutMigration {
 };
 std::filesystem::path home_path();
 std::filesystem::path config_dir();
+std::filesystem::path cache_dir();
+std::filesystem::path runtime_root();
 std::filesystem::path shared_config_path();
 std::filesystem::path ibus_config_path();
+std::filesystem::path macos_config_path();
 std::filesystem::path legacy_runtime_config_path();
 std::filesystem::path runtime_config_path();
 std::filesystem::path audio_config_path();
@@ -33,8 +36,10 @@ void write_json_file_atomic(const std::filesystem::path &path,
 ConfigLayoutMigration migrate_config_layout();
 Json read_shared_config(bool missing_ok = true);
 Json read_ibus_config(bool missing_ok = true);
+Json read_macos_config(bool missing_ok = true);
 void write_shared_config(Json value);
 void write_ibus_hotkeys(const Json &hotkeys);
+void write_macos_hotkeys(const Json &hotkeys);
 AudioConfig load_audio_config(const std::filesystem::path &path = {});
 std::string backend_socket_path();
 std::string

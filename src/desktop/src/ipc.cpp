@@ -115,6 +115,9 @@ bool native_core_ready(const std::string &requested_socket, int timeout_ms) {
 }
 
 bool native_core_service_available() {
+#if defined(__APPLE__)
+  return false;
+#else
   const auto home = home_path();
   for (const auto &path : {
            home / ".config/systemd/user/vocotype-fcitx5-backend.service",
@@ -129,9 +132,14 @@ bool native_core_service_available() {
       return true;
   }
   return false;
+#endif
 }
 
 bool run_user_service_action(const char *action) {
+#if defined(__APPLE__)
+  (void)action;
+  return false;
+#else
   const std::string manager = find_executable(
       std::string("system") + "ctl", {"/usr/bin/systemctl", "/bin/systemctl"});
   if (manager.empty())
@@ -158,6 +166,7 @@ bool run_user_service_action(const char *action) {
   while (waitpid(child, &status, 0) < 0 && errno == EINTR) {
   }
   return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+#endif
 }
 
 bool start_native_core_service(bool restart,
@@ -185,9 +194,11 @@ pid_t start_native_core(const std::string &requested_socket,
       requested_socket.empty() ? backend_socket_path() : requested_socket;
   const auto config =
       requested_config.empty() ? runtime_config_path() : requested_config;
+  const auto bundled = runtime_root();
   const std::string executable = find_executable(
       "vocotype-core",
-      {home_path() / ".local/lib/vocotype-streaming/bin/vocotype-core",
+      {bundled.empty() ? std::filesystem::path{} : bundled / "bin/vocotype-core",
+       home_path() / ".local/lib/vocotype-streaming/bin/vocotype-core",
        home_path() / ".local/lib/vocotype-native/bin/vocotype-core",
        "/usr/libexec/vocotype-core", "/usr/lib/vocotype/vocotype-core",
        "/usr/lib64/vocotype/vocotype-core"});

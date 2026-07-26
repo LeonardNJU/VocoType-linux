@@ -24,12 +24,33 @@ std::filesystem::path home_path() {
 std::filesystem::path config_dir() {
   if (const char *xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg)
     return std::filesystem::path(xdg) / "vocotype";
+#if defined(__APPLE__)
+  return home_path() / "Library/Application Support/VocoType";
+#else
   return home_path() / ".config/vocotype";
+#endif
+}
+std::filesystem::path cache_dir() {
+  if (const char *value = std::getenv("VOCOTYPE_CACHE_DIR"); value && *value)
+    return expand_user(value);
+#if defined(__APPLE__)
+  return home_path() / "Library/Caches/VocoType";
+#else
+  if (const char *xdg = std::getenv("XDG_CACHE_HOME"); xdg && *xdg)
+    return std::filesystem::path(xdg) / "vocotype";
+  return home_path() / ".cache/vocotype";
+#endif
+}
+std::filesystem::path runtime_root() {
+  if (const char *value = std::getenv("VOCOTYPE_RUNTIME_DIR"); value && *value)
+    return expand_user(value);
+  return {};
 }
 std::filesystem::path shared_config_path() {
   return config_dir() / "config.json";
 }
 std::filesystem::path ibus_config_path() { return config_dir() / "ibus.json"; }
+std::filesystem::path macos_config_path() { return config_dir() / "macos.json"; }
 std::filesystem::path legacy_runtime_config_path() {
   return config_dir() / "fcitx5-backend.json";
 }
@@ -174,6 +195,9 @@ Json read_shared_config(bool missing_ok) {
 Json read_ibus_config(bool missing_ok) {
   return read_json_file(ibus_config_path(), missing_ok);
 }
+Json read_macos_config(bool missing_ok) {
+  return read_json_file(macos_config_path(), missing_ok);
+}
 void write_shared_config(Json value) {
   if (!value.is_object())
     throw std::runtime_error("shared config root must be an object");
@@ -191,6 +215,16 @@ void write_ibus_hotkeys(const Json &hotkeys) {
       {"edit", hotkeys.value("edit", "Ctrl+F9")},
   };
   write_json_file_atomic(ibus_config_path(), Json{{"hotkeys", normalized}});
+}
+void write_macos_hotkeys(const Json &hotkeys) {
+  if (!hotkeys.is_object())
+    throw std::runtime_error("macOS hotkeys must be an object");
+  const Json normalized{
+      {"transcribe", hotkeys.value("transcribe", "F9")},
+      {"polish", hotkeys.value("polish", "Shift+F9")},
+      {"edit", hotkeys.value("edit", "Ctrl+F9")},
+  };
+  write_json_file_atomic(macos_config_path(), Json{{"hotkeys", normalized}});
 }
 AudioConfig load_audio_config(const std::filesystem::path &requested) {
   AudioConfig config;
@@ -245,12 +279,18 @@ std::string backend_socket_path() {
     return value;
   if (const char *value = std::getenv("VOCOTYPE_SOCKET"); value && *value)
     return value;
+#if defined(__APPLE__)
+  return "/tmp/vocotype-" + std::to_string(getuid()) + ".sock";
+#else
   return "/tmp/vocotype-fcitx5.sock";
+#endif
 }
 std::string
 find_executable(const std::string &name,
                 const std::initializer_list<std::filesystem::path> &extra) {
   for (const auto &path : extra) {
+    if (path.empty())
+      continue;
     const auto expanded = expand_user(path);
     if (::access(expanded.c_str(), X_OK) == 0)
       return expanded.string();
