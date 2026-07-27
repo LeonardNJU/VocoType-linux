@@ -1,4 +1,4 @@
-name: Dispatch v4.1.2 Beta 1 release
+name: Publish v4.1.2 Beta 1 and close the loop
 
 on:
   push:
@@ -7,18 +7,98 @@ on:
 
 permissions:
   actions: write
-  contents: read
+  contents: write
+  issues: write
 
 jobs:
-  dispatch:
+  publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Dispatch release workflow
+      - name: Publish, reply, and clean up
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          gh workflow run release.yml
-          --repo "$GITHUB_REPOSITORY"
-          --ref master
-          -f version=v4.1.2-beta.1
-          -f publish=true
+          TAG: v4.1.2-beta.1
+          WORKFLOW_PATH: .github/workflows/dispatch-v4.1.2-beta.1.yml
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          run_id=""
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            run_id="$(
+              gh run list \
+                --repo "$GITHUB_REPOSITORY" \
+                --workflow release.yml \
+                --event workflow_dispatch \
+                --branch master \
+                --limit 20 \
+                --json databaseId,status \
+                --jq '[.[] | select(.status == "queued" or .status == "in_progress" or .status == "waiting" or .status == "requested" or .status == "pending")] | first | .databaseId // empty'
+            )"
+
+            if [[ -z "$run_id" ]]; then
+              gh workflow run release.yml \
+                --repo "$GITHUB_REPOSITORY" \
+                --ref master \
+                -f version="$TAG" \
+                -f publish=true
+
+              for _ in $(seq 1 30); do
+                run_id="$(
+                  gh run list \
+                    --repo "$GITHUB_REPOSITORY" \
+                    --workflow release.yml \
+                    --event workflow_dispatch \
+                    --branch master \
+                    --limit 1 \
+                    --json databaseId \
+                    --jq '.[0].databaseId // empty'
+                )"
+                [[ -n "$run_id" ]] && break
+                sleep 2
+              done
+            fi
+
+            [[ -n "$run_id" ]]
+            gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status
+          fi
+
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+
+          if ! gh issue view 34 --repo "$GITHUB_REPOSITORY" --json comments --jq '.comments[].body' | grep -Fq 'v4.1.2 Beta 1 已发布'; then
+            cat > /tmp/issue-34-reply.md <<'EOF'
+          v4.1.2 Beta 1 已发布：
+          https://github.com/LeonardNJU/VocoType-linux/releases/tag/v4.1.2-beta.1
+
+          本次修复了您在 Kubuntu 26.04 验证时反馈的两项问题：
+
+          1. 设置中心 ITN 预览中的 GTK 开关以 `0` / `1` 传入时，被 Core 误报为 `invalid_json`；
+          2. Playground 在 PipeWire / ALSA 设备重新枚举后复用陈旧的 PortAudio 数字设备编号，并固定请求单声道，可能触发 `Invalid number of channels`。
+
+          新版本会在同一个 PortAudio 生命周期内按稳定设备名称重新解析输入/输出设备，协商单声道或双声道 PCM16；遇到双声道输入时，会在本地降混为供 ASR 使用的单声道。ITN 请求现在兼容布尔值、`0` / `1` 和常见布尔字符串，并会区分真正的 JSON 解析错误与字段类型错误。
+
+          原始 `custom_phrase.txt` 问题仍由当前 Fcitx 5 架构解决：VoCoType 是全局 Module，不再持有独立 librime session，Rime 词库加载和热更新由系统 `fcitx5-rime` 负责。
+
+          Kubuntu / Fcitx 5 用户请安装 Release 中的 Fcitx5 DEB 包，然后在设置中心执行“安装 / 修复 Fcitx 5”并重启 Fcitx 5。麻烦协助验证：
+
+          - 新增 custom phrase 是否即时生效；
+          - ITN 预览是否正常；
+          - Playground 是否可以正常录音。
+
+          本 issue 暂时保持打开，等待您的实际环境确认后再关闭。谢谢！
+          EOF
+            gh issue comment 34 --repo "$GITHUB_REPOSITORY" --body-file /tmp/issue-34-reply.md
+          fi
+
+          workflow_sha="$(gh api "repos/$GITHUB_REPOSITORY/contents/$WORKFLOW_PATH?ref=master" --jq .sha)"
+          gh api \
+            --method DELETE \
+            "repos/$GITHUB_REPOSITORY/contents/$WORKFLOW_PATH" \
+            -f message='ci: remove one-time v4.1.2 release publisher' \
+            -f sha="$workflow_sha" \
+            -f branch=master
+
+          gh api \
+            --method DELETE \
+            "repos/$GITHUB_REPOSITORY/git/refs/heads/release-dispatch/v4.1.2-beta.1" \
+            >/dev/null 2>&1 || true
