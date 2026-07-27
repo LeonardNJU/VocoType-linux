@@ -15,7 +15,34 @@
 
 **VoCoType Linux** 是面向 Linux 桌面的语音输入工具，同时支持 **Fcitx 5** 与 **IBus**。核心语音识别在本地运行，无需 GPU；可选连接本机、局域网或云端的 OpenAI-compatible API，对长句进行润色和编辑。
 
-> Windows / macOS 用户请使用 VoCoType 官方桌面版：[vocotype.com](https://vocotype.com/)
+> Windows 用户请使用 VoCoType 官方桌面版：[vocotype.com](https://vocotype.com/)。本项目的 macOS 原生支持正在开发中。
+
+## 🍎 预告：VoCoType 即将登陆 macOS
+
+我们正在把 VoCoType 的本地中文语音输入体验带到 macOS。
+
+这项工作源于一次并不顺利的使用经历：我尝试在 macOS 上使用原项目 [VoCoType](https://github.com/233stone/vocotype-cli) 时，在当前系统上遇到了启动后闪退、无法稳定完成输入的问题。与此同时，VoCoType Linux 已围绕“按住即说”、离线识别、与现有输入法共存、语音编辑、图形化设置和诊断体验走出了自己的路线。我们认为这套交互更加自然，也很高兴能把这款备受喜爱的 Linux 离线中文语音输入工具带到更多平台，为更多用户服务。
+
+### 我们当前遇到的分发难题
+
+我们不希望把 VoCoType 做成一个需要用户切换过去的“替代输入法”。那样会打断原有的中文、英文和普通键盘输入流程：用户进入 VoCoType 后可以说话，却不能继续自然地使用原来的拼音、Rime、ABC 或其他输入法。
+
+更理想的方案，是采用 macOS 的 `Palette Input Method` 形态，把语音能力作为一个辅助输入层并入用户现有的输入法工作流：原输入法继续负责日常打字，需要时按住快捷键说话，识别结果直接进入当前文本框，而不是让 VoCoType 接管所有键盘输入。
+
+目前看来，这条路线要想以普通用户可接受的方式分发，会遇到 Apple 的签名与公证门槛。未签名的 `.dmg` 并非完全无法发布，但 Gatekeeper 会拦截或给出强烈警告，用户通常需要手动绕过系统保护；要获得正常的双击安装与启动体验，则需要使用 [Developer ID](https://developer.apple.com/developer-id/) 签名并提交 Apple 公证。Developer ID 只向 [Apple Developer Program](https://developer.apple.com/programs/whats-included/) 会员开放，目前年费为 99 美元。对个人维护的开源项目而言，这不仅是一笔持续费用，也意味着长期承担身份验证、证书保管、自动签名和发布流程的责任。
+
+我们不希望把共享证书私钥、关闭 Gatekeeper 或要求普通用户执行复杂绕过步骤作为长期方案。
+
+### 欢迎提供建议
+
+如果你熟悉 macOS 输入法、InputMethodKit、Palette Input Method、Developer ID / notarization，或了解适合开源项目的合规资助和分发方式，欢迎通过 [GitHub Issue](https://github.com/LeonardNJU/VocoType-linux/issues) 或邮件 [leo@lsamc.website](mailto:leo@lsamc.website) 联系我。
+
+我们尤其希望了解：
+
+- 是否存在不牺牲 Gatekeeper 默认安全体验的开源分发路径；
+- 是否有适合个人开源维护者的 Apple Developer Program 赞助、报销或费用减免渠道；
+- 是否有可靠的组织合作模式，可以由组织合规持有证书，并通过可审计的 CI 完成签名与公证，而不是共享证书私钥；
+- 是否有比 `Palette Input Method` 更合适、同时又不破坏原输入法工作流的 macOS 技术方案。
 
 ## 📰 V4.1.1 Beta 3 已发布：快捷键配置真正落到运行时
 
