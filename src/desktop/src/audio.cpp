@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <fcntl.h>
 #include <mutex>
+#include <optional>
 #include <portaudio.h>
 #include <stdexcept>
 #include <unistd.h>
@@ -54,18 +55,8 @@ private:
   std::unique_lock<std::mutex> lock_;
   int saved_fd_ = -1;
 };
-} // namespace
-PortAudioRuntime::PortAudioRuntime() {
-  check(Pa_Initialize(), "PortAudio initialization failed");
-}
-PortAudioRuntime::~PortAudioRuntime() { (void)Pa_Terminate(); }
-AudioDeviceInventory list_audio_devices() {
-  // PortAudio probes every compiled backend during initialization. ALSA and
-  // JACK print expected diagnostics for unavailable virtual devices directly
-  // to stderr even when usable devices are found. Keep those backend-probe
-  // messages out of the settings terminal while preserving PaError failures.
-  ScopedStderrSilence silence;
-  PortAudioRuntime runtime;
+
+AudioDeviceInventory list_audio_devices_initialized() {
   const int count = Pa_GetDeviceCount();
   if (count < 0)
     check(count, "cannot enumerate audio devices");
@@ -95,16 +86,8 @@ AudioDeviceInventory list_audio_devices() {
   return inventory;
 }
 
-std::vector<AudioDevice> list_input_devices() {
-  return list_audio_devices().inputs;
-}
-
-std::vector<AudioOutputDevice> list_output_devices() {
-  return list_audio_devices().outputs;
-}
-
-AudioDevice resolve_input_device(const AudioConfig &config) {
-  const auto devices = list_input_devices();
+AudioDevice resolve_input_device_initialized(const AudioConfig &config) {
+  const auto devices = list_audio_devices_initialized().inputs;
   if (!config.device_name.empty()) {
     auto exact =
         std::find_if(devices.begin(), devices.end(), [&](const auto &device) {
@@ -137,8 +120,16 @@ AudioDevice resolve_input_device(const AudioConfig &config) {
     return devices.front();
   throw std::runtime_error("no audio input device is available");
 }
-AudioOutputDevice resolve_output_device(int preferred_id) {
-  const auto devices = list_output_devices();
+
+AudioDevice resolve_current_input(const AudioDevice &selected) {
+  AudioConfig config;
+  config.device_name = selected.name;
+  config.device_id = selected.id;
+  return resolve_input_device_initialized(config);
+}
+
+AudioOutputDevice resolve_output_device_initialized(int preferred_id) {
+  const auto devices = list_audio_devices_initialized().outputs;
   if (preferred_id >= 0) {
     auto found =
         std::find_if(devices.begin(), devices.end(), [&](const auto &device) {
@@ -156,29 +147,134 @@ AudioOutputDevice resolve_output_device(int preferred_id) {
     return devices.front();
   throw std::runtime_error("no audio output device is available");
 }
-int resolve_sample_rate(const AudioDevice &device, int preferred_rate) {
-  PortAudioRuntime runtime;
+
+AudioOutputDevice
+resolve_current_output(const AudioOutputDevice &selected) {
+  const auto devices = list_audio_devices_initialized().outputs;
+  if (!selected.name.empty()) {
+    auto exact =
+        std::find_if(devices.begin(), devices.end(), [&](const auto &device) {
+          return device.name == selected.name;
+        });
+    if (exact != devices.end())
+      return *exact;
+    auto partial =
+        std::find_if(devices.begin(), devices.end(), [&](const auto &device) {
+          return device.name.find(selected.name) != std::string::npos ||
+                 selected.name.find(device.name) != std::string::npos;
+        });
+    if (partial != devices.end())
+      return *partial;
+  }
+  return resolve_output_device_initialized(selected.id);
+}
+
+std::vector<int> sample_rate_candidates(int preferred, int device_default) {
+  std::vector<int> candidates;
+  for (const int rate : {preferred, device_default, 48000, 44100, 32000,
+                         16000}) {
+    if (rate > 0 &&
+        std::find(candidates.begin(), candidates.end(), rate) ==
+            candidates.end())
+      candidates.push_back(rate);
+  }
+  return candidates;
+}
+
+bool input_format_supported(const AudioDevice &device, int channels, int rate) {
   const PaDeviceInfo *info = Pa_GetDeviceInfo(device.id);
-  if (!info)
-    throw std::runtime_error("selected audio device disappeared");
+  if (!info || channels <= 0 || channels > info->maxInputChannels)
+    return false;
   PaStreamParameters parameters{};
   parameters.device = device.id;
-  parameters.channelCount = 1;
+  parameters.channelCount = channels;
   parameters.sampleFormat = paInt16;
   parameters.suggestedLatency = info->defaultLowInputLatency;
-  if (preferred_rate > 0 &&
-      Pa_IsFormatSupported(&parameters, nullptr, preferred_rate) ==
-          paFormatIsSupported)
-    return preferred_rate;
-  if (Pa_IsFormatSupported(&parameters, nullptr, device.default_sample_rate) ==
-      paFormatIsSupported)
-    return device.default_sample_rate;
-  for (int rate : {48000, 44100, 32000, 16000}) {
-    if (Pa_IsFormatSupported(&parameters, nullptr, rate) == paFormatIsSupported)
-      return rate;
+  return Pa_IsFormatSupported(&parameters, nullptr, rate) ==
+         paFormatIsSupported;
+}
+
+bool output_format_supported(const AudioOutputDevice &device, int channels,
+                             int rate) {
+  const PaDeviceInfo *info = Pa_GetDeviceInfo(device.id);
+  if (!info || channels <= 0 || channels > info->maxOutputChannels)
+    return false;
+  PaStreamParameters parameters{};
+  parameters.device = device.id;
+  parameters.channelCount = channels;
+  parameters.sampleFormat = paInt16;
+  parameters.suggestedLatency = info->defaultLowOutputLatency;
+  return Pa_IsFormatSupported(nullptr, &parameters, rate) ==
+         paFormatIsSupported;
+}
+
+std::vector<std::int16_t>
+downmix_to_mono(const std::vector<std::int16_t> &input, int channels) {
+  if (channels <= 0)
+    throw std::invalid_argument("audio channel count must be positive");
+  if (input.size() % static_cast<std::size_t>(channels) != 0)
+    throw std::invalid_argument("interleaved audio contains an incomplete frame");
+  if (channels == 1)
+    return input;
+
+  const std::size_t frames = input.size() / static_cast<std::size_t>(channels);
+  std::vector<std::int16_t> output(frames);
+  for (std::size_t frame = 0; frame < frames; ++frame) {
+    std::int64_t sum = 0;
+    for (int channel = 0; channel < channels; ++channel) {
+      sum += input[frame * static_cast<std::size_t>(channels) +
+                   static_cast<std::size_t>(channel)];
+    }
+    output[frame] = static_cast<std::int16_t>(sum / channels);
+  }
+  return output;
+}
+} // namespace
+PortAudioRuntime::PortAudioRuntime() {
+  check(Pa_Initialize(), "PortAudio initialization failed");
+}
+PortAudioRuntime::~PortAudioRuntime() { (void)Pa_Terminate(); }
+AudioDeviceInventory list_audio_devices() {
+  // PortAudio probes every compiled backend during initialization. ALSA and
+  // JACK print expected diagnostics for unavailable virtual devices directly
+  // to stderr even when usable devices are found. Keep those backend-probe
+  // messages out of the settings terminal while preserving PaError failures.
+  ScopedStderrSilence silence;
+  PortAudioRuntime runtime;
+  return list_audio_devices_initialized();
+}
+
+std::vector<AudioDevice> list_input_devices() {
+  return list_audio_devices().inputs;
+}
+
+std::vector<AudioOutputDevice> list_output_devices() {
+  return list_audio_devices().outputs;
+}
+
+AudioDevice resolve_input_device(const AudioConfig &config) {
+  ScopedStderrSilence silence;
+  PortAudioRuntime runtime;
+  return resolve_input_device_initialized(config);
+}
+AudioOutputDevice resolve_output_device(int preferred_id) {
+  ScopedStderrSilence silence;
+  PortAudioRuntime runtime;
+  return resolve_output_device_initialized(preferred_id);
+}
+int resolve_sample_rate(const AudioDevice &device, int preferred_rate) {
+  ScopedStderrSilence silence;
+  PortAudioRuntime runtime;
+  const AudioDevice current = resolve_current_input(device);
+  for (const int rate :
+       sample_rate_candidates(preferred_rate, current.default_sample_rate)) {
+    for (const int channels : {1, 2}) {
+      if (input_format_supported(current, channels, rate))
+        return rate;
+    }
   }
   throw std::runtime_error(
-      "audio device has no supported mono PCM16 sample rate");
+      "audio device has no supported mono or stereo PCM16 sample rate");
 }
 std::vector<std::int16_t>
 resample_linear(const std::vector<std::int16_t> &input, int input_rate,
@@ -213,28 +309,54 @@ void play_pcm16(const std::vector<std::int16_t> &samples, int sample_rate,
                 const AudioOutputDevice &device) {
   if (samples.empty() || sample_rate <= 0)
     throw std::invalid_argument("cannot play empty or invalid audio");
-  PortAudioRuntime runtime;
-  const PaDeviceInfo *info = Pa_GetDeviceInfo(device.id);
-  if (!info || info->maxOutputChannels <= 0)
+
+  std::optional<PortAudioRuntime> runtime;
+  AudioOutputDevice current;
+  int output_rate = 0;
+  int output_channels = 0;
+  {
+    ScopedStderrSilence silence;
+    runtime.emplace();
+    current = resolve_current_output(device);
+    for (const int rate :
+         sample_rate_candidates(sample_rate, current.default_sample_rate)) {
+      for (const int channels : {1, 2}) {
+        if (output_format_supported(current, channels, rate)) {
+          output_rate = rate;
+          output_channels = channels;
+          break;
+        }
+      }
+      if (output_channels > 0)
+        break;
+    }
+  }
+  if (output_channels == 0)
+    throw std::runtime_error(
+        "selected output does not support mono or stereo PCM16 playback");
+
+  const auto mono = output_rate == sample_rate
+                        ? samples
+                        : resample_linear(samples, sample_rate, output_rate);
+  std::vector<std::int16_t> rendered;
+  if (output_channels == 1) {
+    rendered = mono;
+  } else {
+    rendered.reserve(mono.size() * static_cast<std::size_t>(output_channels));
+    for (const auto sample : mono) {
+      for (int channel = 0; channel < output_channels; ++channel)
+        rendered.push_back(sample);
+    }
+  }
+
+  const PaDeviceInfo *info = Pa_GetDeviceInfo(current.id);
+  if (!info)
     throw std::runtime_error("selected audio output disappeared");
   PaStreamParameters output{};
-  output.device = device.id;
-  output.channelCount = 1;
+  output.device = current.id;
+  output.channelCount = output_channels;
   output.sampleFormat = paInt16;
   output.suggestedLatency = info->defaultLowOutputLatency;
-  int output_rate = sample_rate;
-  if (Pa_IsFormatSupported(nullptr, &output, output_rate) !=
-      paFormatIsSupported) {
-    output_rate = device.default_sample_rate;
-    if (Pa_IsFormatSupported(nullptr, &output, output_rate) !=
-        paFormatIsSupported)
-      throw std::runtime_error(
-          "selected output does not support mono PCM16 playback");
-  }
-  const auto rendered =
-      output_rate == sample_rate
-          ? samples
-          : resample_linear(samples, sample_rate, output_rate);
   PaStream *stream = nullptr;
   check(Pa_OpenStream(&stream, nullptr, &output, output_rate,
                       paFramesPerBufferUnspecified, paClipOff, nullptr,
@@ -243,7 +365,7 @@ void play_pcm16(const std::vector<std::int16_t> &samples, int sample_rate,
   try {
     check(Pa_StartStream(stream), "cannot start audio output");
     check(Pa_WriteStream(stream, rendered.data(),
-                         static_cast<unsigned long>(rendered.size())),
+                         static_cast<unsigned long>(mono.size())),
           "audio playback failed");
     check(Pa_StopStream(stream), "cannot stop audio output");
     check(Pa_CloseStream(stream), "cannot close audio output");
@@ -264,13 +386,31 @@ AudioCapture::~AudioCapture() {
   }
 }
 void AudioCapture::run(std::atomic_bool &stop, const BlockCallback &callback) {
-  PortAudioRuntime runtime;
-  const PaDeviceInfo *info = Pa_GetDeviceInfo(device_.id);
+  std::optional<PortAudioRuntime> runtime;
+  AudioDevice current;
+  int input_channels = 0;
+  {
+    ScopedStderrSilence silence;
+    runtime.emplace();
+    current = resolve_current_input(device_);
+    for (const int channels : {1, 2}) {
+      if (input_format_supported(current, channels, sample_rate_)) {
+        input_channels = channels;
+        break;
+      }
+    }
+  }
+  if (input_channels == 0)
+    throw std::runtime_error(
+        "selected microphone does not support mono or stereo PCM16 capture at " +
+        std::to_string(sample_rate_) + " Hz");
+
+  const PaDeviceInfo *info = Pa_GetDeviceInfo(current.id);
   if (!info)
     throw std::runtime_error("selected audio device disappeared");
   PaStreamParameters input{};
-  input.device = device_.id;
-  input.channelCount = 1;
+  input.device = current.id;
+  input.channelCount = input_channels;
   input.sampleFormat = paInt16;
   input.suggestedLatency = info->defaultLowInputLatency;
   const unsigned long frames =
@@ -280,17 +420,31 @@ void AudioCapture::run(std::atomic_bool &stop, const BlockCallback &callback) {
                       nullptr, nullptr),
         "cannot open microphone");
   stream_ = stream;
-  check(Pa_StartStream(stream), "cannot start microphone");
-  std::vector<std::int16_t> block(frames);
-  while (!stop.load(std::memory_order_relaxed)) {
-    const PaError error = Pa_ReadStream(stream, block.data(), frames);
-    if (error == paInputOverflowed)
-      continue;
-    check(error, "microphone read failed");
-    callback(block);
+  try {
+    check(Pa_StartStream(stream), "cannot start microphone");
+    std::vector<std::int16_t> interleaved(
+        static_cast<std::size_t>(frames) *
+        static_cast<std::size_t>(input_channels));
+    while (!stop.load(std::memory_order_relaxed)) {
+      const PaError error = Pa_ReadStream(stream, interleaved.data(), frames);
+      if (error == paInputOverflowed)
+        continue;
+      check(error, "microphone read failed");
+      if (input_channels == 1)
+        callback(interleaved);
+      else {
+        const auto mono = downmix_to_mono(interleaved, input_channels);
+        callback(mono);
+      }
+    }
+    check(Pa_StopStream(stream), "cannot stop microphone");
+    check(Pa_CloseStream(stream), "cannot close microphone");
+    stream_ = nullptr;
+  } catch (...) {
+    (void)Pa_AbortStream(stream);
+    (void)Pa_CloseStream(stream);
+    stream_ = nullptr;
+    throw;
   }
-  check(Pa_StopStream(stream), "cannot stop microphone");
-  check(Pa_CloseStream(stream), "cannot close microphone");
-  stream_ = nullptr;
 }
 } // namespace vocotype::desktop

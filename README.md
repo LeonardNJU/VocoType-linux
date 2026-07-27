@@ -249,11 +249,11 @@ VoCoType Linux 基于 [VoCoType](https://github.com/233stone/vocotype-cli) 核�
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=LeonardNJU%2FVocoType-linux&type=date&legend=top-left">
+<a href="https://www.star-history.com/#LeonardNJU/VocoType-linux&Date">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=LeonardNJU/VocoType-linux&type=date&theme=dark&legend=top-left&sealed_token=9qVwhB2qAFbyd-LfOlImyauJ8e-jHky6BFgdd0DX22zJt_sGU4tQSzqRnqdw21QbPGsjB0yiVov7pW8nazHO3vGR-jAXu4z7OHPZviKfz8AqEYV1unLwXg" />
    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=LeonardNJU/VocoType-linux&type=date&legend=top-left&sealed_token=9qVwhB2qAFbyd-LfOlImyauJ8e-jHky6BFgdd0DX22zJt_sGU4tQSzqRnqdw21QbPGsjB0yiVov7pW8nazHO3vGR-jAXu4z7OHPZviKfz8AqEYV1unLwXg" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=LeonardNJU/VocoType-linux&type=date&legend=top-left&sealed_token=9qVwhB2qAFbyd-LfOlImyauJ8e-jHky6BFgdd0DX22zJt_sGU4tQSzqRnqdw21QbPGsjB0yiVov7pW8nazHO3vGR-jAXu4z7OHPZviKfz8AqEYV1unLwXg" />
+   <img alt="VoCoType Linux Star History Chart" src="https://api.star-history.com/chart?repos=LeonardNJU/VocoType-linux&type=date&legend=top-left&sealed_token=9qVwhB2qAFbyd-LfOlImyauJ8e-jHky6BFgdd0DX22zJt_sGU4tQSzqRnqdw21QbPGsjB0yiVov7pW8nazHO3vGR-jAXu4z7OHPZviKfz8AqEYV1unLwXg" />
  </picture>
 </a>
 
