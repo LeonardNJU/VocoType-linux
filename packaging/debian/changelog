@@ -1,3 +1,13 @@
+vocotype-linux (4.1.2~beta1-1) unstable; urgency=medium
+
+  * Accept numeric GTK boolean values in the ITN preview request.
+  * Distinguish malformed JSON from valid requests with invalid field types.
+  * Re-resolve PortAudio devices by stable name within one active runtime.
+  * Negotiate mono or stereo capture and downmix stereo input for ASR.
+  * Avoid stale input and output device indices across PortAudio restarts.
+
+ -- Leonard Li <leo@lsamc.website>  Tue, 28 Jul 2026 06:30:00 +0000
+
 vocotype-linux (4.1.1~beta3-1) unstable; urgency=medium
 
   * Apply recorded shortcuts through the live Fcitx Controller1.SetConfig API.
@@ -48,41 +58,3 @@ vocotype-linux (4.1.0~beta1-1) unstable; urgency=medium
     Fcitx5-only installations on x86_64-linux and aarch64-linux.
 
  -- Leonard Li <leo@lsamc.website>  Thu, 23 Jul 2026 10:00:00 +0000
-
-vocotype-linux (4.0.0~beta1-1) unstable; urgency=medium
-
-  * Complete the native C++ rewrite for core, Fcitx 5, IBus, settings, audio,
-    model management, feedback service, packaging, tests, and documentation.
-  * Remove all Python source, dependency manifests, wheelhouse, venv, and
-    runtime fallback paths from the repository and distribution packages.
-  * Restore the full Beta 3 settings experience in native GTK.
-  * Fix ordered Ctrl+F9 replacement, persistent Core lifecycle, legacy boolean
-    parsing, and 2-pass live previews.
-  * Migrate legacy Fcitx profiles, restore Rime, enable disabled addons, and
-    verify repair through the desktop session.
-
- -- Leonard Li <leo@lsamc.website>  Thu, 23 Jul 2026 12:00:00 +0000
-
-vocotype-linux (3.0.0~beta3-1) unstable; urgency=medium
-
-  * Publish the corrected V3 Beta 3 native packages.
-  * Migrate stale user settings launchers left by source installs.
-  * Expose the trailing-period output switch and visible AI health-check status.
-
- -- Leonard Li <leo@lsamc.website>  Thu, 23 Jul 2026 00:00:00 +0000
-
-vocotype-linux (3.0.0~beta2-1) unstable; urgency=medium
-
-  * Select a GTK-capable distro Python for the native settings launcher.
-  * Distinguish package-provided integration files from user installation state.
-  * Refresh installation status when returning to the overview page.
-
- -- Leonard Li <leo@lsamc.website>  Wed, 22 Jul 2026 12:10:00 +0800
-
-vocotype-linux (3.0.0~beta1-1) unstable; urgency=medium
-
-  * Ship the complete native 2-pass streaming runtime in every distro package.
-  * Ship a CI-built Python wheelhouse so user setup never compiles dependencies.
-  * Add SLM-planned voice editing and unified Fcitx 5 / IBus behavior.
-
- -- Leonard Li <leo@lsamc.website>  Tue, 21 Jul 2026 22:00:00 +0800
