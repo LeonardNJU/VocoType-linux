@@ -1,9 +1,47 @@
 #include "vocotype/core/dispatcher.hpp"
 #include "vocotype/core/text_normalizer.hpp"
 
+#include <algorithm>
+#include <cctype>
+#include <string>
 #include <utility>
 
 namespace vocotype::core {
+namespace {
+
+bool bool_value_or(const Json &object, const char *key, bool fallback) {
+  const auto iterator = object.find(key);
+  if (iterator == object.end() || iterator->is_null()) {
+    return fallback;
+  }
+  if (iterator->is_boolean()) {
+    return iterator->get<bool>();
+  }
+  if (iterator->is_number_integer()) {
+    return iterator->get<long long>() != 0;
+  }
+  if (iterator->is_number_unsigned()) {
+    return iterator->get<unsigned long long>() != 0;
+  }
+  if (iterator->is_string()) {
+    std::string value = iterator->get<std::string>();
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char character) {
+                     return static_cast<char>(std::tolower(character));
+                   });
+    if (value == "true" || value == "1" || value == "yes" ||
+        value == "on") {
+      return true;
+    }
+    if (value == "false" || value == "0" || value == "no" ||
+        value == "off") {
+      return false;
+    }
+  }
+  return fallback;
+}
+
+} // namespace
 
 CoreDispatcher::CoreDispatcher(AppConfig config)
     : config_(std::move(config)), slm_(config_.slm),
@@ -66,13 +104,15 @@ Json CoreDispatcher::dispatch(const Json &request) const {
         request["normalization"].is_object()) {
       const auto &value = request["normalization"];
       NormalizationConfig config = config_.normalization;
-      config.enabled = value.value("enabled", config.enabled);
-      config.compact_dates = value.value("compact_dates", config.compact_dates);
-      config.compact_times = value.value("compact_times", config.compact_times);
+      config.enabled = bool_value_or(value, "enabled", config.enabled);
+      config.compact_dates =
+          bool_value_or(value, "compact_dates", config.compact_dates);
+      config.compact_times =
+          bool_value_or(value, "compact_times", config.compact_times);
       config.compact_distances =
-          value.value("compact_distances", config.compact_distances);
+          bool_value_or(value, "compact_distances", config.compact_distances);
       config.currency_symbols =
-          value.value("currency_symbols", config.currency_symbols);
+          bool_value_or(value, "currency_symbols", config.currency_symbols);
       TextNormalizer normalizer(config);
       normalized = normalizer.normalize(text);
     } else {
