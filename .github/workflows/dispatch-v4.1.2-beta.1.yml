@@ -1,0 +1,24 @@
+name: Dispatch v4.1.2 Beta 1 release
+
+on:
+  push:
+    branches:
+      - release-dispatch/v4.1.2-beta.1
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh workflow run release.yml
+          --repo "$GITHUB_REPOSITORY"
+          --ref master
+          -f version=v4.1.2-beta.1
+          -f publish=true
