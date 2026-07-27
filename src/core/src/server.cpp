@@ -206,8 +206,12 @@ void UnixJsonServer::handle_client(int client_fd) noexcept {
       Json response;
       try {
         response = dispatcher_.dispatch(Json::parse(raw));
-      } catch (const Json::exception &) {
+      } catch (const Json::parse_error &) {
         response = {{"success", false}, {"error", "invalid_json"}};
+      } catch (const Json::exception &error) {
+        response = {{"success", false},
+                    {"error", "invalid_request"},
+                    {"details", error.what()}};
       }
       send_response(client.get(), response.dump());
     }
