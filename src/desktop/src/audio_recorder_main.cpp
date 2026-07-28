@@ -153,7 +153,7 @@ int main(int argc, char **argv) {
             last_preview_error = response.value("error", "preview_feed_failed");
             return std::nullopt;
           }
-          return response;
+          return std::optional<Json>{std::in_place, response};
         } catch (const std::exception &error) {
           last_preview_error = error.what();
           return std::nullopt;
