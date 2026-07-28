@@ -127,6 +127,11 @@ VoiceEditTaskManager::VoiceEditTaskManager(OfflineAsrProcess &asr,
 
 VoiceEditTaskManager::~VoiceEditTaskManager() {
   std::lock_guard lock(workers_mutex_);
+  for (auto &worker : workers_) {
+    if (worker.thread.joinable()) {
+      worker.thread.join();
+    }
+  }
   workers_.clear();
 }
 
@@ -236,8 +241,8 @@ Json VoiceEditTaskManager::start(const Json &request) {
     auto finished = std::make_shared<std::atomic<bool>>(false);
     WorkerSlot slot;
     slot.finished = finished;
-    slot.thread = std::jthread(
-        [this, task, owned_request, finished](std::stop_token) mutable {
+    slot.thread = std::thread(
+        [this, task, owned_request, finished]() mutable {
           struct FinishGuard {
             std::shared_ptr<std::atomic<bool>> flag;
             ~FinishGuard() { flag->store(true, std::memory_order_release); }

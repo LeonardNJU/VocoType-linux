@@ -105,18 +105,22 @@ public:
       throw std::runtime_error("failed to read fake HTTP port");
     }
     port_ = ntohs(address.sin_port);
-    thread_ = std::jthread([this](std::stop_token stop) { serve(stop); });
+    thread_ = std::thread([this] { serve(); });
   }
 
   FakeOpenAiServer(const FakeOpenAiServer &) = delete;
   FakeOpenAiServer &operator=(const FakeOpenAiServer &) = delete;
 
   ~FakeOpenAiServer() {
-    thread_.request_stop();
+    stop_.store(true, std::memory_order_release);
     if (listener_ >= 0) {
+      (void)::shutdown(listener_, SHUT_RDWR);
       ::close(listener_);
-      listener_ = -1;
     }
+    if (thread_.joinable()) {
+      thread_.join();
+    }
+    listener_ = -1;
   }
 
   [[nodiscard]] std::string endpoint() const {
@@ -172,8 +176,8 @@ private:
     }
   }
 
-  void serve(std::stop_token stop) {
-    while (!stop.stop_requested() &&
+  void serve() {
+    while (!stop_.load(std::memory_order_acquire) &&
            request_count_.load() < expected_requests_) {
       pollfd descriptor{listener_, POLLIN, 0};
       const int ready = ::poll(&descriptor, 1, 50);
@@ -203,7 +207,8 @@ private:
   int listener_ = -1;
   unsigned short port_ = 0;
   std::atomic<int> request_count_{0};
-  std::jthread thread_;
+  std::atomic<bool> stop_{false};
+  std::thread thread_;
 };
 
 class FakeSseServer {
@@ -236,18 +241,22 @@ public:
       throw std::runtime_error("failed to read fake SSE port");
     }
     port_ = ntohs(address.sin_port);
-    thread_ = std::jthread([this](std::stop_token stop) { serve(stop); });
+    thread_ = std::thread([this] { serve(); });
   }
 
   FakeSseServer(const FakeSseServer &) = delete;
   FakeSseServer &operator=(const FakeSseServer &) = delete;
 
   ~FakeSseServer() {
-    thread_.request_stop();
+    stop_.store(true, std::memory_order_release);
     if (listener_ >= 0) {
+      (void)::shutdown(listener_, SHUT_RDWR);
       ::close(listener_);
-      listener_ = -1;
     }
+    if (thread_.joinable()) {
+      thread_.join();
+    }
+    listener_ = -1;
   }
 
   [[nodiscard]] std::string endpoint() const {
@@ -300,8 +309,8 @@ private:
     }
   }
 
-  void serve(std::stop_token stop) {
-    while (!stop.stop_requested()) {
+  void serve() {
+    while (!stop_.load(std::memory_order_acquire)) {
       pollfd descriptor{listener_, POLLIN, 0};
       const int ready = ::poll(&descriptor, 1, 50);
       if (ready <= 0 || (descriptor.revents & POLLIN) == 0) {
@@ -324,7 +333,7 @@ private:
       send_all(client, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
                        "Cache-Control: no-cache\r\nConnection: close\r\n\r\n");
       for (const std::string &event : events_) {
-        if (stop.stop_requested()) {
+        if (stop_.load(std::memory_order_acquire)) {
           break;
         }
         send_all(client, event);
@@ -340,7 +349,8 @@ private:
   unsigned short port_ = 0;
   mutable std::mutex request_mutex_;
   Json request_payload_ = Json::object();
-  std::jthread thread_;
+  std::atomic<bool> stop_{false};
+  std::thread thread_;
 };
 
 void test_text_normalizer() {

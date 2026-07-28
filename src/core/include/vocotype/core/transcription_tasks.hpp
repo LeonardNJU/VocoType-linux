@@ -29,7 +29,7 @@ public:
 private:
   struct Task;
   struct WorkerSlot {
-    std::jthread thread;
+    std::thread thread;
     std::shared_ptr<std::atomic<bool>> finished;
   };
 
