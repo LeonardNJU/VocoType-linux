@@ -224,7 +224,7 @@ VoCoType-linux基于 [VoCoType / vocotype-cli](https://github.com/233stone/vocot
 
 ## Star History
 
-<a href="https://www.star-history.com/#LeonardNJU/VocoType-linux&Date">
+<a href="https://www.star-history.com/?repos=LeonardNJU%2FVocoType-linux&type=date&legend=top-left">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=LeonardNJU/VocoType-linux&type=date&theme=dark&legend=top-left&sealed_token=9qVwhB2qAFbyd-LfOlImyauJ8e-jHky6BFgdd0DX22zJt_sGU4tQSzqRnqdw21QbPGsjB0yiVov7pW8nazHO3vGR-jAXu4z7OHPZviKfz8AqEYV1unLwXg" />
    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=LeonardNJU/VocoType-linux&type=date&legend=top-left&sealed_token=9qVwhB2qAFbyd-LfOlImyauJ8e-jHky6BFgdd0DX22zJt_sGU4tQSzqRnqdw21QbPGsjB0yiVov7pW8nazHO3vGR-jAXu4z7OHPZviKfz8AqEYV1unLwXg" />

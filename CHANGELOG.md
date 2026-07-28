@@ -37,6 +37,14 @@ No unreleased changes.
 - Fixed short-recording and cancellation paths leaving the status pane visible indefinitely, leaving a ghost `recording=true` state, or blocking later F9 operations.
 - Fixed the settings Close Window command occasionally targeting a system window instead of the VoCoType settings window.
 
+## [4.1.2-beta.1] - 2026-07-28
+
+### Fixed
+
+- Accepted numeric GTK boolean values in ITN preview requests while continuing to distinguish malformed JSON from valid requests with invalid field types.
+- Re-resolved PortAudio devices by stable name within each active runtime, negotiated mono or stereo capture, downmixed stereo input for ASR, and avoided stale device indices across PortAudio restarts.
+- Hardened settings restart and AI Playground readiness gates for the Linux desktop workflow.
+
 ## [4.1.1-beta.3] - 2026-07-24
 
 ### Fixed
