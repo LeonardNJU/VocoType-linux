@@ -28,6 +28,7 @@ namespace {
 using vocotype::core::AppConfig;
 using vocotype::core::CoreDispatcher;
 using vocotype::core::Json;
+using vocotype::core::SlmClient;
 using vocotype::core::TextNormalizer;
 using vocotype::core::UnixJsonServer;
 using vocotype::core::VoiceEditPlanner;
@@ -494,6 +495,26 @@ void test_voice_edit_plan_validation() {
   require(rejected, "unsafe key action was accepted");
 }
 
+void test_voice_edit_feature_gates() {
+  AppConfig config = vocotype::core::parse_config(Json::object());
+  config.slm.enabled = true;
+  config.slm.edit_enabled = false;
+  const SlmClient slm(config.slm);
+  const VoiceEditPlanner planner(slm);
+  const Json result = planner.plan({{"supports_surrounding", true},
+                                    {"replace_state", "supported"},
+                                    {"snapshot",
+                                     {{"text", "这是原文"},
+                                      {"cursor_pos", 12},
+                                      {"anchor_pos", 12},
+                                      {"selected_text", ""}}}},
+                                   "把原文翻译成英文");
+  require(!result.value("success", true),
+          "disabled voice-edit switch unexpectedly allowed a plan");
+  require(result.value("reason", "") == "edit_disabled",
+          "voice-edit switch gate was not distinguished from global AI");
+}
+
 void test_config_merge() {
   const Json merged = vocotype::core::deep_merge(
       vocotype::core::default_config_json(),
@@ -803,8 +824,11 @@ void test_voice_edit_disabled(const std::filesystem::path &worker_path) {
             "failed edit task phase was not finalized");
     require(poll.value("instruction", "") == "原生最终转写",
             "recognized edit instruction was not retained");
-    require(poll.value("reason", "") == "edit_disabled",
-            "disabled edit reason was not preserved");
+    require(poll.value("reason", "") == "slm_disabled",
+            "disabled AI reason was not preserved");
+    require(
+        poll.value("error", "").find("ASR") != std::string::npos,
+        "disabled AI error did not explain that transcription only tests ASR");
     for (int attempt = 0; attempt < 50 && std::filesystem::exists(audio_path);
          ++attempt) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -1216,6 +1240,7 @@ int main(int argc, char **argv) {
     test_config_merge();
     test_text_normalizer();
     test_voice_edit_plan_validation();
+    test_voice_edit_feature_gates();
     test_dispatcher();
     test_offline_asr(argv[2]);
     test_socket_offline(argv[2]);

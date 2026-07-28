@@ -148,6 +148,7 @@ struct SettingsWindow {
   GtkDrawingArea *playground_waveform = nullptr;
   GtkTextView *playground_result = nullptr;
   GtkWidget *playground_ai_controls = nullptr;
+  GtkWidget *playground_edit_controls = nullptr;
   GtkLabel *playground_ai_gate_status = nullptr;
   GtkTextView *playground_polish_source = nullptr;
   GtkTextView *playground_polish_result = nullptr;
@@ -725,6 +726,34 @@ void set_label(GtkLabel *label, const std::string &text) {
   gtk_label_set_text(label, text.c_str());
 }
 
+void refresh_playground_ai_gate(SettingsWindow &window) {
+  const bool ai_enabled =
+      window.slm_enabled && gtk_switch_get_active(window.slm_enabled);
+  const bool edit_enabled =
+      window.edit_enabled && gtk_switch_get_active(window.edit_enabled);
+
+  if (window.playground_ai_controls)
+    gtk_widget_set_sensitive(window.playground_ai_controls, ai_enabled);
+  if (window.playground_edit_controls)
+    gtk_widget_set_sensitive(window.playground_edit_controls,
+                             ai_enabled && edit_enabled);
+  if (!window.playground_ai_gate_status)
+    return;
+
+  if (!ai_enabled) {
+    set_label(window.playground_ai_gate_status,
+              "AI 功能尚未启用；‘测试转录’只验证 ASR，不会调用 LLM。请先在‘AI "
+              "功能’页启用并测活端点。");
+  } else if (!edit_enabled) {
+    set_label(window.playground_ai_gate_status,
+              "AI 润色已启用，但语音编辑开关仍关闭。请在‘AI 功能’页启用 "
+              "Ctrl+F9 语音编辑并保存。");
+  } else {
+    set_label(window.playground_ai_gate_status,
+              "AI 功能与语音编辑已启用；建议先在‘AI 功能’页执行一次真实测活。");
+  }
+}
+
 GtkWidget *label(const char *text, bool title = false) {
   GtkWidget *widget = gtk_label_new(text);
   gtk_label_set_xalign(GTK_LABEL(widget), 0.0F);
@@ -882,17 +911,8 @@ void populate_rime_schema_combo(SettingsWindow &window,
     gtk_combo_box_set_active(GTK_COMBO_BOX(window.rime_schema), 0);
 }
 
-void save_config(SettingsWindow &window) {
-  for (const HotkeySlot slot :
-       {HotkeySlot::transcribe, HotkeySlot::polish, HotkeySlot::edit}) {
-    const bool check_external = hotkey_changed_for_slot(window, slot);
-    const std::string error = hotkey_candidate_error(
-        window, slot, hotkey_for_slot(window, slot), check_external);
-    if (!error.empty())
-      throw std::runtime_error(std::string(hotkey_slot_name(slot)) +
-                               "快捷键无效：" + error);
-  }
-  auto &audio = window.config["audio"];
+void update_audio_config_from_ui(SettingsWindow &window, Json &config) {
+  auto &audio = config["audio"];
   const int active =
       gtk_combo_box_get_active(GTK_COMBO_BOX(window.audio_device));
   if (active >= 0 && static_cast<std::size_t>(active) < window.devices.size()) {
@@ -907,6 +927,26 @@ void save_config(SettingsWindow &window) {
   audio["block_ms"] = 20;
   audio["min_recording_ms"] =
       gtk_spin_button_get_value_as_int(window.minimum_recording);
+}
+
+void save_audio_config(SettingsWindow &window) {
+  Json config = load_config();
+  update_audio_config_from_ui(window, config);
+  vocotype::desktop::write_shared_config(config);
+  window.config["audio"] = config["audio"];
+}
+
+void save_config(SettingsWindow &window) {
+  for (const HotkeySlot slot :
+       {HotkeySlot::transcribe, HotkeySlot::polish, HotkeySlot::edit}) {
+    const bool check_external = hotkey_changed_for_slot(window, slot);
+    const std::string error = hotkey_candidate_error(
+        window, slot, hotkey_for_slot(window, slot), check_external);
+    if (!error.empty())
+      throw std::runtime_error(std::string(hotkey_slot_name(slot)) +
+                               "快捷键无效：" + error);
+  }
+  update_audio_config_from_ui(window, window.config);
 
   window.config["asr"]["native_enabled"] = true;
   window.config["asr_streaming"]["enabled"] =
@@ -2347,12 +2387,24 @@ GtkWidget *build_overview(SettingsWindow &window) {
           auto *self = static_cast<SettingsWindow *>(data);
           const std::string framework = static_cast<const char *>(
               g_object_get_data(G_OBJECT(button), "vocotype-framework"));
-          Json result = framework == "ibus" ? run_command({"ibus", "restart"})
-                                            : restart_fcitx_with_vocotype();
-          set_label(self->overview_status,
-                    result.value("success", false)
-                        ? "✓ 输入法框架已请求重启"
-                        : "重启失败：" + result.value("error", "unknown"));
+          gtk_widget_set_sensitive(GTK_WIDGET(button), FALSE);
+          set_label(self->overview_status, framework == "ibus"
+                                               ? "正在重启 IBus…"
+                                               : "正在重启 Fcitx 5…");
+          run_async(
+              [framework] {
+                return framework == "ibus" ? run_command({"ibus", "restart"})
+                                           : restart_fcitx_with_vocotype();
+              },
+              [self, button](Json result) {
+                gtk_widget_set_sensitive(GTK_WIDGET(button), TRUE);
+                refresh_overview(*self);
+                set_label(self->overview_status,
+                          result.value("success", false)
+                              ? "✓ 输入法框架已完成重启"
+                              : "重启失败：" +
+                                    result.value("error", "unknown"));
+              });
         }),
         &window);
     return panel;
@@ -2957,6 +3009,12 @@ GtkWidget *build_slm(SettingsWindow &window) {
 
   g_signal_connect_swapped(
       test, "clicked", G_CALLBACK(+[](SettingsWindow *self) {
+        if (!gtk_switch_get_active(self->slm_enabled)) {
+          set_label(self->slm_status,
+                    "请先打开‘启用 AI 功能’，再测活端点与模型。");
+          refresh_playground_ai_gate(*self);
+          return;
+        }
         set_label(self->slm_status, "⏳ 正在测活；成功后即可使用 AI 功能…");
         try {
           save_config(*self);
@@ -2978,19 +3036,13 @@ GtkWidget *build_slm(SettingsWindow &window) {
             },
             [self](Json result) {
               if (result.value("success", false)) {
-                gtk_switch_set_active(self->slm_enabled, TRUE);
                 set_label(self->slm_status,
                           "✅ 测活成功：" + result.value("text", "服务已响应"));
-                if (self->playground_ai_controls)
-                  gtk_widget_set_sensitive(self->playground_ai_controls, TRUE);
-                if (self->playground_ai_gate_status)
-                  set_label(self->playground_ai_gate_status,
-                            "✅ AI 配置已启用，可测试润色与语音编辑");
               } else {
-                gtk_switch_set_active(self->slm_enabled, FALSE);
                 set_label(self->slm_status,
                           "❌ 测活失败：" + result.value("error", "unknown"));
               }
+              refresh_playground_ai_gate(*self);
             });
       }),
       &window);
@@ -3152,6 +3204,7 @@ GtkWidget *build_playground(SettingsWindow &window) {
                                 "划；可验证替换、翻译、LaTeX 与文本生成。"),
       FALSE, FALSE, 0);
   GtkWidget *edit_card = sui::make_card();
+  window.playground_edit_controls = edit_card;
   GtkWidget *edit_source_scroll =
       sui::make_scrolled_text(&window.playground_edit_source, 110);
   set_text(window.playground_edit_source, "勾股定理是一项伟大的发明");
@@ -3242,7 +3295,7 @@ GtkWidget *build_playground(SettingsWindow &window) {
   g_signal_connect_swapped(
       record, "clicked", G_CALLBACK(+[](SettingsWindow *self) {
         try {
-          save_config(*self);
+          save_audio_config(*self);
         } catch (const std::exception &error) {
           set_label(self->playground_status,
                     std::string("保存音频设置失败：") + error.what());
@@ -4055,11 +4108,19 @@ void activate(GtkApplication *application, gpointer user_data) {
   gtk_stack_add_titled(window->stack, feedback, "feedback", "反馈");
 
   populate_from_config(*window);
-  const bool ai_enabled = gtk_switch_get_active(window->slm_enabled);
-  gtk_widget_set_sensitive(window->playground_ai_controls, ai_enabled);
-  set_label(window->playground_ai_gate_status,
-            ai_enabled ? "AI 功能已启用；建议先在“AI 功能”页执行一次真实测活。"
-                       : "AI 功能尚未启用。请先配置端点和模型并完成测活。");
+  refresh_playground_ai_gate(*window);
+  g_signal_connect(window->slm_enabled, "notify::active",
+                   G_CALLBACK(+[](GObject *, GParamSpec *, gpointer data) {
+                     refresh_playground_ai_gate(
+                         *static_cast<SettingsWindow *>(data));
+                   }),
+                   window);
+  g_signal_connect(window->edit_enabled, "notify::active",
+                   G_CALLBACK(+[](GObject *, GParamSpec *, gpointer data) {
+                     refresh_playground_ai_gate(
+                         *static_cast<SettingsWindow *>(data));
+                   }),
+                   window);
   gtk_stack_set_visible_child_name(window->stack, "overview");
 
   g_signal_connect_swapped(

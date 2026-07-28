@@ -343,12 +343,18 @@ Json VoiceEditPlanner::plan(const Json &request,
                               static_cast<std::size_t>(length));
   }
 
+  if (!slm_.enabled()) {
+    return {{"success", false},
+            {"error", "AI 功能尚未启用；普通转录只验证 ASR，不会调用 "
+                      "LLM。请先在设置中心启用并测活 AI 端点"},
+            {"instruction", instruction},
+            {"reason", "slm_disabled"}};
+  }
   if (!slm_.edit_enabled()) {
-    return {
-        {"success", false},
-        {"error", "语音编辑完全由 AI 理解，请先在设置中心启用并测活 AI 润色"},
-        {"instruction", instruction},
-        {"reason", "edit_disabled"}};
+    return {{"success", false},
+            {"error", "AI 功能已启用，但 Ctrl+F9 语音编辑开关仍处于关闭状态"},
+            {"instruction", instruction},
+            {"reason", "edit_disabled"}};
   }
   if (instruction.empty()) {
     return {{"success", false},
