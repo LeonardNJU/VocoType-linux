@@ -25,7 +25,7 @@ std::filesystem::path config_dir() {
   if (const char *xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg)
     return std::filesystem::path(xdg) / "vocotype";
 #if defined(__APPLE__)
-  return home_path() / "Library/Application Support/VocoType";
+  return home_path() / "Library/Application Support/io.github.LeonardNJU.VoCoTypeLinux.InputMethod";
 #else
   return home_path() / ".config/vocotype";
 #endif
@@ -34,7 +34,7 @@ std::filesystem::path cache_dir() {
   if (const char *value = std::getenv("VOCOTYPE_CACHE_DIR"); value && *value)
     return expand_user(value);
 #if defined(__APPLE__)
-  return home_path() / "Library/Caches/VocoType";
+  return home_path() / "Library/Caches/io.github.LeonardNJU.VoCoTypeLinux.InputMethod";
 #else
   if (const char *xdg = std::getenv("XDG_CACHE_HOME"); xdg && *xdg)
     return std::filesystem::path(xdg) / "vocotype";

@@ -3,6 +3,7 @@
 #include "vocotype/desktop/fcitx_profile.hpp"
 #include "vocotype/desktop/hotkey.hpp"
 #include "vocotype/desktop/ipc.hpp"
+#include "vocotype/desktop/streaming_preview.hpp"
 #include "vocotype/desktop/wav.hpp"
 #include <cassert>
 #include <cstdio>
@@ -51,6 +52,31 @@ int main() {
   const std::string encoded =
       base64_encode(reinterpret_cast<const unsigned char *>("abc"), 3);
   assert(encoded == "YWJj");
+
+  StreamingPreviewTranscript preview;
+  const auto first_preview = preview.update_session_text("你好世界");
+  require(first_preview.has_value() && *first_preview == "你好世界",
+          "first streaming preview was not accepted");
+  require(!preview.update_session_text("   \n\t").has_value(),
+          "whitespace-only streaming preview was not ignored");
+  require(preview.display_text() == "你好世界",
+          "whitespace-only preview erased valid live text");
+  preview.begin_recovery();
+  const auto replayed_preview = preview.update_session_text("世界继续说话");
+  require(replayed_preview.has_value() &&
+              *replayed_preview == "你好世界继续说话",
+          "recovered streaming preview did not deduplicate overlap");
+  preview.begin_recovery();
+  const auto continued_preview = preview.update_session_text("说话然后补充第二句");
+  require(continued_preview.has_value() &&
+              *continued_preview == "你好世界继续说话然后补充第二句",
+          "recovered streaming preview did not preserve committed prefix");
+  require(!preview.update_session_text("\r\n  ").has_value() &&
+              preview.display_text() == "你好世界继续说话然后补充第二句",
+          "blank post-recovery preview replaced the accumulated transcript");
+  preview.reset();
+  require(!preview.has_text() && preview.display_text().empty(),
+          "streaming preview reset retained stale text");
 
   const Hotkey normal = parse_hotkey("F9");
   const Hotkey polish = parse_hotkey("Shift+F9");

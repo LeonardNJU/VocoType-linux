@@ -53,7 +53,7 @@ jobs:
 
           jobs_json=$(gh api --paginate \
             "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/jobs?per_page=100")
-          for required in native-streaming source-deb rpm arch; do
+          for required in native-streaming macos source-deb rpm arch; do
             conclusion=$(jq -r --arg name "$required" \
               '[.jobs[] | select(.name == $name) | .conclusion] | first // "missing"' \
               <<<"$jobs_json")
@@ -65,7 +65,7 @@ jobs:
 
           artifacts_json=$(gh api \
             "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100")
-          for required in source-deb rpm arch final-release-assets; do
+          for required in macos-arm64-dmg source-deb rpm arch final-release-assets; do
             count=$(jq -r --arg name "$required" \
               '[.artifacts[] | select(.name == $name and (.expired | not))] | length' \
               <<<"$artifacts_json")

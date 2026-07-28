@@ -1,7 +1,7 @@
 {
   "name": "VocoType Linux",
   "short_name": "VocoType",
-  "description": "Offline voice typing for Linux",
+  "description": "Local voice typing for Linux and macOS",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

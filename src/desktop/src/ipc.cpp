@@ -5,8 +5,8 @@
 #include <cerrno>
 #include <chrono>
 #include <cstring>
-#include <dlfcn.h>
 #include <filesystem>
+#include <mutex>
 #include <signal.h>
 #include <stdexcept>
 #include <sys/socket.h>
@@ -52,15 +52,6 @@ Json unix_json_request(const std::string &socket_path, const Json &request,
       throw std::runtime_error("native core request send failed");
     }
     offset += static_cast<std::size_t>(sent);
-  }
-  using HalfClose = int (*)(int, int);
-  std::string symbol = "shut";
-  symbol += "down";
-  auto close_write =
-      reinterpret_cast<HalfClose>(dlsym(RTLD_DEFAULT, symbol.c_str()));
-  if (!close_write || close_write(fd, SHUT_WR) != 0) {
-    ::close(fd);
-    throw std::runtime_error("cannot half-close native core request");
   }
   std::string response;
   char buffer[8192];
@@ -232,6 +223,8 @@ pid_t start_native_core(const std::string &requested_socket,
 
 bool ensure_native_core(const std::string &requested_socket,
                         const std::filesystem::path &config_path, int wait_ms) {
+  static std::mutex ensure_mutex;
+  std::lock_guard ensure_lock(ensure_mutex);
   const std::string socket =
       requested_socket.empty() ? backend_socket_path() : requested_socket;
   if (native_core_ready(socket))

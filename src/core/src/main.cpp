@@ -1,9 +1,13 @@
+#include <cerrno>
 #include <csignal>
 #include <cstdlib>
 #include <filesystem>
+#include <fcntl.h>
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <sys/file.h>
+#include <unistd.h>
 
 #include "vocotype/core/config.hpp"
 #include "vocotype/core/dispatcher.hpp"
@@ -12,6 +16,49 @@
 namespace {
 
 vocotype::core::UnixJsonServer *g_server = nullptr;
+
+
+class InstanceLock final {
+public:
+  explicit InstanceLock(const std::string &socket_path) {
+    path_ = socket_path + ".lock";
+    fd_ = ::open(path_.c_str(), O_CREAT | O_RDWR, 0600);
+    if (fd_ < 0) {
+      throw std::runtime_error("cannot open core lock: " + path_);
+    }
+    if (::flock(fd_, LOCK_EX | LOCK_NB) != 0) {
+      const int saved_errno = errno;
+      ::close(fd_);
+      fd_ = -1;
+      if (saved_errno == EWOULDBLOCK || saved_errno == EAGAIN) {
+        acquired_ = false;
+        return;
+      }
+      throw std::runtime_error("cannot acquire core lock: " + path_);
+    }
+    acquired_ = true;
+    const std::string pid = std::to_string(::getpid()) + "\n";
+    (void)::ftruncate(fd_, 0);
+    (void)::write(fd_, pid.data(), pid.size());
+  }
+
+  InstanceLock(const InstanceLock &) = delete;
+  InstanceLock &operator=(const InstanceLock &) = delete;
+
+  ~InstanceLock() {
+    if (fd_ >= 0) {
+      (void)::flock(fd_, LOCK_UN);
+      ::close(fd_);
+    }
+  }
+
+  [[nodiscard]] bool acquired() const noexcept { return acquired_; }
+
+private:
+  std::string path_;
+  int fd_ = -1;
+  bool acquired_ = false;
+};
 
 void handle_signal(int) {
   if (g_server != nullptr) {
@@ -79,6 +126,10 @@ int main(int argc, char **argv) {
         options.config_path, !options.require_config);
     if (!options.socket_path.empty()) {
       config.server.socket_path = options.socket_path;
+    }
+    InstanceLock instance_lock(config.server.socket_path);
+    if (!instance_lock.acquired()) {
+      return 0;
     }
     if (options.enable_final_asr) {
       config.offline_asr.enabled = true;

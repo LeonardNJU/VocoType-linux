@@ -13,7 +13,7 @@ namespace vocotype::desktop {
 namespace {
 
 constexpr const char *kLegacyInputMethod = "vocotype";
-const std::regex kSectionPattern(R"(^\s*\[([^\]]+)]\s*$)");
+const std::regex kSectionPattern(R"(^\s*\[([^\]]+)\]\s*$)");
 const std::regex kItemSectionPattern(R"(^Groups/([^/]+)/Items/([0-9]+)$)");
 const std::regex kGroupSectionPattern(R"(^Groups/([^/]+)$)");
 

@@ -2858,8 +2858,8 @@ GtkWidget *build_recognition(SettingsWindow &window) {
 
 GtkWidget *build_terms(SettingsWindow &window) {
   const auto page =
-      sui::make_page("用户词典", "同一份术语库同时用于 Contextual Paraformer "
-                                 "原生 hotword、识别后标准化和 ITN 保护。");
+      sui::make_page("用户词典", "同一份术语库用于最终离线 Contextual Paraformer "
+                                 "原生 hotword、识别后标准化和 ITN 保护；实时预览仅作反馈。");
   GtkWidget *toolbar = sui::make_button_row();
   GtkWidget *reload = gtk_button_new_with_label("重新载入");
   GtkWidget *save = gtk_button_new_with_label("验证并保存");

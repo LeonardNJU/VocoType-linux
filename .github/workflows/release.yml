@@ -78,6 +78,54 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
+
+  macos:
+    needs: validate-version
+    runs-on: macos-15
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/cache@v4
+        with:
+          path: src/.cache/native-streaming
+          key: macos-arm64-funasr-${{ hashFiles('VERSION', 'src/workers/funasr/build.sh', 'src/workers/funasr/funasr-toolchain-compat.patch', 'src/workers/funasr/funasr-bin-overlay.cmake') }}
+          restore-keys: |
+            macos-arm64-funasr-
+      - name: Install macOS native build dependencies
+        run: brew install cmake nlohmann-json openssl@3 portaudio pkg-config
+      - name: Build and verify the tested ad-hoc macOS arm64 DMG
+        env:
+          ALLOW_ADHOC_TEST: 1
+          JOBS: 3
+          CMAKE_PREFIX_PATH: /opt/homebrew/opt/openssl@3;/opt/homebrew/opt/nlohmann-json;/opt/homebrew/opt/portaudio
+          PKG_CONFIG_PATH: /opt/homebrew/opt/portaudio/lib/pkgconfig:/opt/homebrew/opt/openssl@3/lib/pkgconfig
+        run: |
+          packaging/macos/build-dmg.sh
+          dmg="dist/VoCoType-linux-${{ needs.validate-version.outputs.version }}-macOS-arm64.dmg"
+          test -f "$dmg"
+          hdiutil verify "$dmg"
+          mountpoint="$RUNNER_TEMP/vocotype-dmg"
+          mkdir -p "$mountpoint"
+          hdiutil attach "$dmg" -readonly -noverify -noautoopen -mountpoint "$mountpoint" >/dev/null
+          trap 'hdiutil detach "$mountpoint" >/dev/null 2>&1 || true' EXIT
+          test -d "$mountpoint/VoCoType-linux.app"
+          test -L "$mountpoint/Applications"
+          test -f "$mountpoint/.adhoc-test"
+          test -d "$mountpoint/VoCoType-linux.app/Contents/Resources/InputMethod/VoCoType-linux.app"
+          codesign --verify --deep --strict "$mountpoint/VoCoType-linux.app"
+          file "$mountpoint/VoCoType-linux.app/Contents/MacOS/VoCoTypeLinuxSettings" | grep -Fq 'arm64'
+          hdiutil detach "$mountpoint" >/dev/null
+          trap - EXIT
+          shasum -a 256 "$dmg"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos-arm64-dmg
+          path: dist/VoCoType-linux-*-macOS-arm64.dmg
+          if-no-files-found: error
+          compression-level: 0
+
   source-deb:
     needs: [validate-version, native-streaming]
     runs-on: ubuntu-22.04
@@ -243,7 +291,7 @@ jobs:
           compression-level: 0
 
   assemble:
-    needs: [validate-version, native-streaming, source-deb, rpm, arch]
+    needs: [validate-version, native-streaming, macos, source-deb, rpm, arch]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6

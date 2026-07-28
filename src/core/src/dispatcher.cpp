@@ -52,6 +52,9 @@ CoreDispatcher::CoreDispatcher(AppConfig config)
   if (offline_asr_.enabled()) {
     (void)offline_asr_.initialize();
   }
+  if (streaming_asr_.enabled()) {
+    (void)streaming_asr_.initialize();
+  }
 }
 
 Json CoreDispatcher::dispatch(const Json &request) const {

@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>VocoType Linux — Offline Voice Typing for Linux</title>
-  <meta name="description" content="A private, CPU-only Chinese speech input method for Linux with native IBus and Fcitx 5 integration.">
+  <title>VocoType Linux — Native Voice Typing for Linux and macOS</title>
+  <meta name="description" content="A private, CPU-first speech input tool for Linux and macOS with native InputMethodKit, IBus, and Fcitx 5 integration.">
   <meta name="author" content="Leonard Li">
   <meta name="robots" content="index,follow,max-image-preview:large">
   <meta name="theme-color" content="#0d151c">
@@ -21,8 +21,8 @@
   <link rel="manifest" href="site.webmanifest">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="VocoType Linux">
-  <meta property="og:title" content="VocoType Linux — Offline Voice Typing for Linux">
-  <meta property="og:description" content="A private, CPU-only Chinese speech input method for Linux with native IBus and Fcitx 5 integration.">
+  <meta property="og:title" content="VocoType Linux — Native Voice Typing for Linux and macOS">
+  <meta property="og:description" content="A private, CPU-first speech input tool for Linux and macOS with native InputMethodKit, IBus, and Fcitx 5 integration.">
   <meta property="og:url" content="https://vocotype-linux.lsamc.website/">
   <meta property="og:locale" content="en_US">
   <meta property="og:image" content="https://vocotype-linux.lsamc.website/og-image.png">
@@ -32,10 +32,10 @@
   <meta property="og:image:alt" content="VocoType Linux project card">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:creator" content="@LeonardNJU">
-  <meta name="twitter:title" content="VocoType Linux — Offline Voice Typing for Linux">
-  <meta name="twitter:description" content="A private, CPU-only Chinese speech input method for Linux with native IBus and Fcitx 5 integration.">
+  <meta name="twitter:title" content="VocoType Linux — Native Voice Typing for Linux and macOS">
+  <meta name="twitter:description" content="A private, CPU-first speech input tool for Linux and macOS with native InputMethodKit, IBus, and Fcitx 5 integration.">
   <meta name="twitter:image" content="https://vocotype-linux.lsamc.website/og-image.png">
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareSourceCode","name":"VocoType Linux","headline":"VocoType Linux — Offline Voice Typing for Linux","description":"A private, CPU-only Chinese speech input method for Linux with native IBus and Fcitx 5 integration.","url":"https://vocotype-linux.lsamc.website/","image":"https://vocotype-linux.lsamc.website/og-image.png","inLanguage":"en","author":{"@type":"Person","name":"Leonard Li","url":"https://lsamc.website/"},"publisher":{"@type":"Person","name":"Leonard Li","url":"https://lsamc.website/"},"codeRepository":"https://github.com/LeonardNJU/VocoType-linux","license":"https://github.com/LeonardNJU/VocoType-linux/blob/master/LICENSE","programmingLanguage":"Python"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareSourceCode","name":"VocoType Linux","headline":"VocoType Linux — Native Voice Typing for Linux and macOS","description":"A private, CPU-first speech input tool for Linux and macOS with native InputMethodKit, IBus, and Fcitx 5 integration.","url":"https://vocotype-linux.lsamc.website/","image":"https://vocotype-linux.lsamc.website/og-image.png","inLanguage":"en","author":{"@type":"Person","name":"Leonard Li","url":"https://lsamc.website/"},"publisher":{"@type":"Person","name":"Leonard Li","url":"https://lsamc.website/"},"codeRepository":"https://github.com/LeonardNJU/VocoType-linux","license":"https://github.com/LeonardNJU/VocoType-linux/blob/master/LICENSE","programmingLanguage":"C++"}</script>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -53,9 +53,9 @@
   <header class="hero" id="top">
     <div class="hero-inner">
       <div class="hero-copy">
-        <div class="eyebrow">Local speech input for Linux</div>
+        <div class="eyebrow">Local speech input for Linux and macOS</div>
         <h1>Speak. Type.<span class="hero-accent">Stay local.</span></h1>
-        <p class="hero-lead">VocoType turns push-to-talk into system-wide Chinese input—offline, CPU-only, and native to both IBus and Fcitx 5.</p>
+        <p class="hero-lead">VocoType-linux turns push-to-talk into system-wide Chinese input—offline, CPU-only, and native to macOS InputMethodKit, IBus, and Fcitx 5.</p>
         <div class="hero-actions">
           <a class="button primary" href="#demo">▶ Watch the demo</a>
           <a class="button secondary" href="https://github.com/LeonardNJU/VocoType-linux">View on GitHub ↗</a>
@@ -87,12 +87,12 @@
       <div class="section-inner">
         <div class="section-head">
           <div><p class="kicker">The desktop should listen locally</p><h2>Voice input without a cloud detour.</h2></div>
-          <p>Most voice typing tools are web services wrapped in a microphone button. VocoType is an actual Linux input method: it listens, transcribes, and commits text directly into the active application.</p>
+          <p>Most voice typing tools are web services wrapped in a microphone button. VocoType-linux is a native desktop input tool: it listens, transcribes, and commits text through the platform input stack.</p>
         </div>
         <div class="value-grid">
           <article class="value-card"><span class="num">01 / PRIVACY</span><h3>No uploads</h3><p>Recognition runs locally with FunASR Paraformer. Your voice, drafts, and surrounding text never need to leave the device.</p></article>
-          <article class="value-card"><span class="num">02 / NATIVE</span><h3>Works everywhere</h3><p>Chat windows, editors, browsers, terminals, and AI tools all receive text through the Linux input-method stack.</p></article>
-          <article class="value-card"><span class="num">03 / PRACTICAL</span><h3>CPU-first</h3><p>Designed for everyday desktops and laptops, with CPU inference, modest memory use, and no dedicated GPU requirement.</p></article>
+          <article class="value-card"><span class="num">02 / NATIVE</span><h3>Works everywhere</h3><p>Chat windows, editors, browsers, terminals, and AI tools receive text through the native platform input stack.</p></article>
+          <article class="value-card"><span class="num">03 / PRACTICAL</span><h3>CPU-first</h3><p>Designed for everyday Linux and Apple Silicon desktops and laptops, with CPU inference and no dedicated GPU requirement.</p></article>
         </div>
       </div>
     </section>
@@ -101,15 +101,15 @@
     <section class="news-section" id="news">
       <div class="section-inner">
         <div class="section-head">
-          <div><p class="kicker">What’s new</p><h2>V4.1.1 Beta 3 is available.</h2></div>
-          <p>This prerelease makes Fcitx shortcut persistence authoritative and separates shared settings from runtime-specific shortcut configuration.</p>
+          <div><p class="kicker">What’s new</p><h2>V5 Beta 4 is available.</h2></div>
+          <p>This prerelease adds a native Apple Silicon DMG while continuing to ship the full Linux Universal, IBus, and Fcitx 5 package set.</p>
         </div>
         <div class="news-layout">
           <div class="news-grid">
-            <a class="news-card" href="https://github.com/LeonardNJU/VocoType-linux/releases/tag/v4.1.1-beta.3">
-              <div class="news-meta"><span class="status shipped">RELEASED</span><time datetime="2026-07-24">JUL 24, 2026</time></div>
-              <h3>V4.1.1 Beta 3</h3>
-              <p>Fixes shortcut drift between the settings UI and Fcitx, clarifies configuration ownership, and silences harmless audio-probe noise.</p>
+            <a class="news-card" href="https://github.com/LeonardNJU/VocoType-linux/releases/tag/v5.0.0-beta.4">
+              <div class="news-meta"><span class="status shipped">RELEASED</span><time datetime="2026-07-29">JUL 29, 2026</time></div>
+              <h3>V5 Beta 4 · native macOS</h3>
+              <p>Adds a drag-to-Applications Apple Silicon DMG, an AppKit settings center, an InputMethodKit input method, and first-run lifecycle fixes.</p>
               <span class="card-link">Open the release →</span>
             </a>
             <a class="news-card" href="news.html#doctor-feedback">
@@ -145,7 +145,7 @@
           <article class="pipe-step"><div class="pipe-icon">01</div><h3>Hold the key</h3><p>Press F9 while speaking. Release it when the utterance is complete.</p></article>
           <article class="pipe-step"><div class="pipe-icon">02</div><h3>Capture + VAD</h3><p>Local audio capture and voice-activity detection isolate the speech segment.</p></article>
           <article class="pipe-step"><div class="pipe-icon">03</div><h3>Local ASR</h3><p>FunASR Paraformer transcribes Chinese and mixed Chinese–English speech on CPU.</p></article>
-          <article class="pipe-step"><div class="pipe-icon">04</div><h3>Commit</h3><p>IBus or Fcitx 5 inserts the final text into the focused application.</p></article>
+          <article class="pipe-step"><div class="pipe-icon">04</div><h3>Commit</h3><p>InputMethodKit, IBus, or Fcitx 5 inserts the final text into the focused application.</p></article>
         </div>
       </div>
     </section>
@@ -159,7 +159,7 @@
         <div class="modes">
           <article class="mode-card"><span class="mode-key">F9</span><h3>Fast dictation</h3><p>The shortest path from speech to text. No language-model post-processing and minimal latency.</p><span class="mode-note">ASR ONLY</span></article>
           <article class="mode-card"><span class="mode-key">Shift + F9</span><h3>Polished long-form</h3><p>Optionally routes longer utterances through a local or OpenAI-compatible SLM endpoint for punctuation and cleanup.</p><span class="mode-note">OPTIONAL SLM</span></article>
-          <article class="mode-card"><span class="mode-key">Ctrl + F9</span><h3>Voice editing</h3><p>On IBus or Fcitx 5, commands can replace, insert, delete, navigate, rewrite, undo, and redo using the active field’s surrounding text.</p><span class="mode-note">IBUS + FCITX 5</span></article>
+          <article class="mode-card"><span class="mode-key">Ctrl + F9</span><h3>Voice editing</h3><p>On IBus or Fcitx 5, commands can replace, insert, delete, navigate, rewrite, undo, and redo using the active field’s surrounding text.</p><span class="mode-note">MACOS + IBUS + FCITX 5</span></article>
         </div>
       </div>
     </section>
@@ -168,7 +168,7 @@
       <div class="section-inner">
         <div class="section-head">
           <div><p class="kicker">Real desktop workflow</p><h2>See voice typing become normal typing.</h2></div>
-          <p>The demo shows VocoType operating inside ordinary Linux applications rather than a dedicated transcription window.</p>
+          <p>The demo shows VocoType operating inside ordinary desktop applications rather than a dedicated transcription window.</p>
         </div>
         <div class="demo-shell">
           <video controls preload="metadata" poster="assets/vocotype-video-poster.png"><source src="assets/vocotype-demo.mp4" type="video/mp4">Your browser does not support HTML5 video.</video>
@@ -180,7 +180,7 @@
     <section class="voices-section" id="voices">
       <div class="section-inner">
         <div class="section-head">
-          <div><p class="kicker">From the Linux community</p><h2>What users are saying.</h2></div>
+          <div><p class="kicker">From the community</p><h2>What users are saying.</h2></div>
           <p>Comments from the public VocoType Linux discussion on Linux.do, translated from Chinese where needed.</p>
         </div>
         <div class="voices-grid">
@@ -206,10 +206,11 @@
     <section>
       <div class="section-inner">
         <div class="section-head">
-          <div><p class="kicker">Desktop integration</p><h2>Choose the Linux stack you already use.</h2></div>
+          <div><p class="kicker">Desktop integration</p><h2>Use the native stack your platform already provides.</h2></div>
           <p>The two front ends share the same recognition core while integrating with their native input-method protocols.</p>
         </div>
         <div class="frameworks">
+          <article class="framework"><div class="framework-top"><h3>macOS</h3><span class="badge">Native in V5</span></div><p>For Apple Silicon Macs running macOS 13 or newer.</p><ul><li>InputMethodKit Palette Input Method</li><li>Native AppKit settings center</li><li>Drag-to-Applications install and automatic upgrades</li></ul></article>
           <article class="framework"><div class="framework-top"><h3>IBus</h3><span class="badge">Full support</span></div><p>Best suited to GNOME and distributions where IBus is the default input framework.</p><ul><li>Native C++ IBus engine + librime</li><li>Fast and polished dictation</li><li>Voice editing with surrounding text</li></ul></article>
           <article class="framework"><div class="framework-top"><h3>Fcitx 5</h3><span class="badge">Full support</span></div><p>Designed for KDE and users who prefer the modular Fcitx 5 ecosystem.</p><ul><li>Global C++ Module + native Core</li><li>Fast dictation and live ASR preview</li><li>Voice editing with surrounding text</li></ul></article>
         </div>
@@ -219,7 +220,7 @@
     <section class="install-section" id="install">
       <div class="section-inner">
         <div class="section-head">
-          <div><p class="kicker">Package first, GUI after</p><h2>Install once. Configure visually.</h2></div>
+          <div><p class="kicker">Native release assets</p><h2>Drag on macOS. Install packages on Linux.</h2></div>
           <p>Native packages add the application and system integration. The settings center downloads and verifies models, configures audio, and installs or repairs IBus and Fcitx 5.</p>
         </div>
         <div class="install-grid">
@@ -235,12 +236,12 @@ sudo pacman -U ./vocotype-linux-*.pkg.tar.zst</pre><a class="install-link" href=
 <span class="prompt">$</span> cd VocoType-linux
 <span class="prompt">$</span> bash scripts/install/fcitx5/install.sh --install-system-deps --download-models</pre><a class="install-link" href="docs/getting-started/installation/">Open the installation guide →</a></article>
         </div>
-        <p class="requirements">Linux · C++20/CMake toolchain for source builds · 4 GB RAM minimum · CPU-only inference · no Python runtime</p>
+        <p class="requirements">macOS 13+ on Apple Silicon or mainstream Linux · 4 GB RAM minimum · CPU-only inference · no Python runtime</p>
       </div>
     </section>
   </main>
 
-  <section class="final-cta"><div class="final-inner"><h2>Make private voice input a first-class Linux feature.</h2><div class="final-actions"><a class="button" href="docs/">Read the docs</a><a class="button outline" href="https://github.com/LeonardNJU/VocoType-linux">Open GitHub ↗</a></div></div></section>
-  <footer><div class="footer-inner"><span>© 2025–2026 <a href="https://lsamc.website">Leonard Li</a></span><span>VocoType Linux · open-source offline speech input · <a href="https://github.com/LeonardNJU/VocoType-linux/blob/master/LICENSE">GNU GPL v3.0</a></span></div></footer>
+  <section class="final-cta"><div class="final-inner"><h2>Make private voice input a first-class desktop feature.</h2><div class="final-actions"><a class="button" href="docs/">Read the docs</a><a class="button outline" href="https://github.com/LeonardNJU/VocoType-linux">Open GitHub ↗</a></div></div></section>
+  <footer><div class="footer-inner"><span>© 2025–2026 <a href="https://lsamc.website">Leonard Li</a></span><span>VocoType Linux · open-source local speech input for Linux and macOS · <a href="https://github.com/LeonardNJU/VocoType-linux/blob/master/LICENSE">GNU GPL v3.0</a></span></div></footer>
 </body>
 </html>

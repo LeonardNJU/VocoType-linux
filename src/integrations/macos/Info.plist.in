@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
+  <key>CFBundleDisplayName</key><string>VoCoType-linux</string>
+  <key>CFBundleExecutable</key><string>VoCoTypeLinuxInputMethod</string>
+  <key>CFBundleIdentifier</key><string>io.github.LeonardNJU.VoCoTypeLinux.InputMethod</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleName</key><string>VoCoType-linux</string>
+  <key>CFBundleIconFile</key><string>VoCoType-linux.icns</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>@VOCOTYPE_MARKETING_VERSION@</string>
+  <key>CFBundleVersion</key><string>@VOCOTYPE_BUNDLE_VERSION@</string>
+  <key>VoCoTypeFullVersion</key><string>@VOCOTYPE_VERSION@</string>
+  <key>CFBundleSignature</key><string>????</string>
+  <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>CFBundleSupportedPlatforms</key><array><string>MacOSX</string></array>
+  <key>LSBackgroundOnly</key><true/>
+  <key>NSSupportsSuddenTermination</key><true/>
+  <key>NSPrincipalClass</key><string>NSApplication</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>VoCoType-linux 需要访问麦克风来完成本地语音识别和语音编辑。</string>
+
+  <key>InputMethodConnectionName</key><string>VoCoTypeLinux_InputMethod_Connection</string>
+  <key>InputMethodServerControllerClass</key><string>VocoTypeInputController</string>
+  <key>InputMethodType</key><string>palette</string>
+  <key>TISInputSourceID</key><string>io.github.LeonardNJU.VoCoTypeLinux.InputMethod</string>
+  <key>tsInputMethodIconFileKey</key><string>VoCoType-linux.png</string>
+  <key>tsInputMethodCharacterRepertoireKey</key>
+  <array>
+    <string>zh</string>
+    <string>en</string>
+  </array>
+</dict>
+</plist>

@@ -12,9 +12,10 @@ ARCH=$(vocotype_version_field "$VERSION" arch)
 RPM_VERSION=$(vocotype_version_field "$VERSION" rpm_version)
 RPM_RELEASE=$(vocotype_version_field "$VERSION" rpm_release)
 mapfile -t files < <(find "$ASSET_ROOT" -maxdepth 1 -type f -printf '%f\n' | sort)
-[[ ${#files[@]} -eq 10 ]] || { echo "Expected 9 installers and SHA256SUMS, got ${#files[@]}" >&2; printf '%s\n' "${files[@]}" >&2; exit 1; }
+[[ ${#files[@]} -eq 11 ]] || { echo "Expected 10 installers and SHA256SUMS, got ${#files[@]}" >&2; printf '%s\n' "${files[@]}" >&2; exit 1; }
 [[ -f "$ASSET_ROOT/SHA256SUMS" ]] || { echo "SHA256SUMS missing" >&2; exit 1; }
 packages=(vocotype-linux vocotype-linux-ibus vocotype-linux-fcitx5)
+[[ -f "$ASSET_ROOT/VoCoType-linux-${VERSION}-macOS-arm64.dmg" ]] || { echo "Missing macOS arm64 DMG" >&2; exit 1; }
 for package in "${packages[@]}"; do
   [[ -f "$ASSET_ROOT/${package}_${DEB}-1_amd64.deb" ]] || { echo "Missing DEB for $package" >&2; exit 1; }
   [[ -f "$ASSET_ROOT/${package}-${ARCH}-1-x86_64.pkg.tar.zst" ]] || { echo "Missing Arch package for $package" >&2; exit 1; }
@@ -24,5 +25,5 @@ done
 if find "$ASSET_ROOT" -maxdepth 1 -type f -name '*.src.rpm' -print -quit | grep -q .; then echo "Source RPM forbidden" >&2; exit 1; fi
 (cd "$ASSET_ROOT" && sha256sum -c SHA256SUMS)
 checksum_count=$(wc -l < "$ASSET_ROOT/SHA256SUMS")
-[[ $checksum_count -eq 9 ]] || { echo "Checksum set must contain 9 installers" >&2; exit 1; }
-echo "FINAL_RELEASE_INSTALLERS_OK files=10"
+[[ $checksum_count -eq 10 ]] || { echo "Checksum set must contain 10 installers" >&2; exit 1; }
+echo "FINAL_RELEASE_INSTALLERS_OK files=11"

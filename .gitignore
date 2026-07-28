@@ -27,3 +27,6 @@ web/docs/
 
 .cache/
 .tmp/
+.local-shell-mcp/
+.transfer/
+develop/

@@ -115,7 +115,7 @@ Json default_config_json() {
            {"idle_timeout_s", 30},
            {"session_idle_timeout_s", 15},
            {"startup_timeout_s", 180},
-           {"request_timeout_s", 2},
+           {"request_timeout_s", 8},
            {"max_preview_chunk_bytes", 128 * 1024},
        }},
       {"slm",
@@ -236,7 +236,7 @@ AppConfig parse_config(const Json &value) {
   config.streaming_asr.startup_timeout_ms = seconds_to_ms(
       value_or<double>(streaming, "startup_timeout_s", 180.0), 180000);
   config.streaming_asr.request_timeout_ms = seconds_to_ms(
-      value_or<double>(streaming, "request_timeout_s", 2.0), 2000);
+      value_or<double>(streaming, "request_timeout_s", 8.0), 8000);
   config.streaming_asr.max_preview_chunk_bytes =
       positive_size(streaming, "max_preview_chunk_bytes",
                     config.streaming_asr.max_preview_chunk_bytes);

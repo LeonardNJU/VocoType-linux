@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
+  <key>CFBundleDisplayName</key><string>VoCoType-linux</string>
+  <key>CFBundleExecutable</key><string>VoCoTypeLinuxSettings</string>
+  <key>CFBundleIdentifier</key><string>io.github.LeonardNJU.VoCoTypeLinux.Settings</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleName</key><string>VoCoType-linux</string>
+  <key>CFBundleIconFile</key><string>VoCoType-linux.icns</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>@VOCOTYPE_MARKETING_VERSION@</string>
+  <key>CFBundleVersion</key><string>@VOCOTYPE_BUNDLE_VERSION@</string>
+  <key>VoCoTypeFullVersion</key><string>@VOCOTYPE_VERSION@</string>
+  <key>CFBundleSupportedPlatforms</key><array><string>MacOSX</string></array>
+  <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>VoCoType-linux 需要访问麦克风，以便在 Playground 中录音、回放并测试真实语音识别与语音编辑。</string>
+  <key>NSPrincipalClass</key><string>NSApplication</string>
+</dict>
+</plist>

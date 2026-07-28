@@ -62,4 +62,19 @@ if(BUILD_TESTING)
             $<TARGET_FILE:vocotype-fake-streaming-worker>
             $<TARGET_FILE:vocotype-fake-offline-worker>
     )
+
+    add_executable(vocotype-core-single-instance-tests
+        tests/core_single_instance_test.cpp
+    )
+    target_compile_features(vocotype-core-single-instance-tests PRIVATE cxx_std_20)
+    target_link_libraries(vocotype-core-single-instance-tests
+        PRIVATE nlohmann_json::nlohmann_json ${CMAKE_DL_LIBS}
+    )
+    add_test(
+        NAME vocotype-core-single-instance-tests
+        COMMAND vocotype-core-single-instance-tests
+            $<TARGET_FILE:vocotype-core>
+            $<TARGET_FILE:vocotype-fake-streaming-worker>
+            $<TARGET_FILE:vocotype-fake-offline-worker>
+    )
 endif()

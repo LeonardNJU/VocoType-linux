@@ -45,6 +45,7 @@ add_library(vocotype_desktop_common
     src/fcitx_profile.cpp
     src/ipc.cpp
     src/recorder_process.cpp
+    src/streaming_preview.cpp
     src/wav.cpp
 )
 target_include_directories(vocotype_desktop_common PUBLIC
@@ -54,6 +55,20 @@ target_include_directories(vocotype_desktop_common PUBLIC
 target_compile_features(vocotype_desktop_common PUBLIC cxx_std_20)
 target_compile_options(vocotype_desktop_common PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 target_link_libraries(vocotype_desktop_common PUBLIC Threads::Threads nlohmann_json::nlohmann_json PkgConfig::PORTAUDIO ${CMAKE_DL_LIBS})
+
+add_library(vocotype_settings_backend src/settings_backend.cpp)
+target_include_directories(vocotype_settings_backend PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common/include
+)
+target_compile_features(vocotype_settings_backend PUBLIC cxx_std_20)
+target_compile_definitions(vocotype_settings_backend PRIVATE VOCOTYPE_VERSION="${VOCOTYPE_VERSION}")
+target_compile_options(vocotype_settings_backend PRIVATE
+  -Wall -Wextra -Wpedantic -Wconversion -Wshadow
+)
+target_link_libraries(vocotype_settings_backend PUBLIC
+  vocotype_desktop_common CURL::libcurl
+)
 
 add_executable(vocotype-audio-recorder src/audio_recorder_main.cpp)
 target_link_libraries(vocotype-audio-recorder PRIVATE vocotype_desktop_common)
@@ -67,7 +82,7 @@ if(VOCOTYPE_BUILD_SETTINGS)
     src/settings_ui.cpp
   )
   target_compile_definitions(vocotype-settings PRIVATE VOCOTYPE_VERSION="${VOCOTYPE_VERSION}")
-  target_link_libraries(vocotype-settings PRIVATE vocotype_desktop_common vocotype_desktop_hotkey PkgConfig::GTK3 CURL::libcurl)
+  target_link_libraries(vocotype-settings PRIVATE vocotype_desktop_common vocotype_settings_backend vocotype_desktop_hotkey PkgConfig::GTK3 CURL::libcurl)
   if(TARGET PkgConfig::GDKX11 AND TARGET PkgConfig::X11)
     target_compile_definitions(vocotype-settings PRIVATE VOCOTYPE_HAVE_GDK_X11=1)
     target_link_libraries(vocotype-settings PRIVATE PkgConfig::GDKX11 PkgConfig::X11)
@@ -101,4 +116,45 @@ if(BUILD_TESTING)
   add_executable(vocotype-desktop-tests tests/desktop_tests.cpp)
   target_link_libraries(vocotype-desktop-tests PRIVATE vocotype_desktop_common vocotype_desktop_hotkey)
   add_test(NAME vocotype-desktop-tests COMMAND vocotype-desktop-tests)
+
+  add_executable(vocotype-settings-backend-tests
+    tests/settings_backend_tests.cpp
+  )
+  target_link_libraries(vocotype-settings-backend-tests PRIVATE
+    vocotype_settings_backend
+  )
+  add_test(NAME vocotype-settings-backend-tests
+           COMMAND vocotype-settings-backend-tests)
+
+  add_executable(vocotype-streaming-preview-tests
+    tests/streaming_preview_tests.cpp
+  )
+  target_link_libraries(vocotype-streaming-preview-tests PRIVATE
+    vocotype_desktop_common
+  )
+  add_test(NAME vocotype-streaming-preview-tests
+           COMMAND vocotype-streaming-preview-tests)
+
+
+  add_executable(vocotype-ipc-quick-response-tests
+    tests/ipc_quick_response_tests.cpp
+  )
+  target_link_libraries(vocotype-ipc-quick-response-tests PRIVATE
+    vocotype_desktop_common
+  )
+  add_test(NAME vocotype-ipc-quick-response-tests
+           COMMAND vocotype-ipc-quick-response-tests)
+
+  add_executable(vocotype-fake-slow-preview-recorder
+    tests/fake_slow_preview_recorder.cpp
+  )
+  add_executable(vocotype-recorder-fast-stop-tests
+    tests/recorder_process_fast_stop_tests.cpp
+  )
+  target_link_libraries(vocotype-recorder-fast-stop-tests PRIVATE
+    vocotype_desktop_common
+  )
+  add_test(NAME vocotype-recorder-fast-stop
+           COMMAND vocotype-recorder-fast-stop-tests
+                   $<TARGET_FILE:vocotype-fake-slow-preview-recorder>)
 endif()

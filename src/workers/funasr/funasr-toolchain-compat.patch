@@ -62,3 +62,27 @@
 
  install(TARGETS fst
    LIBRARY DESTINATION lib
+--- a/include/offline-stream.h
++++ b/include/offline-stream.h
+@@ -9,0 +10 @@
++#include "com-define.h"
+@@ -12 +12,0 @@
+-#include "com-define.h"
+--- a/include/tpass-stream.h
++++ b/include/tpass-stream.h
+@@ -9,0 +10 @@
++#include "com-define.h"
+--- a/third_party/jieba/include/limonp/StringUtil.hpp
++++ b/third_party/jieba/include/limonp/StringUtil.hpp
+@@ -89 +89 @@
+-#if defined(_MSC_VER) && _MSC_VER >= 1910
++#if __cplusplus >= 201103L
+@@ -101 +101 @@
+-#if defined(_MSC_VER) && _MSC_VER >= 1910
++#if __cplusplus >= 201103L
+@@ -118 +118 @@
+-#if defined(_MSC_VER) && _MSC_VER >= 1910
++#if __cplusplus >= 201103L
+@@ -128 +128 @@
+-#if defined(_MSC_VER) && _MSC_VER >= 1910
++#if __cplusplus >= 201103L

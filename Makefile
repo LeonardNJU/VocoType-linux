@@ -1,4 +1,4 @@
-.PHONY: test cpp-core cpp-core-test desktop-test release package-deb package-rpm package-arch package-stage clean
+.PHONY: test cpp-core cpp-core-test desktop-test release package-deb package-rpm package-arch package-macos package-stage clean
 
 test:
 	scripts/test/native.sh
@@ -31,6 +31,9 @@ package-rpm:
 
 package-arch:
 	packaging/scripts/build-arch.sh
+
+package-macos:
+	packaging/macos/build-dmg.sh
 
 clean:
 	rm -rf build dist

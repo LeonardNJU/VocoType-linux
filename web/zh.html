@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>VocoType Linux —— Linux 本地离线语音输入法</title>
-  <meta name="description" content="面向 Linux 的本地离线中文语音输入法，纯 CPU 运行，原生支持 IBus 与 Fcitx 5。">
+  <title>VocoType Linux —— Linux 与 macOS 本地语音输入</title>
+  <meta name="description" content="面向 Linux 与 macOS 的本地中文语音输入工具，纯 CPU 运行，原生支持 InputMethodKit、IBus 与 Fcitx 5。">
   <meta name="author" content="Leonard Li">
   <meta name="robots" content="index,follow,max-image-preview:large">
   <meta name="theme-color" content="#0d151c">
@@ -21,8 +21,8 @@
   <link rel="manifest" href="site.webmanifest">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="VocoType Linux">
-  <meta property="og:title" content="VocoType Linux —— Linux 本地离线语音输入法">
-  <meta property="og:description" content="面向 Linux 的本地离线中文语音输入法，纯 CPU 运行，原生支持 IBus 与 Fcitx 5。">
+  <meta property="og:title" content="VocoType Linux —— Linux 与 macOS 本地语音输入">
+  <meta property="og:description" content="面向 Linux 与 macOS 的本地中文语音输入工具，纯 CPU 运行，原生支持 InputMethodKit、IBus 与 Fcitx 5。">
   <meta property="og:url" content="https://vocotype-linux.lsamc.website/zh.html">
   <meta property="og:locale" content="zh_CN">
   <meta property="og:image" content="https://vocotype-linux.lsamc.website/og-image.png">
@@ -32,10 +32,10 @@
   <meta property="og:image:alt" content="VocoType Linux project card">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:creator" content="@LeonardNJU">
-  <meta name="twitter:title" content="VocoType Linux —— Linux 本地离线语音输入法">
-  <meta name="twitter:description" content="面向 Linux 的本地离线中文语音输入法，纯 CPU 运行，原生支持 IBus 与 Fcitx 5。">
+  <meta name="twitter:title" content="VocoType Linux —— Linux 与 macOS 本地语音输入">
+  <meta name="twitter:description" content="面向 Linux 与 macOS 的本地中文语音输入工具，纯 CPU 运行，原生支持 InputMethodKit、IBus 与 Fcitx 5。">
   <meta name="twitter:image" content="https://vocotype-linux.lsamc.website/og-image.png">
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareSourceCode","name":"VocoType Linux","headline":"VocoType Linux —— Linux 本地离线语音输入法","description":"面向 Linux 的本地离线中文语音输入法，纯 CPU 运行，原生支持 IBus 与 Fcitx 5。","url":"https://vocotype-linux.lsamc.website/zh.html","image":"https://vocotype-linux.lsamc.website/og-image.png","inLanguage":"zh-CN","author":{"@type":"Person","name":"Leonard Li","url":"https://lsamc.website/"},"publisher":{"@type":"Person","name":"Leonard Li","url":"https://lsamc.website/"},"codeRepository":"https://github.com/LeonardNJU/VocoType-linux","license":"https://github.com/LeonardNJU/VocoType-linux/blob/master/LICENSE","programmingLanguage":"Python"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareSourceCode","name":"VocoType Linux","headline":"VocoType Linux —— Linux 与 macOS 本地语音输入","description":"面向 Linux 与 macOS 的本地中文语音输入工具，纯 CPU 运行，原生支持 InputMethodKit、IBus 与 Fcitx 5。","url":"https://vocotype-linux.lsamc.website/zh.html","image":"https://vocotype-linux.lsamc.website/og-image.png","inLanguage":"zh-CN","author":{"@type":"Person","name":"Leonard Li","url":"https://lsamc.website/"},"publisher":{"@type":"Person","name":"Leonard Li","url":"https://lsamc.website/"},"codeRepository":"https://github.com/LeonardNJU/VocoType-linux","license":"https://github.com/LeonardNJU/VocoType-linux/blob/master/LICENSE","programmingLanguage":"C++"}</script>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -53,9 +53,9 @@
   <header class="hero" id="top">
     <div class="hero-inner">
       <div class="hero-copy">
-        <div class="eyebrow">Linux 本地语音输入</div>
+        <div class="eyebrow">Linux 与 macOS 本地语音输入</div>
         <h1>说出来，直接输入。<span class="hero-accent">始终留在本地。</span></h1>
-        <p class="hero-lead">VocoType 把按键说话变成真正的系统级中文输入：完全离线、纯 CPU 运行，并原生接入 IBus 与 Fcitx 5。</p>
+        <p class="hero-lead">VocoType-linux 把按键说话变成真正的系统级中文输入：完全离线、纯 CPU 运行，并原生接入 macOS InputMethodKit、IBus 与 Fcitx 5。</p>
         <div class="hero-actions">
           <a class="button primary" href="#demo">▶ 查看演示</a>
           <a class="button secondary" href="https://github.com/LeonardNJU/VocoType-linux">前往 GitHub ↗</a>
@@ -64,7 +64,7 @@
       <div class="hero-visual" aria-label="VocoType 桌面预览">
         <div class="window">
           <div class="window-bar"><span class="dots"><i></i><i></i><i></i></span><span>vocotype://local-input</span></div>
-          <img src="assets/vocotype-demo.png" alt="VocoType 在 Linux 桌面中运行">
+          <img src="assets/vocotype-demo.png" alt="VocoType-linux 在桌面应用中运行">
           <div class="window-overlay"><div class="waveform"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="rec-label">正在聆听</div></div>
         </div>
         <div class="key-stack">
@@ -78,7 +78,7 @@
       <div class="metric"><div><span class="metric-value">100</span><span class="metric-unit">% 离线</span></div><p>音频和文本始终留在本机。</p></div>
       <div class="metric"><div><span class="metric-value">~0.1</span><span class="metric-unit">秒响应</span></div><p>识别完成后快速提交文字。</p></div>
       <div class="metric"><div><span class="metric-value">~700</span><span class="metric-unit">MB</span></div><p>ASR 峰值内存，无需独立显卡。</p></div>
-      <div class="metric"><div><span class="metric-value">2</span><span class="metric-unit">套框架</span></div><p>原生支持 IBus 与 Fcitx 5。</p></div>
+      <div class="metric"><div><span class="metric-value">3</span><span class="metric-unit">套原生集成</span></div><p>InputMethodKit、IBus 与 Fcitx 5。</p></div>
     </div>
   </header>
 
@@ -87,12 +87,12 @@
       <div class="section-inner">
         <div class="section-head">
           <div><p class="kicker">桌面应当在本地听懂你</p><h2>语音输入，不必绕道云端。</h2></div>
-          <p>很多语音输入只是网页服务外面套了一个麦克风按钮。VocoType 是真正的 Linux 输入法：在本地录音、识别，并把文字直接提交到当前应用。</p>
+          <p>很多语音输入只是网页服务外面套了一个麦克风按钮。VocoType-linux 是真正的桌面输入工具：在本地录音、识别，并通过平台原生输入框架把文字直接提交到当前应用。</p>
         </div>
         <div class="value-grid">
           <article class="value-card"><span class="num">01 / 隐私</span><h3>不上传任何数据</h3><p>FunASR Paraformer 在本机完成识别；声音、草稿和输入框上下文都无需离开设备。</p></article>
-          <article class="value-card"><span class="num">02 / 原生</span><h3>几乎处处可用</h3><p>聊天窗口、编辑器、浏览器、终端与 AI 工具，都通过 Linux 输入法框架接收文字。</p></article>
-          <article class="value-card"><span class="num">03 / 实用</span><h3>为 CPU 设计</h3><p>面向普通 Linux 台式机与笔记本优化，内存占用适中，不要求独立显卡。</p></article>
+          <article class="value-card"><span class="num">02 / 原生</span><h3>几乎处处可用</h3><p>聊天窗口、编辑器、浏览器、终端与 AI 工具，都通过平台原生输入框架接收文字。</p></article>
+          <article class="value-card"><span class="num">03 / 实用</span><h3>为 CPU 设计</h3><p>面向普通 Linux 与 Apple Silicon 笔记本、台式机优化，内存占用适中，不要求独立显卡。</p></article>
         </div>
       </div>
     </section>
@@ -101,15 +101,15 @@
     <section class="news-section" id="news">
       <div class="section-inner">
         <div class="section-head">
-          <div><p class="kicker">最新进展</p><h2>V4.1.1 Beta 3 已发布。</h2></div>
-          <p>本次预发布让 Fcitx 快捷键真正保存到唯一持久配置，并拆分共享配置与 IBus 专属配置。</p>
+          <div><p class="kicker">最新进展</p><h2>V5 Beta 4 已发布。</h2></div>
+          <p>本次预发布首次提供原生 macOS Apple Silicon DMG，并继续完整发布 Linux Universal、IBus 与 Fcitx 5 软件包。</p>
         </div>
         <div class="news-layout">
           <div class="news-grid">
-            <a class="news-card" href="https://github.com/LeonardNJU/VocoType-linux/releases/tag/v4.1.1-beta.3">
-              <div class="news-meta"><span class="status shipped">已发布</span><time datetime="2026-07-24">2026.07.24</time></div>
-              <h3>V4.1.1 Beta 3</h3>
-              <p>修复快捷键界面值与 Fcitx 实际值漂移，收敛配置职责，并清理设置启动时的音频探测噪声。</p>
+            <a class="news-card" href="https://github.com/LeonardNJU/VocoType-linux/releases/tag/v5.0.0-beta.4">
+              <div class="news-meta"><span class="status shipped">已发布</span><time datetime="2026-07-29">2026.07.29</time></div>
+              <h3>V5 Beta 4 · macOS 原生版</h3>
+              <p>新增拖入 Applications 的 Apple Silicon DMG、AppKit 设置中心、InputMethodKit 输入法，并修复首次安装与浮层生命周期竞态。</p>
               <span class="card-link">前往 Release →</span>
             </a>
             <a class="news-card" href="zh-news.html#doctor-feedback">
@@ -145,7 +145,7 @@
           <article class="pipe-step"><div class="pipe-icon">01</div><h3>按住说话</h3><p>按住 F9 开始说话，内容说完后松开按键。</p></article>
           <article class="pipe-step"><div class="pipe-icon">02</div><h3>录音与 VAD</h3><p>本地采集音频，并通过语音活动检测提取有效语段。</p></article>
           <article class="pipe-step"><div class="pipe-icon">03</div><h3>本地 ASR</h3><p>FunASR Paraformer 在 CPU 上识别中文和中英混合语音。</p></article>
-          <article class="pipe-step"><div class="pipe-icon">04</div><h3>提交文本</h3><p>IBus 或 Fcitx 5 把最终结果写入当前获得焦点的应用。</p></article>
+          <article class="pipe-step"><div class="pipe-icon">04</div><h3>提交文本</h3><p>InputMethodKit、IBus 或 Fcitx 5 把最终结果写入当前获得焦点的应用。</p></article>
         </div>
       </div>
     </section>
@@ -159,7 +159,7 @@
         <div class="modes">
           <article class="mode-card"><span class="mode-key">F9</span><h3>极速听写</h3><p>从语音到文字的最短路径，不经过语言模型后处理，尽可能降低延迟。</p><span class="mode-note">仅 ASR</span></article>
           <article class="mode-card"><span class="mode-key">Shift + F9</span><h3>长句润色</h3><p>可将较长的识别结果交给本地模型或 OpenAI 兼容接口，补标点并清理表达。</p><span class="mode-note">可选 SLM</span></article>
-          <article class="mode-card"><span class="mode-key">Ctrl + F9</span><h3>语音编辑</h3><p>IBus 与 Fcitx 5 均可读取输入框上下文，通过语音完成替换、插入、删除、导航、改写和撤销重做。</p><span class="mode-note">IBUS + FCITX 5</span></article>
+          <article class="mode-card"><span class="mode-key">Ctrl + F9</span><h3>语音编辑</h3><p>macOS、IBus 与 Fcitx 5 均可读取兼容输入框上下文，通过语音完成替换、插入、删除、导航、改写和撤销重做。</p><span class="mode-note">MACOS + IBUS + FCITX 5</span></article>
         </div>
       </div>
     </section>
@@ -206,10 +206,11 @@
     <section>
       <div class="section-inner">
         <div class="section-head">
-          <div><p class="kicker">桌面框架集成</p><h2>沿用你本来就在使用的 Linux 输入栈。</h2></div>
-          <p>两个前端共享同一套语音识别核心，同时分别遵循各自输入法框架的原生协议。</p>
+          <div><p class="kicker">桌面框架集成</p><h2>沿用平台原生输入栈。</h2></div>
+          <p>三个原生前端共享同一套语音识别核心，同时分别遵循 InputMethodKit、IBus 与 Fcitx 5 的协议。</p>
         </div>
         <div class="frameworks">
+          <article class="framework"><div class="framework-top"><h3>macOS</h3><span class="badge">V5 原生支持</span></div><p>适合 Apple Silicon、macOS 13 或更高版本。</p><ul><li>InputMethodKit Palette Input Method</li><li>AppKit 原生设置中心</li><li>拖入 Applications 后自动安装与升级</li></ul></article>
           <article class="framework"><div class="framework-top"><h3>IBus</h3><span class="badge">完整支持</span></div><p>适合 GNOME，以及默认采用 IBus 的 Linux 发行版。</p><ul><li>原生 C++ IBus 引擎 + librime</li><li>极速与润色听写</li><li>基于输入框上下文的语音编辑</li></ul></article>
           <article class="framework"><div class="framework-top"><h3>Fcitx 5</h3><span class="badge">完整支持</span></div><p>适合 KDE，以及偏好模块化 Fcitx 5 生态的用户。</p><ul><li>全局 C++ Module + 原生 Core</li><li>极速听写与实时 ASR 预览</li><li>基于 surrounding text 的语音编辑</li></ul></article>
         </div>
@@ -219,11 +220,14 @@
     <section class="install-section" id="install">
       <div class="section-inner">
         <div class="section-head">
-          <div><p class="kicker">先装软件包，再用 GUI</p><h2>安装一次，图形化完成配置。</h2></div>
-          <p>原生软件包安装应用和系统集成；设置中心随后校验并下载模型、配置音频，并安装或修复 IBus 与 Fcitx 5。</p>
+          <div><p class="kicker">原生发行资产</p><h2>macOS 拖拽安装，Linux 软件包安装。</h2></div>
+          <p>macOS 将 App 拖入 Applications 后自动安装输入法；Linux 原生包安装应用与系统集成。两端都在设置中心完成模型、音频、AI 与词典配置。</p>
         </div>
         <div class="install-grid">
-          <article class="install-card"><div class="install-title"><strong>原生软件包</strong><span>推荐</span></div><pre><span class="prompt">#</span> Debian / Ubuntu
+          <article class="install-card"><div class="install-title"><strong>macOS Apple Silicon</strong><span>V5 Beta 4</span></div><pre><span class="prompt">1.</span> 下载 VoCoType-linux-5.0.0b4-macOS-arm64.dmg
+<span class="prompt">2.</span> 拖入 Applications
+<span class="prompt">3.</span> 首次启动自动安装 InputMethodKit 组件</pre><a class="install-link" href="https://github.com/LeonardNJU/VocoType-linux/releases/tag/v5.0.0-beta.4">下载 macOS DMG →</a></article>
+          <article class="install-card"><div class="install-title"><strong>Linux 原生软件包</strong><span>推荐</span></div><pre><span class="prompt">#</span> Debian / Ubuntu
 sudo apt install ./vocotype-linux_*.deb
 
 <span class="prompt">#</span> Fedora / RHEL
@@ -235,12 +239,12 @@ sudo pacman -U ./vocotype-linux-*.pkg.tar.zst</pre><a class="install-link" href=
 <span class="prompt">$</span> cd VocoType-linux
 <span class="prompt">$</span> bash scripts/install/fcitx5/install.sh --install-system-deps --download-models</pre><a class="install-link" href="docs/getting-started/installation/">查看完整安装文档 →</a></article>
         </div>
-        <p class="requirements">Linux · 源码构建需要 C++20/CMake 工具链 · 最低 4 GB 内存 · 纯 CPU 推理 · 运行时不需要 Python</p>
+        <p class="requirements">macOS 13+ Apple Silicon 或主流 Linux · 最低 4 GB 内存 · 纯 CPU 推理 · 运行时不需要 Python</p>
       </div>
     </section>
   </main>
 
-  <section class="final-cta"><div class="final-inner"><h2>让私密的语音输入，成为 Linux 的一等功能。</h2><div class="final-actions"><a class="button" href="docs/">阅读文档</a><a class="button outline" href="https://github.com/LeonardNJU/VocoType-linux">打开 GitHub ↗</a></div></div></section>
-  <footer><div class="footer-inner"><span>© 2025–2026 <a href="https://lsamc.website">Leonard Li</a></span><span>VocoType Linux · 开源离线语音输入法 · <a href="https://github.com/LeonardNJU/VocoType-linux/blob/master/LICENSE">GNU GPL v3.0</a></span></div></footer>
+  <section class="final-cta"><div class="final-inner"><h2>让私密的语音输入，成为桌面系统的一等功能。</h2><div class="final-actions"><a class="button" href="docs/">阅读文档</a><a class="button outline" href="https://github.com/LeonardNJU/VocoType-linux">打开 GitHub ↗</a></div></div></section>
+  <footer><div class="footer-inner"><span>© 2025–2026 <a href="https://lsamc.website">Leonard Li</a></span><span>VocoType Linux · Linux 与 macOS 开源本地语音输入 · <a href="https://github.com/LeonardNJU/VocoType-linux/blob/master/LICENSE">GNU GPL v3.0</a></span></div></footer>
 </body>
 </html>

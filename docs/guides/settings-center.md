@@ -1,12 +1,16 @@
 # VoCoType 图形设置中心
 
-`vocotype-settings` 是编译后的 GTK 3/C++ 程序。它直接读写统一配置、调用 native core、管理输入法集成，并提供完整的录音、回放、诊断和反馈界面。
+VoCoType-linux提供两套原生设置前端：Linux上的 GTK 3/C++ `vocotype-settings`，以及 macOS上的 AppKit `VoCoType-linux.app`。它们直接读写统一配置、调用 native Core、管理平台输入法集成，并提供录音、模型、AI、用户词典、诊断和教程界面。
 
 ## 启动
+
+Linux：
 
 ```bash
 vocotype-settings
 ```
+
+macOS：从 `/Applications`打开 **VoCoType-linux**。首次启动还会安装或升级内置 InputMethodKit组件。
 
 源码树可先运行对应安装器：
 
@@ -39,9 +43,9 @@ bash scripts/install/ibus/install.sh --install-system-deps --download-models
 
 保存后配置写入 `~/.config/vocotype/` 和 `~/.config/fcitx5/conf/vocotype.conf`。
 
-## ITN 与术语
+## ITN与术语
 
-ITN 页直接调用 C++ core 预览数字、日期、时间、距离和金额格式。术语页编辑 `~/.config/vocotype/terms.yaml`，保存前使用 Core 与设置中心共用的原生解析器验证；术语同时参与热词、alias canonicalization 与后续格式保护。
+ITN页直接调用 C++ Core预览数字、日期、时间、距离和金额格式。用户词典页提供图形化新增热词、aliases与保护词，支持 YAML导入、外部批量修改后的热更新，以及 Finder / 文件管理器定位。所有写入先验证再原子替换；术语同时参与热词、alias canonicalization与后续格式保护。
 
 ## AI 润色与语音编辑
 

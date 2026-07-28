@@ -55,7 +55,7 @@ const std::string &UnixJsonServer::socket_path() const noexcept {
   return config_.socket_path;
 }
 
-void UnixJsonServer::cleanup_socket_path() const {
+void UnixJsonServer::cleanup_socket_path() {
   struct stat status{};
   if (::lstat(config_.socket_path.c_str(), &status) != 0) {
     if (errno == ENOENT) {
@@ -67,9 +67,16 @@ void UnixJsonServer::cleanup_socket_path() const {
     throw std::runtime_error("socket path exists and is not a socket: " +
                              config_.socket_path);
   }
+  if (owns_socket_ &&
+      (status.st_dev != socket_device_ || status.st_ino != socket_inode_)) {
+    return;
+  }
   if (::unlink(config_.socket_path.c_str()) != 0 && errno != ENOENT) {
     throw system_error("unlink socket path");
   }
+  owns_socket_ = false;
+  socket_device_ = 0;
+  socket_inode_ = 0;
 }
 
 void UnixJsonServer::run() {
@@ -96,6 +103,13 @@ void UnixJsonServer::run() {
   if (::chmod(config_.socket_path.c_str(), 0600) != 0) {
     throw system_error("chmod Unix socket");
   }
+  struct stat bound_status{};
+  if (::lstat(config_.socket_path.c_str(), &bound_status) != 0) {
+    throw system_error("lstat bound Unix socket");
+  }
+  socket_device_ = bound_status.st_dev;
+  socket_inode_ = bound_status.st_ino;
+  owns_socket_ = true;
   if (::listen(listener.get(), 16) != 0) {
     throw system_error("listen on Unix socket");
   }
@@ -206,9 +220,21 @@ void UnixJsonServer::handle_client(int client_fd) noexcept {
     const std::string raw = read_request(client.get());
     if (!raw.empty()) {
       Json response;
+      bool stop_after_response = false;
       try {
-        response = dispatcher_.dispatch(Json::parse(raw));
+        const Json request = Json::parse(raw);
+        if (request.is_object() && request.value("type", "") == "core_stop") {
+          response = {{"success", true}, {"stopping", true}};
+          stop_after_response = true;
+        } else {
+          response = dispatcher_.dispatch(request);
+        }
       } catch (const Json::parse_error &) {
+        response = {{"success", false}, {"error", "invalid_json"}};
+      } catch (const Json::exception &error) {
+        response = {{"success", false},
+                    {"error", "invalid_request"},
+                    {"details", error.what()}};
         response = {{"success", false}, {"error", "invalid_json"}};
       } catch (const Json::exception &error) {
         response = {{"success", false},
@@ -216,6 +242,8 @@ void UnixJsonServer::handle_client(int client_fd) noexcept {
                     {"details", error.what()}};
       }
       send_response(client.get(), response.dump());
+      if (stop_after_response)
+        stop();
     }
   } catch (const std::exception &error) {
     try {

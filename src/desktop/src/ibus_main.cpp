@@ -2,6 +2,7 @@
 #include "vocotype/desktop/hotkey.hpp"
 #include "vocotype/desktop/ipc.hpp"
 #include "vocotype/desktop/recorder_process.hpp"
+#include "vocotype/desktop/task_status.hpp"
 #include "vocotype/desktop/rime_session.hpp"
 
 #include <ibus.h>
@@ -369,7 +370,7 @@ Json poll_transcription(EngineState &state, const std::string &task_id,
       });
     }
     const std::string status = response.value("status", "");
-    if (status == "completed" || status == "failed" || status == "cancelled")
+    if (vocotype::desktop::task_status_is_terminal(status))
       return response;
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
@@ -392,7 +393,7 @@ Json poll_edit(EngineState &state, const std::string &task_id,
       });
     }
     const std::string status = response.value("status", "");
-    if (status == "completed" || status == "failed" || status == "cancelled")
+    if (vocotype::desktop::task_status_is_terminal(status))
       return response;
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
@@ -538,15 +539,17 @@ void stop_recording(VocotypeEngine *engine) {
     try {
       std::lock_guard lock(worker_state.recorder_mutex);
       if (worker_state.recorder) {
-        audio_path = worker_state.recorder->stop();
-        worker_state.recorder.reset();
+        if (too_short) {
+          worker_state.recorder->cancel_async();
+          worker_state.recorder.reset();
+        } else {
+          audio_path = worker_state.recorder->stop();
+          worker_state.recorder.reset();
+        }
       }
-      if (too_short) {
-        if (!audio_path.empty())
-          std::filesystem::remove(audio_path);
-      } else if (audio_path.empty()) {
+      if (!too_short && audio_path.empty()) {
         error = "录音失败";
-      } else if (edit_mode) {
+      } else if (!too_short && edit_mode) {
         Json started = vocotype::desktop::unix_json_request(
             worker_state.socket,
             {{"type", "edit_start"},
@@ -571,7 +574,7 @@ void stop_recording(VocotypeEngine *engine) {
                           apply_edit_result(target, snapshot, result);
                       });
         }
-      } else if (long_mode) {
+      } else if (!too_short && long_mode) {
         Json started = vocotype::desktop::unix_json_request(
             worker_state.socket,
             {{"type", "transcribe_start"},
@@ -600,7 +603,7 @@ void stop_recording(VocotypeEngine *engine) {
           } else
             error = result.value("error", "润色失败");
         }
-      } else {
+      } else if (!too_short) {
         Json result =
             vocotype::desktop::unix_json_request(worker_state.socket,
                                                  {{"type", "transcribe"},

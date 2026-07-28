@@ -1,6 +1,7 @@
 #include "vocotype/desktop/audio.hpp"
 #include "vocotype/desktop/config.hpp"
 #include "vocotype/desktop/ipc.hpp"
+#include "vocotype/desktop/streaming_preview.hpp"
 #include "vocotype/desktop/wav.hpp"
 #include <atomic>
 #include <chrono>
@@ -12,6 +13,7 @@
 #include <filesystem>
 #include <iostream>
 #include <mutex>
+#include <optional>
 #include <poll.h>
 #include <string>
 #include <thread>
@@ -91,21 +93,131 @@ int main(int argc, char **argv) {
     std::deque<std::vector<std::int16_t>> preview_queue;
     bool preview_done = false;
     std::string preview_session;
-    std::atomic_bool preview_active{false};
+    std::atomic_bool preview_accepting{true};
     int preview_chunk_samples = 9600;
-    try {
-      const Json started = unix_json_request(
-          options.socket, {{"type", "asr_preview_start"}}, 12000);
-      if (started.value("success", false)) {
-        preview_session = started.value("session_id", "");
-        preview_active.store(!preview_session.empty());
-        preview_chunk_samples =
-            std::max(1600, started.value("chunk_samples", 9600));
-      }
-    } catch (const std::exception &) {
-    }
 
     std::thread preview_thread([&] {
+      StreamingPreviewTranscript transcript;
+      std::deque<std::vector<std::int16_t>> recent_chunks;
+      constexpr std::size_t kRecentChunkLimit = 3;
+      std::string last_preview_error;
+
+      auto emit_preview_state = [&](const char *type,
+                                    const std::string &message) {
+        emit({{"type", type}, {"message", message}});
+      };
+
+      auto start_preview = [&](int attempts, int timeout_ms) -> bool {
+        preview_session.clear();
+        for (int attempt = 0; attempt < attempts; ++attempt) {
+          {
+            std::lock_guard lock(queue_mutex);
+            if (preview_done)
+              return false;
+          }
+          try {
+            const Json started = unix_json_request(
+                options.socket, {{"type", "asr_preview_start"}}, timeout_ms);
+            if (started.value("success", false)) {
+              preview_session = started.value("session_id", "");
+              preview_chunk_samples =
+                  std::max(1600, started.value("chunk_samples", 9600));
+              if (!preview_session.empty())
+                return true;
+            }
+            last_preview_error = started.value("error", "preview_start_failed");
+          } catch (const std::exception &error) {
+            last_preview_error = error.what();
+          }
+          std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        }
+        return false;
+      };
+
+      auto request_feed = [&](const std::vector<std::int16_t> &chunk,
+                              bool is_final) -> std::optional<Json> {
+        if (preview_session.empty())
+          return std::nullopt;
+        try {
+          const auto bytes =
+              reinterpret_cast<const unsigned char *>(chunk.data());
+          const Json response = unix_json_request(
+              options.socket,
+              {{"type", "asr_preview_feed"},
+               {"session_id", preview_session},
+               {"pcm16",
+                base64_encode(bytes, chunk.size() * sizeof(std::int16_t))},
+               {"is_final", is_final}},
+              10000);
+          if (!response.value("success", false)) {
+            last_preview_error = response.value("error", "preview_feed_failed");
+            return std::nullopt;
+          }
+          return response;
+        } catch (const std::exception &error) {
+          last_preview_error = error.what();
+          return std::nullopt;
+        }
+      };
+
+      auto accept_response = [&](const Json &response)
+          -> std::optional<std::string> {
+        return transcript.update_session_text(response.value("text", ""));
+      };
+
+      auto recover_and_replay = [&]() -> bool {
+        transcript.begin_recovery();
+        emit_preview_state("preview_recovering", last_preview_error);
+        for (int recovery = 0; recovery < 2; ++recovery) {
+          if (!start_preview(2, 30000))
+            continue;
+          bool replay_ok = true;
+          for (const auto &context : recent_chunks) {
+            const auto response = request_feed(context, false);
+            if (!response) {
+              replay_ok = false;
+              preview_session.clear();
+              break;
+            }
+            (void)accept_response(*response);
+          }
+          if (replay_ok) {
+            emit_preview_state("preview_recovered", transcript.display_text());
+            if (transcript.has_text())
+              emit({{"type", "partial"}, {"text", transcript.display_text()}});
+            return true;
+          }
+        }
+        emit_preview_state("preview_unavailable", last_preview_error);
+        return false;
+      };
+
+      if (!start_preview(20, 5000)) {
+        preview_accepting.store(false);
+        emit_preview_state("preview_unavailable", last_preview_error);
+        std::lock_guard lock(queue_mutex);
+        preview_queue.clear();
+        return;
+      }
+
+      auto feed_preview = [&](const std::vector<std::int16_t> &chunk,
+                              bool is_final) -> bool {
+        if (!chunk.empty()) {
+          recent_chunks.push_back(chunk);
+          while (recent_chunks.size() > kRecentChunkLimit)
+            recent_chunks.pop_front();
+        }
+        const auto response = request_feed(chunk, is_final);
+        if (!response) {
+          preview_session.clear();
+          return recover_and_replay();
+        }
+        const auto updated = accept_response(*response);
+        if (updated)
+          emit({{"type", "partial"}, {"text", *updated}});
+        return true;
+      };
+
       std::vector<std::int16_t> pending;
       while (true) {
         std::vector<std::int16_t> block;
@@ -121,72 +233,57 @@ int main(int argc, char **argv) {
           }
         }
         pending.insert(pending.end(), block.begin(), block.end());
-        while (!preview_session.empty() &&
-               static_cast<int>(pending.size()) >= preview_chunk_samples) {
+        while (static_cast<int>(pending.size()) >= preview_chunk_samples) {
           std::vector<std::int16_t> chunk(
               pending.begin(), pending.begin() + preview_chunk_samples);
           pending.erase(pending.begin(),
                         pending.begin() + preview_chunk_samples);
-          try {
-            const auto bytes =
-                reinterpret_cast<const unsigned char *>(chunk.data());
-            const Json response = unix_json_request(
-                options.socket,
-                {{"type", "asr_preview_feed"},
-                 {"session_id", preview_session},
-                 {"pcm16",
-                  base64_encode(bytes, chunk.size() * sizeof(std::int16_t))},
-                 {"is_final", false}},
-                2500);
-            const std::string text = response.value("text", "");
-            if (response.value("success", false) && !text.empty())
-              emit({{"type", "partial"}, {"text", text}});
-          } catch (const std::exception &) {
-            preview_session.clear();
-            preview_active.store(false);
+          if (!feed_preview(chunk, false)) {
+            preview_accepting.store(false);
+            std::lock_guard lock(queue_mutex);
+            preview_queue.clear();
+            pending.clear();
+            break;
           }
         }
+        if (!preview_accepting.load())
+          break;
       }
+
+      if (preview_accepting.load() && !pending.empty())
+        (void)feed_preview(pending, true);
       if (!preview_session.empty()) {
         try {
-          if (!pending.empty()) {
-            const auto bytes =
-                reinterpret_cast<const unsigned char *>(pending.data());
-            const Json response = unix_json_request(
-                options.socket,
-                {{"type", "asr_preview_feed"},
-                 {"session_id", preview_session},
-                 {"pcm16",
-                  base64_encode(bytes, pending.size() * sizeof(std::int16_t))},
-                 {"is_final", true}},
-                2500);
-            const std::string text = response.value("text", "");
-            if (response.value("success", false) && !text.empty())
-              emit({{"type", "partial"}, {"text", text}});
-          }
           (void)unix_json_request(options.socket,
                                   {{"type", "asr_preview_close"},
                                    {"session_id", preview_session},
                                    {"flush", false}},
-                                  2500);
+                                  5000);
         } catch (const std::exception &) {
         }
       }
+      preview_accepting.store(false);
     });
 
     AudioCapture capture(device, sample_rate, config.block_ms);
     std::string capture_error;
+    std::atomic_bool first_audio_block{false};
     std::thread capture_thread([&] {
       try {
         capture.run(stop, [&](const std::vector<std::int16_t> &block) {
+          if (!first_audio_block.exchange(true))
+            emit({{"type", "recording"},
+                  {"device_id", device.id},
+                  {"device_name", device.name},
+                  {"sample_rate", sample_rate}});
           {
             std::lock_guard lock(samples_mutex);
             samples.insert(samples.end(), block.begin(), block.end());
           }
-          if (preview_active.load(std::memory_order_relaxed)) {
+          if (preview_accepting.load(std::memory_order_relaxed)) {
             auto converted = resample_linear(block, sample_rate, 16000);
             std::lock_guard lock(queue_mutex);
-            if (preview_queue.size() < 32)
+            if (preview_queue.size() < 1024)
               preview_queue.push_back(std::move(converted));
             queue_cv.notify_one();
           }
@@ -221,22 +318,35 @@ int main(int argc, char **argv) {
     }
     stop.store(true);
     capture_thread.join();
-    {
-      std::lock_guard lock(queue_mutex);
-      preview_done = true;
-    }
-    queue_cv.notify_all();
-    preview_thread.join();
-    if (!capture_error.empty())
+    if (!capture_error.empty()) {
+      preview_accepting.store(false);
+      {
+        std::lock_guard lock(queue_mutex);
+        preview_queue.clear();
+        preview_done = true;
+      }
+      queue_cv.notify_all();
+      preview_thread.join();
       throw std::runtime_error(capture_error);
+    }
 
     std::vector<std::int16_t> finished;
     {
       std::lock_guard lock(samples_mutex);
       finished = std::move(samples);
     }
-    if (finished.empty())
+    if (finished.empty()) {
+      preview_accepting.store(false);
+      {
+        std::lock_guard lock(queue_mutex);
+        preview_queue.clear();
+        preview_done = true;
+      }
+      queue_cv.notify_all();
+      preview_thread.join();
       throw std::runtime_error("recording produced no audio samples");
+    }
+
     const auto path = create_secure_wav_path();
     write_pcm16_wav(path, finished, sample_rate);
     emit({{"type", "audio"},
@@ -245,6 +355,15 @@ int main(int argc, char **argv) {
           {"frames", finished.size()},
           {"device_id", device.id},
           {"device_name", device.name}});
+
+    preview_accepting.store(false);
+    {
+      std::lock_guard lock(queue_mutex);
+      preview_queue.clear();
+      preview_done = true;
+    }
+    queue_cv.notify_all();
+    preview_thread.join();
     return 0;
   } catch (const std::exception &error) {
     emit({{"type", "error"}, {"error", error.what()}});

@@ -55,9 +55,9 @@ done < <(git ls-files '*README.md')
 
 for path in \
   src/common src/core src/desktop \
-  src/integrations/fcitx5 src/integrations/ibus \
+  src/integrations/fcitx5 src/integrations/ibus src/integrations/macos \
   src/workers/funasr src/services/feedback/deploy \
-  packaging/arch packaging/debian packaging/rpm packaging/nix \
+  packaging/arch packaging/debian packaging/rpm packaging/nix packaging/macos \
   packaging/common packaging/scripts packaging/tests \
   scripts/install scripts/test scripts/diagnostics scripts/benchmarks scripts/site \
   resources/desktop resources/metainfo resources/templates \
@@ -127,7 +127,7 @@ rg -Fq 'active_polish_started_us_' src/integrations/fcitx5/module/vocotype_modul
 # README must retain the public project-growth chart across documentation rewrites.
 for token in \
   '## Star History' \
-  'https://www.star-history.com/#LeonardNJU/VocoType-linux&Date' \
+  'https://www.star-history.com/?repos=LeonardNJU%2FVocoType-linux&type=date&legend=top-left' \
   'alt="VoCoType Linux Star History Chart"'; do
   rg -Fq "$token" README.md || \
     fail "README Star History block is missing: $token"
@@ -369,11 +369,14 @@ rg -Fq '/usr/lib64/vocotype' packaging/tests/smoke-removed-package.sh ||   fail 
   touch "$work/source/vocotype-linux_4.0.0~beta1-1_amd64.buildinfo"
   touch "$work/source/vocotype-linux_4.0.0~beta1-1_amd64.changes"
   touch "$work/source/vocotype-linux-4.0.0-0.beta1.src.rpm"
+  touch "$work/source/VoCoType-linux-4.0.0b1-macOS-arm64.dmg"
   packaging/scripts/collect-release-assets.sh \
     "$work/source" "$work/final" --installers-only >/dev/null
   [[ -f "$work/final/vocotype-linux_4.0.0.beta1-1_amd64.deb" ]] || \
     fail "release collector did not normalize Debian prerelease separator"
-  [[ $(find "$work/final" -maxdepth 1 -type f | wc -l) -eq 1 ]] || \
+  [[ -f "$work/final/VoCoType-linux-4.0.0b1-macOS-arm64.dmg" ]] || \
+    fail "release collector omitted the macOS DMG"
+  [[ $(find "$work/final" -maxdepth 1 -type f | wc -l) -eq 2 ]] || \
     fail "release collector included non-installer build metadata"
 )
 rg -Fq '${name//\~/.}' packaging/scripts/collect-release-assets.sh || \
@@ -582,13 +585,36 @@ if rg -Fq 'if (keyval == IBUS_KEY_F9)' src/desktop/src/ibus_main.cpp; then
   fail "IBus still hard-codes F9 in its key event handler"
 fi
 
+# macOS must be built from a clean arm64 runner and join the exact Release set.
+for workflow in .github/workflows/ci.yml .github/workflows/release.yml; do
+  for token in 'runs-on: macos-15' 'ALLOW_ADHOC_TEST: 1' \
+               'packaging/macos/build-dmg.sh' 'hdiutil verify'; do
+    rg -Fq "$token" "$workflow" ||
+      fail "$workflow is missing macOS CI token: $token"
+  done
+done
+for token in 'VoCoType-linux-*-macOS-arm64.dmg' \
+             'VoCoType-linux-${VERSION}-macOS-arm64.dmg' \
+             'Expected 10 installers and SHA256SUMS' \
+             'Checksum set must contain 10 installers'; do
+  rg -Fq "$token" packaging/scripts/collect-release-assets.sh \
+    packaging/scripts/validate-final-release-assets.sh ||
+    fail "macOS release asset contract is missing: $token"
+done
+for required in packaging/macos/build-dmg.sh docs/getting-started/macos.md \
+                docs/development/macos-packaging.md; do
+  test -f "$required" || fail "macOS release/documentation file is missing: $required"
+done
+
 # The tested-release publisher must consume the single assembled artifact.  It
 # must never merge package-job artifacts with final-release-assets, which would
 # duplicate every installer at publication time.
 for token in \
   'name: final-release-assets' \
   'path: final-assets' \
-  'Revalidate the exact assembled downloadable asset set'; do
+  'Revalidate the exact assembled downloadable asset set' \
+  'for required in native-streaming macos source-deb rpm arch' \
+  'for required in macos-arm64-dmg source-deb rpm arch final-release-assets'; do
   rg -Fq "$token" .github/workflows/publish-tested-release.yml || \
     fail "tested-release final artifact contract is missing: $token"
 done

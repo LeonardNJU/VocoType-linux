@@ -5,14 +5,18 @@ VoCoType 使用一份统一术语库同时驱动两层能力：
 1. **Contextual Paraformer 原生热词**：在 ASR 解码阶段提高专有名词的识别概率。
 2. **确定性标准化**：在 ASR 完成后把常见错写统一为指定的标准写法，并保护结果不被 ITN/数字规则误改。
 
-术语库属于 VoCoType 配置，与当前采用哪种输入法 integration 无关：
+术语库属于 VoCoType配置，与当前采用哪种输入法 integration无关：
 
 ```text
-~/.config/vocotype/terms.yaml
+Linux: ~/.config/vocotype/terms.yaml
+macOS: ~/Library/Application Support/io.github.LeonardNJU.VoCoTypeLinux.InputMethod/terms.yaml
 ```
 
-可在 `vocotype-settings` 的“用户词典”页面编辑并验证；直接编辑文件后也无需重启，下一次转录会自动重新加载。也可用环境变量
-`VOCOTYPE_TERMS_FILE` 指向其他文件。
+图形设置中心提供“新增热词”“新增保护词”“导入用户词典”“热更新词典”和“在 Finder / 文件管理器中显示”。普通用户不需要直接编辑 YAML；需要批量维护时仍可使用外部编辑器，保存后点击热更新。也可用环境变量 `VOCOTYPE_TERMS_FILE` 指向其他文件。
+
+“新增热词”允许填写 canonical、任意多条 aliases，并独立选择 `hotword`与 `protect`。两者是复选项而非互斥单选项，因为同一标准词可以既参与原生 ASR热词编码，又受到后续 ITN保护。
+
+所有导入与写入都由 **Core 与设置中心共用的原生解析器** 验证，失败时不会覆盖上一份有效词典。图形化新增不会整体重新序列化 YAML，因此会尽量保留注释和手工排版。
 
 ## 配置格式
 

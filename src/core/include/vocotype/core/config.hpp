@@ -59,7 +59,7 @@ struct StreamingAsrConfig {
   int idle_timeout_ms = 30000;
   int session_idle_timeout_ms = 15000;
   int startup_timeout_ms = 180000;
-  int request_timeout_ms = 2000;
+  int request_timeout_ms = 8000;
   std::size_t max_preview_chunk_bytes = 128U * 1024U;
 };
 

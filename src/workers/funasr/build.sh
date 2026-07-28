@@ -11,6 +11,31 @@ FUNASR_SOURCE_DIR=${FUNASR_SOURCE_DIR:-"$CACHE_DIR/FunASR"}
 ONNXRUNTIME_DIR=${ONNXRUNTIME_DIR:-}
 ONNXRUNTIME_VERSION=${VOCOTYPE_ONNXRUNTIME_VERSION:-1.23.2}
 ONNXRUNTIME_SHA256=${VOCOTYPE_ONNXRUNTIME_SHA256:-}
+HOST_OS=$(uname -s)
+HOST_ARCH=$(uname -m)
+
+sha256_check() {
+    local expected=$1
+    local path=$2
+    if command -v sha256sum >/dev/null 2>&1; then
+        printf '%s  %s\n' "$expected" "$path" | sha256sum -c -
+    else
+        local actual
+        actual=$(shasum -a 256 "$path" | awk '{print $1}')
+        [[ "$actual" == "$expected" ]] || {
+            echo "SHA-256 mismatch for $path: expected $expected, got $actual" >&2
+            return 1
+        }
+    fi
+}
+
+if [[ "$HOST_OS" == Darwin ]]; then
+    SHARED_LIBRARY_SUFFIX=dylib
+    ORT_LIBRARY_NAME=libonnxruntime.dylib
+else
+    SHARED_LIBRARY_SUFFIX=so
+    ORT_LIBRARY_NAME=libonnxruntime.so
+fi
 
 mkdir -p "$CACHE_DIR" "$BUILD_DIR"
 
@@ -30,17 +55,29 @@ if [[ ! -f "$FUNASR_SOURCE_DIR/runtime/onnxruntime/CMakeLists.txt" ]]; then
 fi
 
 if [[ -z "$ONNXRUNTIME_DIR" ]]; then
-    case "$(uname -m)" in
-        x86_64|amd64)
+    case "$HOST_OS:$HOST_ARCH" in
+        Linux:x86_64|Linux:amd64)
+            ort_platform=linux
             ort_arch=x64
             default_ort_sha256=1fa4dcaef22f6f7d5cd81b28c2800414350c10116f5fdd46a2160082551c5f9b
             ;;
-        aarch64|arm64)
+        Linux:aarch64|Linux:arm64)
+            ort_platform=linux
             ort_arch=aarch64
             default_ort_sha256=7c63c73560ed76b1fac6cff8204ffe34fe180e70d6582b5332ec094810241e5c
             ;;
+        Darwin:arm64)
+            ort_platform=osx
+            ort_arch=arm64
+            default_ort_sha256=b4d513ab2b26f088c66891dbbc1408166708773d7cc4163de7bdca0e9bbb7856
+            ;;
+        Darwin:x86_64)
+            ort_platform=osx
+            ort_arch=x86_64
+            default_ort_sha256=
+            ;;
         *)
-            echo "Unsupported native streaming architecture: $(uname -m)" >&2
+            echo "Unsupported native ASR platform: $HOST_OS $HOST_ARCH" >&2
             exit 2
             ;;
     esac
@@ -48,10 +85,14 @@ if [[ -z "$ONNXRUNTIME_DIR" ]]; then
         echo "Set VOCOTYPE_ONNXRUNTIME_SHA256 when overriding ONNX Runtime version." >&2
         exit 2
     fi
+    if [[ -z "$ONNXRUNTIME_SHA256" && -z "$default_ort_sha256" ]]; then
+        echo "Set VOCOTYPE_ONNXRUNTIME_SHA256 for $HOST_OS $HOST_ARCH." >&2
+        exit 2
+    fi
     ONNXRUNTIME_SHA256=${ONNXRUNTIME_SHA256:-$default_ort_sha256}
-    ort_archive="onnxruntime-linux-${ort_arch}-${ONNXRUNTIME_VERSION}.tgz"
+    ort_archive="onnxruntime-${ort_platform}-${ort_arch}-${ONNXRUNTIME_VERSION}.tgz"
     ort_archive_path="$CACHE_DIR/$ort_archive"
-    ort_prefix="$CACHE_DIR/onnxruntime-${ONNXRUNTIME_VERSION}-${ort_arch}"
+    ort_prefix="$CACHE_DIR/onnxruntime-${ONNXRUNTIME_VERSION}-${ort_platform}-${ort_arch}"
     if [[ ! -f "$ort_archive_path" ]]; then
         rm -f "$ort_archive_path.part"
         ort_url="https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/${ort_archive}"
@@ -71,12 +112,25 @@ if [[ -z "$ONNXRUNTIME_DIR" ]]; then
             exit 2
         fi
     fi
-    printf '%s  %s\n' "$ONNXRUNTIME_SHA256" "$ort_archive_path" | sha256sum -c -
+    sha256_check "$ONNXRUNTIME_SHA256" "$ort_archive_path"
     if [[ ! -f "$ort_prefix/include/onnxruntime_cxx_api.h" ||
-          ! -e "$ort_prefix/lib/libonnxruntime.so" ]]; then
+          ! -e "$ort_prefix/lib/$ORT_LIBRARY_NAME" ]]; then
         rm -rf "$ort_prefix.tmp" "$ort_prefix"
         mkdir -p "$ort_prefix.tmp"
-        tar -xzf "$ort_archive_path" -C "$ort_prefix.tmp" --strip-components=1
+        tar -xzf "$ort_archive_path" -C "$ort_prefix.tmp"
+        if [[ ! -d "$ort_prefix.tmp/include" ]]; then
+            extracted_root=$(find "$ort_prefix.tmp" -mindepth 1 -maxdepth 1 -type d | head -n 1)
+            extracted_count=$(find "$ort_prefix.tmp" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+            if [[ "$extracted_count" != 1 || ! -d "$extracted_root/include" ]]; then
+                echo "Unexpected ONNX Runtime archive layout: $ort_archive" >&2
+                exit 2
+            fi
+            staging="$ort_prefix.tmp.normalized"
+            rm -rf "$staging"
+            mv "$extracted_root" "$staging"
+            rm -rf "$ort_prefix.tmp"
+            mv "$staging" "$ort_prefix.tmp"
+        fi
         mv "$ort_prefix.tmp" "$ort_prefix"
     fi
     ONNXRUNTIME_DIR="$ort_prefix"
@@ -89,7 +143,7 @@ if [[ ! -f "$ONNXRUNTIME_DIR/include/onnxruntime_cxx_api.h" ]]; then
     elif [[ -f "$ONNXRUNTIME_DIR/include/onnxruntime/core/session/onnxruntime_cxx_api.h" ]]; then
         ort_include="$ONNXRUNTIME_DIR/include/onnxruntime/core/session"
     fi
-    if [[ -n "$ort_include" && -e "$ONNXRUNTIME_DIR/lib/libonnxruntime.so" ]]; then
+    if [[ -n "$ort_include" && -e "$ONNXRUNTIME_DIR/lib/$ORT_LIBRARY_NAME" ]]; then
         original_prefix="$ONNXRUNTIME_DIR"
         rm -rf "$CACHE_DIR/ort-compat"
         mkdir -p "$CACHE_DIR/ort-compat/include"
@@ -100,9 +154,14 @@ if [[ ! -f "$ONNXRUNTIME_DIR/include/onnxruntime_cxx_api.h" ]]; then
 fi
 
 if [[ ! -f "$ONNXRUNTIME_DIR/include/onnxruntime_cxx_api.h" ||
-      ! -e "$ONNXRUNTIME_DIR/lib/libonnxruntime.so" ]]; then
+      ! -e "$ONNXRUNTIME_DIR/lib/$ORT_LIBRARY_NAME" ]]; then
     echo "Invalid ONNXRUNTIME_DIR: $ONNXRUNTIME_DIR" >&2
     exit 2
+fi
+# FunASR includes ONNX Runtime as <onnxruntime/...>, while official SDKs
+# expose headers directly under include/. Provide a local compatibility view.
+if [[ ! -e "$ONNXRUNTIME_DIR/include/onnxruntime" ]]; then
+    ln -s . "$ONNXRUNTIME_DIR/include/onnxruntime"
 fi
 
 RUNTIME_SOURCE="$FUNASR_SOURCE_DIR/runtime/onnxruntime"
@@ -130,6 +189,11 @@ patch -d "$SOURCE_COPY" -p1 < "$SCRIPT_DIR/funasr-toolchain-compat.patch"
 NLOHMANN_JSON_INCLUDE_DIR=${NLOHMANN_JSON_INCLUDE_DIR:-}
 if [[ -z "$NLOHMANN_JSON_INCLUDE_DIR" && -f /usr/include/nlohmann/json.hpp ]]; then
     NLOHMANN_JSON_INCLUDE_DIR=/usr/include
+elif [[ -z "$NLOHMANN_JSON_INCLUDE_DIR" ]] && command -v brew >/dev/null 2>&1; then
+    brew_json=$(brew --prefix nlohmann-json 2>/dev/null || true)
+    if [[ -n "$brew_json" && -f "$brew_json/include/nlohmann/json.hpp" ]]; then
+        NLOHMANN_JSON_INCLUDE_DIR="$brew_json/include"
+    fi
 fi
 if [[ -n "$NLOHMANN_JSON_INCLUDE_DIR" &&
       -f "$NLOHMANN_JSON_INCLUDE_DIR/nlohmann/json.hpp" ]]; then
@@ -165,21 +229,29 @@ rm -rf "$BUNDLE_DIR"
 mkdir -p "$BUNDLE_DIR/bin" "$BUNDLE_DIR/lib"
 cp "$BUILD_DIR/cmake/bin/vocotype-streaming-worker" "$BUNDLE_DIR/bin/"
 cp "$BUILD_DIR/cmake/bin/vocotype-offline-worker" "$BUNDLE_DIR/bin/"
-cp "$BUILD_DIR/cmake/src/libfunasr.so" "$BUNDLE_DIR/lib/"
-cp -a "$BUILD_DIR/cmake/third_party/yaml-cpp"/libyaml-cpp.so* "$BUNDLE_DIR/lib/"
-cp -a "$BUILD_DIR/cmake/third_party/openfst/src/lib"/libfst.so* "$BUNDLE_DIR/lib/"
-cp -a "$BUILD_DIR/cmake/third_party/glog"/libglog.so* "$BUNDLE_DIR/lib/"
-cp -a "$ONNXRUNTIME_DIR/lib"/libonnxruntime.so* "$BUNDLE_DIR/lib/"
-shopt -s nullglob
-provider_libraries=("$ONNXRUNTIME_DIR/lib"/libonnxruntime_providers_shared.so*)
-cpuinfo_libraries=("$ONNXRUNTIME_DIR/lib"/libcpuinfo.so*)
-if ((${#provider_libraries[@]})); then
-    cp -a "${provider_libraries[@]}" "$BUNDLE_DIR/lib/"
+if [[ "$HOST_OS" == Darwin ]]; then
+    cp "$BUILD_DIR/cmake/src/libfunasr.dylib" "$BUNDLE_DIR/lib/"
+    cp -a "$BUILD_DIR/cmake/third_party/yaml-cpp"/libyaml-cpp*.dylib "$BUNDLE_DIR/lib/"
+    cp -a "$BUILD_DIR/cmake/third_party/openfst/src/lib"/libfst*.dylib "$BUNDLE_DIR/lib/"
+    cp -a "$BUILD_DIR/cmake/third_party/glog"/libglog*.dylib "$BUNDLE_DIR/lib/"
+    cp -a "$ONNXRUNTIME_DIR/lib"/libonnxruntime*.dylib "$BUNDLE_DIR/lib/"
+else
+    cp "$BUILD_DIR/cmake/src/libfunasr.so" "$BUNDLE_DIR/lib/"
+    cp -a "$BUILD_DIR/cmake/third_party/yaml-cpp"/libyaml-cpp.so* "$BUNDLE_DIR/lib/"
+    cp -a "$BUILD_DIR/cmake/third_party/openfst/src/lib"/libfst.so* "$BUNDLE_DIR/lib/"
+    cp -a "$BUILD_DIR/cmake/third_party/glog"/libglog.so* "$BUNDLE_DIR/lib/"
+    cp -a "$ONNXRUNTIME_DIR/lib"/libonnxruntime.so* "$BUNDLE_DIR/lib/"
+    shopt -s nullglob
+    provider_libraries=("$ONNXRUNTIME_DIR/lib"/libonnxruntime_providers_shared.so*)
+    cpuinfo_libraries=("$ONNXRUNTIME_DIR/lib"/libcpuinfo.so*)
+    if ((${#provider_libraries[@]})); then
+        cp -a "${provider_libraries[@]}" "$BUNDLE_DIR/lib/"
+    fi
+    if ((${#cpuinfo_libraries[@]})); then
+        cp -a "${cpuinfo_libraries[@]}" "$BUNDLE_DIR/lib/"
+    fi
+    shopt -u nullglob
 fi
-if ((${#cpuinfo_libraries[@]})); then
-    cp -a "${cpuinfo_libraries[@]}" "$BUNDLE_DIR/lib/"
-fi
-shopt -u nullglob
 mkdir -p "$BUNDLE_DIR/share/licenses/onnxruntime" "$BUNDLE_DIR/share/licenses/funasr"
 for notice in LICENSE ThirdPartyNotices.txt Privacy.md; do
     [[ -f "$ONNXRUNTIME_DIR/$notice" ]] &&
@@ -195,16 +267,33 @@ else
 fi
 
 if [[ "${STRIP_NATIVE_BUNDLE:-1}" == "1" ]]; then
-    strip --strip-unneeded \
-        "$BUNDLE_DIR/bin/vocotype-streaming-worker" \
-        "$BUNDLE_DIR/bin/vocotype-offline-worker" \
-        "$BUNDLE_DIR/lib/libfunasr.so" 2>/dev/null || true
+    if [[ "$HOST_OS" == Darwin ]]; then
+        strip -x "$BUNDLE_DIR/bin/vocotype-streaming-worker" \
+            "$BUNDLE_DIR/bin/vocotype-offline-worker" \
+            "$BUNDLE_DIR/lib/libfunasr.dylib" 2>/dev/null || true
+    else
+        strip --strip-unneeded \
+            "$BUNDLE_DIR/bin/vocotype-streaming-worker" \
+            "$BUNDLE_DIR/bin/vocotype-offline-worker" \
+            "$BUNDLE_DIR/lib/libfunasr.so" 2>/dev/null || true
+    fi
 fi
-audit_arguments=()
-if [[ ${VOCOTYPE_BUNDLE_AUDIT_MODE:-portable} == nix-store ]]; then
-    audit_arguments+=(--nix-store)
+if [[ "$HOST_OS" == Darwin ]]; then
+    for binary in "$BUNDLE_DIR/bin/vocotype-streaming-worker" \
+                  "$BUNDLE_DIR/bin/vocotype-offline-worker"; do
+        file "$binary" | grep -q 'Mach-O 64-bit executable arm64' || {
+            echo "Unexpected macOS worker architecture: $binary" >&2
+            exit 2
+        }
+        otool -L "$binary"
+    done
+else
+    audit_arguments=()
+    if [[ ${VOCOTYPE_BUNDLE_AUDIT_MODE:-portable} == nix-store ]]; then
+        audit_arguments+=(--nix-store)
+    fi
+    bash "$SCRIPT_DIR/audit_bundle.sh" "${audit_arguments[@]}" "$BUNDLE_DIR"
 fi
-bash "$SCRIPT_DIR/audit_bundle.sh" "${audit_arguments[@]}" "$BUNDLE_DIR"
 printf '%s\n' \
     "$BUNDLE_DIR/bin/vocotype-streaming-worker" \
     "$BUNDLE_DIR/bin/vocotype-offline-worker"

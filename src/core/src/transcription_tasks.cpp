@@ -288,17 +288,27 @@ void TranscriptionTaskManager::run_task(const std::shared_ptr<Task> &task,
   const std::filesystem::path audio_path = request.value("audio_path", "");
   struct AudioCleanup {
     std::filesystem::path path;
-    ~AudioCleanup() {
+    bool active = true;
+
+    void remove_now() {
+      if (!active) {
+        return;
+      }
       std::error_code error;
       std::filesystem::remove(path, error);
+      active = false;
     }
+
+    ~AudioCleanup() { remove_now(); }
   } cleanup{audio_path};
 
   Json result = asr_.transcribe(request);
   if (task->is_cancelled()) {
+    cleanup.remove_now();
     return;
   }
   if (!result.value("success", false)) {
+    cleanup.remove_now();
     task->mark_error(result.value("error", "转录失败"),
                      result.value("reason", "asr_error"));
     return;
@@ -307,16 +317,19 @@ void TranscriptionTaskManager::run_task(const std::shared_ptr<Task> &task,
   const std::string original = result.value("text", "");
   task->set_original(original);
   if (!request.value("long_mode", false)) {
+    cleanup.remove_now();
     task->mark_final(original, "ok");
     return;
   }
   if (!slm_.enabled()) {
+    cleanup.remove_now();
     task->mark_final(original, "disabled");
     return;
   }
 
   const int min_chars = request.value("polish_min_chars", -1);
   if (!slm_.should_polish(original, min_chars)) {
+    cleanup.remove_now();
     task->mark_final(original, "too_short");
     return;
   }
@@ -334,13 +347,16 @@ void TranscriptionTaskManager::run_task(const std::shared_ptr<Task> &task,
                                })
           : slm_.polish(original, enable_thinking);
   if (task->is_cancelled()) {
+    cleanup.remove_now();
     return;
   }
   if (!polished.success) {
+    cleanup.remove_now();
     task->mark_error(polished.error.empty() ? "SLM 调用失败" : polished.error,
                      polished.reason.empty() ? "slm_error" : polished.reason);
     return;
   }
+  cleanup.remove_now();
   task->mark_final(polished.text, polished.reason);
 }
 

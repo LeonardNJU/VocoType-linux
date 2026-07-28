@@ -19,10 +19,9 @@ VERSION=$(vocotype_version "$ROOT")
 ARCHIVE="$RELEASE_DIR/VocoType-linux-$VERSION.tar.gz"
 [[ -f "$ARCHIVE" && -f "$RELEASE_DIR/SHA256SUMS" && -f "$RELEASE_DIR/release-manifest.json" ]] || { echo "Incomplete source release" >&2; exit 1; }
 (cd "$RELEASE_DIR" && sha256sum -c SHA256SUMS)
-declare -A members=()
-while IFS= read -r member; do
-  members["$member"]=1
-done < <(tar -tzf "$ARCHIVE")
+members_file=$(mktemp)
+trap 'rm -f "$members_file"' EXIT
+tar -tzf "$ARCHIVE" | LC_ALL=C sort -u > "$members_file"
 for required in \
   VERSION src/core/CMakeLists.txt src/desktop/CMakeLists.txt \
   src/desktop/src/settings_main.cpp src/desktop/src/ibus_main.cpp \
@@ -32,18 +31,20 @@ for required in \
   src/common/src/terms_yaml.cpp \
   src/common/include/vocotype/common/terms_yaml.hpp \
   src/integrations/fcitx5/module/vocotype_module.cpp \
+  src/integrations/macos/CMakeLists.txt src/integrations/macos/VocoTypeInputController.mm \
+  packaging/macos/build-dmg.sh docs/getting-started/macos.md \
   src/services/feedback/CMakeLists.txt src/services/feedback/src/main.cpp \
   scripts/install/common/install-native-user.sh packaging/scripts/stage-system-package.sh \
   flake.nix flake.lock packaging/nix/package.nix scripts/test/hotkey-settings.sh \
   packaging/tests/check-yaml-package-dependencies.sh \
   docs/getting-started/nix.md docs/guides/shortcuts.md; do
   expected="VocoType-linux-$VERSION/$required"
-  [[ -n ${members[$expected]+x} ]] || {
+  grep -Fqx -- "$expected" "$members_file" || {
     echo "Missing source member: $required" >&2
     exit 1
   }
 done
-for member in "${!members[@]}"; do
+while IFS= read -r member; do
   case "$member" in
     VocoType-linux-*/app/*|VocoType-linux-*/settings_center/*|\
     VocoType-linux-*/fcitx5/backend/*|VocoType-linux-*/ibus/engine.py|\
@@ -54,7 +55,7 @@ for member in "${!members[@]}"; do
       exit 1
       ;;
   esac
-done
+done < "$members_file"
 if [[ -n "$EXPECTED_COMMIT" ]]; then
   grep -Fq '"commit": "'"$EXPECTED_COMMIT"'"' "$RELEASE_DIR/release-manifest.json" || { echo "Commit mismatch" >&2; exit 1; }
 fi

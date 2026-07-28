@@ -1,3 +1,12 @@
+vocotype-linux (5.0.0~beta4-1) unstable; urgency=medium
+
+  * Add the native macOS port and shared cross-platform runtime changes.
+  * Preserve Linux IBus and Fcitx 5 package behavior while extending release CI.
+  * Fix recorder cancellation, short-recording lifecycle, and shared streaming recovery.
+  * Include all robustness fixes shipped in v4.1.2 beta 1.
+
+ -- Leonard Li <leo@lsamc.website>  Wed, 29 Jul 2026 02:30:00 +0800
+
 vocotype-linux (4.1.2~beta1-1) unstable; urgency=medium
 
   * Accept numeric GTK boolean values in the ITN preview request.

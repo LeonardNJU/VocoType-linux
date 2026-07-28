@@ -60,7 +60,8 @@ vocotype_version_field() {
 }
 
 vocotype_flavor() {
-  local value=${1,,}
+  local value
+  value=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
   case "$value" in
     universal|all|both) printf 'universal\n' ;;
     ibus) printf 'ibus\n' ;;

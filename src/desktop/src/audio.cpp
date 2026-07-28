@@ -301,7 +301,8 @@ resample_linear(const std::vector<std::int16_t> &input, int input_rate,
         static_cast<long double>(input[left]) * (1.0L - fraction) +
         static_cast<long double>(input[right]) * fraction;
     output[index] = static_cast<std::int16_t>(
-        std::clamp<long double>(std::llround(sample), -32768.0L, 32767.0L));
+        std::clamp<long double>(static_cast<long double>(std::llround(sample)),
+                                -32768.0L, 32767.0L));
   }
   return output;
 }

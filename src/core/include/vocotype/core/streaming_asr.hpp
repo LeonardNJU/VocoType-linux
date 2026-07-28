@@ -17,6 +17,7 @@ public:
 
   [[nodiscard]] bool enabled() const noexcept;
   [[nodiscard]] bool ready() noexcept;
+  [[nodiscard]] Json initialize();
   [[nodiscard]] Json start_session();
   [[nodiscard]] Json feed(const Json &request);
   [[nodiscard]] Json close_session(const Json &request);

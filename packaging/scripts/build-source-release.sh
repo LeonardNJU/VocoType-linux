@@ -31,7 +31,7 @@ COMMIT=$(git -C "$ROOT" rev-parse "$TREEISH")
 ARCHIVE="$OUTPUT/VocoType-linux-$VERSION.tar.gz"
 git -C "$ROOT" archive --format=tar --prefix="VocoType-linux-$VERSION/" "$TREEISH" | gzip -n -9 > "$ARCHIVE"
 SHA=$(sha256sum "$ARCHIVE" | awk '{print $1}')
-SIZE=$(stat -c %s "$ARCHIVE")
+SIZE=$(wc -c < "$ARCHIVE" | tr -d '[:space:]')
 printf '%s  %s\n' "$SHA" "$(basename "$ARCHIVE")" > "$OUTPUT/SHA256SUMS"
 cat > "$OUTPUT/release-manifest.json" <<JSON
 {

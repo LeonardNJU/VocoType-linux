@@ -137,7 +137,14 @@ std::filesystem::path default_cache() {
       configured && *configured)
     return std::filesystem::path(configured) / "models";
 #if defined(__APPLE__)
-  return vocotype::desktop::cache_dir() / "modelscope/hub/models";
+  const auto preferred =
+      vocotype::desktop::cache_dir() / "modelscope/hub/models";
+  const auto legacy =
+      vocotype::desktop::home_path() / ".cache/modelscope/hub/models";
+  if (!std::filesystem::exists(preferred) &&
+      std::filesystem::is_directory(legacy))
+    return legacy;
+  return preferred;
 #else
   return vocotype::desktop::home_path() / ".cache/modelscope/hub/models";
 #endif

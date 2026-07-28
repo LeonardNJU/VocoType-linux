@@ -6,9 +6,13 @@ function(vocotype_add_worker target source)
         "${CMAKE_SOURCE_DIR}/src"
         "${CMAKE_SOURCE_DIR}/third_party/json/include"
     )
-    target_link_options(${target} PRIVATE "-Wl,--no-as-needed")
+    if(NOT APPLE)
+        target_link_options(${target} PRIVATE "-Wl,--no-as-needed")
+        set(_vocotype_worker_rpath "$ORIGIN;$ORIGIN/../lib;$ORIGIN/../lib/vocotype")
+    else()
+        set(_vocotype_worker_rpath "@loader_path;@loader_path/../lib")
+    endif()
     target_link_libraries(${target} PRIVATE funasr)
-    set(_vocotype_worker_rpath "$ORIGIN;$ORIGIN/../lib;$ORIGIN/../lib/vocotype")
     set_target_properties(${target} PROPERTIES
         BUILD_RPATH "${_vocotype_worker_rpath}"
         INSTALL_RPATH "${_vocotype_worker_rpath}"
@@ -22,8 +26,8 @@ vocotype_add_worker(vocotype-offline-worker "@VOCOTYPE_OFFLINE_WORKER_SOURCE@")
 foreach(_vocotype_private_target funasr fst glog yaml-cpp)
     if(TARGET ${_vocotype_private_target})
         set_target_properties(${_vocotype_private_target} PROPERTIES
-            BUILD_RPATH "$ORIGIN"
-            INSTALL_RPATH "$ORIGIN"
+            BUILD_RPATH "$<$<PLATFORM_ID:Darwin>:@loader_path>$<$<NOT:$<PLATFORM_ID:Darwin>>:$ORIGIN>"
+            INSTALL_RPATH "$<$<PLATFORM_ID:Darwin>:@loader_path>$<$<NOT:$<PLATFORM_ID:Darwin>>:$ORIGIN>"
             BUILD_WITH_INSTALL_RPATH TRUE
         )
     endif()

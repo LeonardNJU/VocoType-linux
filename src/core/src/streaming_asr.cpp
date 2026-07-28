@@ -71,6 +71,8 @@ bool StreamingAsrProcess::enabled() const noexcept { return config_.enabled; }
 
 bool StreamingAsrProcess::ready() noexcept { return worker_.ready(); }
 
+Json StreamingAsrProcess::initialize() { return ensure_worker(); }
+
 std::filesystem::path StreamingAsrProcess::resolve_worker_path() const {
   std::vector<std::filesystem::path> candidates;
   const std::string from_environment =

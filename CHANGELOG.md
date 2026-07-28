@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [5.0.0-beta.4] - 2026-07-29
+
+### Added
+
+- Added a native Apple Silicon macOS distribution using InputMethodKit and AppKit, with the same local Core, FunASR workers, terminology, normalization, AI polishing, and voice-edit protocol used by the Linux product.
+- Added a conventional drag-to-Applications DMG. The visible settings application carries a signed input-method payload and installs, registers, enables, activates, and upgrades it under the current user's `~/Library/Input Methods` directory.
+- Added a native macOS settings center covering models, audio, AI configuration, diagnostics, tutorials, and a graphical user-dictionary workflow for adding hotwords, aliases, and protected terms without editing YAML directly.
+- Added dictionary import, Finder reveal, external-edit hot reload, atomic writes, duplicate detection, and preservation of existing YAML comments and formatting where possible.
+- Added clickable status panes, Escape/click cancellation, terminal-message timeouts, and regression smoke tests for click cleanup, stale timers, short recordings, busy-state gating, and actual microphone-start timing.
+- Added macOS arm64 CI and Release packaging contracts so the DMG joins the nine Linux installers and the unified checksum set.
+
+### Changed
+
+- VoCoType-linux now officially supports Linux and macOS while retaining the historical project, repository, application, and configuration name.
+- macOS settings text fields support native Command-Z plus Ctrl-Z undo, with Command-Shift-Z and Ctrl-Shift-Z redo.
+- A voice operation now retains the controller and text client that accepted the initial hotkey press instead of consulting whichever InputMethodKit client happens to be active at key release.
+- Global Carbon hotkey reloads are deferred until the current key cycle and voice operation have ended.
+- Minimum recording duration on macOS is measured from the recorder's real `recording` event, not from the initial F9 press.
+
+### Fixed
+
+- Fixed the first macOS recording after installation committing to a transient system notification client or leaving two overlapping recorder timelines.
+- Fixed F9 release events being lost when InputMethodKit activated another client and re-registered Carbon hotkeys while the key was still held.
+- Fixed first-run CoreAudio initialization making release wait many seconds for a WAV that had never begun recording; pre-ready releases now cancel asynchronously in milliseconds.
+- Fixed a macOS-only crash where short recordings left a null JSON result and completion logging called `value()` on it.
+- Fixed short-recording and cancellation paths leaving the status pane visible indefinitely, leaving a ghost `recording=true` state, or blocking later F9 operations.
+- Fixed the settings Close Window command occasionally targeting a system window instead of the VoCoType settings window.
+
 ## [4.1.1-beta.3] - 2026-07-24
 
 ### Fixed

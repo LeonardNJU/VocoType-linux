@@ -549,6 +549,8 @@ void test_config_merge() {
           "streaming ASR thread override was lost");
   require(config.streaming_asr.chunk_size[1] == 8,
           "streaming ASR chunk override was lost");
+  require(config.streaming_asr.request_timeout_ms == 8000,
+          "streaming ASR default request timeout was not preserved");
 
   const AppConfig legacy = vocotype::core::parse_config(
       {{"asr_streaming", {{"enabled", 1}}},
@@ -1217,7 +1219,11 @@ void test_socket_server() {
       request_socket(config.server.socket_path, R"({"type":"ping"})"));
   require(response.value("pong", false), "socket ping failed");
 
-  server.stop();
+  const Json stopped = Json::parse(
+      request_socket(config.server.socket_path, R"({"type":"core_stop"})"));
+  require(stopped.value("success", false) &&
+              stopped.value("stopping", false),
+          "socket core_stop failed");
   thread.join();
   if (server_error) {
     std::rethrow_exception(server_error);

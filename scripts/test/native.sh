@@ -24,9 +24,17 @@ cmake --build build/native-desktop -j"$JOBS"
 ctest --test-dir build/native-desktop --output-on-failure
 scripts/test/hotkey-settings.sh build/native-desktop/vocotype-settings
 
-cmake -S src/integrations/fcitx5/module -B build/fcitx-module \
-  -DCMAKE_BUILD_TYPE=RelWithDebInfo
-cmake --build build/fcitx-module -j"$JOBS"
+if [[ $(uname -s) == Darwin ]]; then
+  cmake -S src/integrations/macos -B build/native-macos \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    -DBUILD_TESTING=ON
+  cmake --build build/native-macos -j"$JOBS"
+  ctest --test-dir build/native-macos --output-on-failure
+else
+  cmake -S src/integrations/fcitx5/module -B build/fcitx-module \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo
+  cmake --build build/fcitx-module -j"$JOBS"
+fi
 
 cmake -S src/services/feedback -B build/feedback-service \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON
