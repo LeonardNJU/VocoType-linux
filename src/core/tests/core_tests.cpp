@@ -549,6 +549,8 @@ void test_config_merge() {
           "offline ASR thread override was lost");
   require(config.offline_asr.hotword == "VoCoType",
           "offline ASR hotword override was lost");
+  require(config.offline_asr.idle_timeout_ms == 300000,
+          "offline ASR idle default unloads the model too aggressively");
   require(!config.normalization.compact_times,
           "normalization style override was lost");
   require(config.normalization.compact_dates,
@@ -599,6 +601,12 @@ void test_dispatcher() {
   require(polished.value("text", "") == "原文", "disabled polish changed text");
   require(polished.value("reason", "") == "disabled", "wrong disabled reason");
 
+  const Json prepare = dispatcher.dispatch({{"type", "asr_prepare"}});
+  require(!prepare.value("success", true),
+          "disabled ASR prepare unexpectedly reported success");
+  require(prepare.value("error", "") == "native_final_asr_disabled",
+          "disabled ASR prepare boundary is not explicit");
+
   const Json transcribe = dispatcher.dispatch({{"type", "transcribe"}});
   require(!transcribe.value("success", true),
           "unimplemented ASR reported success");
@@ -633,6 +641,14 @@ void test_offline_asr(const std::filesystem::path &worker_path) {
     const Json capabilities = dispatcher.dispatch({{"type", "capabilities"}});
     require(capabilities["features"].value("final_asr", false),
             "final ASR capability was not exposed");
+
+    const Json prepared = dispatcher.dispatch({{"type", "asr_prepare"}});
+    require(prepared.value("success", false),
+            "final ASR prewarm request failed");
+    require(prepared.value("prepared", false),
+            "final ASR worker did not acknowledge preparation");
+    require(prepared.value("hotwords", "") == "VoCoType 语音输入法",
+            "final ASR prewarm did not compile configured hotwords");
 
     const Json result = dispatcher.dispatch(
         {{"type", "transcribe"}, {"audio_path", audio_path.string()}});
@@ -739,6 +755,11 @@ void test_socket_offline(const std::filesystem::path &worker_path) {
   }
   require(std::filesystem::exists(config.server.socket_path),
           "final ASR test socket was not created");
+
+  const Json prepared = Json::parse(request_socket(
+      config.server.socket_path, Json({{"type", "asr_prepare"}}).dump()));
+  require(prepared.value("success", false),
+          "socket final ASR prewarm request failed");
 
   const Json result = Json::parse(request_socket(
       config.server.socket_path,

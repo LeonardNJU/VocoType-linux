@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cctype>
 #include <cstdlib>
 #include <cmath>
@@ -67,6 +68,13 @@ struct Snapshot {
   NSRange document = NSMakeRange(NSNotFound, 0);
 };
 
+struct AsrPrewarmState {
+  std::atomic_bool active{true};
+  std::mutex mutex;
+  std::condition_variable changed;
+  bool first_attempt_done = false;
+};
+
 struct ControllerState {
   std::mutex recorder_mutex;
   std::unique_ptr<vocotype::desktop::RecorderProcess> recorder;
@@ -85,6 +93,7 @@ struct ControllerState {
   Snapshot snapshot;
   std::string socket = vocotype::desktop::backend_socket_path();
   std::string recorder_path;
+  std::shared_ptr<AsrPrewarmState> asr_lease;
   int min_recording_ms = 500;
   int polish_min_chars = 8;
   int polish_timeout_ms = 20000;
@@ -107,6 +116,8 @@ bool begin_recording_state(ControllerState &state) {
       expected, true, std::memory_order_acq_rel, std::memory_order_acquire);
 }
 
+NSString *to_ns(const std::string &text);
+
 bool recording_is_too_short(const ControllerState &state,
                             std::int64_t now_ns) {
   const std::int64_t started_ns =
@@ -115,6 +126,67 @@ bool recording_is_too_short(const ControllerState &state,
     return true;
   const auto elapsed_ms = (now_ns - started_ns) / 1000000;
   return elapsed_ms < state.min_recording_ms;
+}
+
+void mark_asr_prepare_attempt(const std::shared_ptr<AsrPrewarmState> &lease) {
+  std::lock_guard lock(lease->mutex);
+  if (!lease->first_attempt_done) {
+    lease->first_attempt_done = true;
+    lease->changed.notify_all();
+  }
+}
+
+bool wait_for_asr_prepare(const std::shared_ptr<AsrPrewarmState> &lease,
+                          std::chrono::milliseconds timeout) {
+  if (!lease)
+    return true;
+  std::unique_lock lock(lease->mutex);
+  return lease->changed.wait_for(
+      lock, timeout, [&] { return lease->first_attempt_done; });
+}
+
+std::shared_ptr<AsrPrewarmState> stop_asr_lease(ControllerState &state) {
+  auto lease = std::move(state.asr_lease);
+  if (lease)
+    lease->active.store(false, std::memory_order_release);
+  return lease;
+}
+
+void prewarm_offline_asr(const std::string &socket,
+                         const std::filesystem::path &config,
+                         const std::shared_ptr<AsrPrewarmState> &lease) {
+  if (!vocotype::desktop::ensure_native_core(socket, config, 45000)) {
+    mark_asr_prepare_attempt(lease);
+    NSLog(@"VoCoType-linux: ASR prewarm skipped; native core unavailable");
+    return;
+  }
+  while (lease->active.load(std::memory_order_acquire)) {
+    const auto started = std::chrono::steady_clock::now();
+    try {
+      const Json response = vocotype::desktop::unix_json_request(
+          socket, {{"type", "asr_prepare"}}, 45000);
+      const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now() - started).count();
+      if (response.value("success", false)) {
+        NSLog(@"VoCoType-linux: final ASR prepared during recording in %lld ms",
+              static_cast<long long>(elapsed));
+      } else {
+        NSLog(@"VoCoType-linux: final ASR prewarm failed after %lld ms: %@",
+              static_cast<long long>(elapsed),
+              to_ns(response.value("error", "prepare_failed")));
+      }
+    } catch (const std::exception &error) {
+      NSLog(@"VoCoType-linux: final ASR prewarm request failed: %@",
+            to_ns(error.what()));
+    }
+    mark_asr_prepare_attempt(lease);
+    // Refresh the worker before its idle deadline. Short sleeps make cancel and
+    // key release responsive without keeping a thread blocked for 20 seconds.
+    for (int tick = 0; tick < 80 &&
+                       lease->active.load(std::memory_order_acquire); ++tick) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    }
+  }
 }
 
 void release_voice_operation(VocoTypeInputController *controller) {
@@ -1109,6 +1181,15 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
   const BOOL readyAccepted = begin_recording_state(readyState);
   const BOOL readyMarkedRecording = readyState.recording.load();
 
+  ControllerState leaseState;
+  const auto leaseToken = std::make_shared<AsrPrewarmState>();
+  leaseState.asr_lease = leaseToken;
+  const auto stoppedLease = stop_asr_lease(leaseState);
+  const BOOL asrLeaseCancelled =
+      stoppedLease == leaseToken &&
+      !leaseToken->active.load(std::memory_order_acquire) &&
+      !leaseState.asr_lease;
+
   ControllerState timingState;
   timingState.min_recording_ms = 500;
   const std::int64_t timingNow = steady_now_ns();
@@ -1160,8 +1241,9 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
   const BOOL success = !busyAccepted && busyLeftClean && readyAccepted &&
                        readyMarkedRecording && clickable && clickHidden &&
                        cancelCount == 1 && terminalAutoHidden && staleTimerSafe &&
-                       hotkeyReloadDeferred && unstartedIsTooShort &&
-                       actualShortIsTooShort && actualLongIsAccepted;
+                       hotkeyReloadDeferred && asrLeaseCancelled &&
+                       unstartedIsTooShort && actualShortIsTooShort &&
+                       actualLongIsAccepted;
   return @{
     @"success" : @(success),
     @"busy_accepted" : @(busyAccepted),
@@ -1174,6 +1256,7 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
     @"terminal_auto_hidden" : @(terminalAutoHidden),
     @"stale_timer_safe" : @(staleTimerSafe),
     @"hotkey_reload_deferred" : @(hotkeyReloadDeferred),
+    @"asr_lease_cancelled" : @(asrLeaseCancelled),
     @"unstarted_is_too_short" : @(unstartedIsTooShort),
     @"actual_short_is_too_short" : @(actualShortIsTooShort),
     @"actual_long_is_accepted" : @(actualLongIsAccepted),
@@ -1238,7 +1321,13 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
     const std::string socket = _state->socket;
     const auto config = vocotype::desktop::runtime_config_path();
     std::thread([socket, config] {
-      (void)vocotype::desktop::ensure_native_core(socket, config, 45000);
+      if (vocotype::desktop::ensure_native_core(socket, config, 45000)) {
+        try {
+          (void)vocotype::desktop::unix_json_request(
+              socket, {{"type", "asr_prepare"}}, 45000);
+        } catch (const std::exception &) {
+        }
+      }
     }).detach();
   }
   VocoTypeReloadGlobalHotKeys();
@@ -1307,8 +1396,11 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
 
   const std::string socket = _state->socket;
   const auto config = vocotype::desktop::runtime_config_path();
-  std::thread([socket, config] {
-    (void)vocotype::desktop::ensure_native_core(socket, config, 45000);
+  stop_asr_lease(*_state);
+  _state->asr_lease = std::make_shared<AsrPrewarmState>();
+  const auto asr_lease = _state->asr_lease;
+  std::thread([socket, config, asr_lease] {
+    prewarm_offline_asr(socket, config, asr_lease);
   }).detach();
 
   __weak VocoTypeInputController *weak_self = self;
@@ -1391,6 +1483,7 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
           });
         });
   } catch (const std::exception &error) {
+    stop_asr_lease(*_state);
     _state->recording.store(false);
     release_voice_operation(self);
     [self showStatus:[@"❌ 启动录音失败：" stringByAppendingString:to_ns(error.what())]];
@@ -1403,6 +1496,7 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
   if (!_state || !_state->recording.load() || _state->busy.load())
     return;
   _state->recording.store(false);
+  const auto asr_lease = stop_asr_lease(*_state);
   _state->busy.store(true);
   const auto release_started = std::chrono::steady_clock::now();
   NSLog(@"VoCoType-linux: key released; final pipeline started");
@@ -1430,7 +1524,7 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
 
   VocoTypeInputController *controller = self;
   std::thread([controller, generation, too_short, mode, snapshot,
-               client_context, target_client, release_started] {
+               client_context, target_client, release_started, asr_lease] {
     ControllerState *state = controller->_state;
     if (!state)
       return;
@@ -1464,11 +1558,16 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
       }
       if (!too_short && audio_path.empty()) {
         error = "录音失败";
-      } else if (!too_short && !vocotype::desktop::ensure_native_core(
-                     state->socket, vocotype::desktop::runtime_config_path(),
-                     45000)) {
+      } else if (!too_short &&
+                 !wait_for_asr_prepare(asr_lease,
+                                       std::chrono::milliseconds(45000))) {
+        NSLog(@"VoCoType-linux: timed out waiting for recording-time ASR prewarm");
+      }
+      if (!too_short && error.empty() &&
+          !vocotype::desktop::ensure_native_core(
+              state->socket, vocotype::desktop::runtime_config_path(), 45000)) {
         error = "原生语音核心启动失败";
-      } else if (!too_short && mode == VoiceMode::edit) {
+      } else if (!too_short && error.empty() && mode == VoiceMode::edit) {
         Json started = vocotype::desktop::unix_json_request(
             state->socket,
             {{"type", "edit_start"},
@@ -1499,7 +1598,7 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
                 });
               });
         }
-      } else if (!too_short && mode == VoiceMode::polish) {
+      } else if (!too_short && error.empty() && mode == VoiceMode::polish) {
         Json started = vocotype::desktop::unix_json_request(
             state->socket,
             {{"type", "transcribe_start"},
@@ -1526,7 +1625,7 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
                 });
               });
         }
-      } else if (!too_short) {
+      } else if (!too_short && error.empty()) {
         const auto asr_started = std::chrono::steady_clock::now();
         final_result = vocotype::desktop::unix_json_request(
             state->socket,
@@ -1670,6 +1769,7 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
     return;
   }
   ++_state->generation;
+  stop_asr_lease(*_state);
   _state->recording.store(false);
   _state->busy.store(false);
   _state->microphone_started_ns.store(0, std::memory_order_release);

@@ -1,4 +1,4 @@
-vocotype-linux (5.0.0~beta4-1) unstable; urgency=medium
+vocotype-linux (5.0.0~beta5-1) unstable; urgency=medium
 
   * Add the native macOS port and shared cross-platform runtime changes.
   * Preserve Linux IBus and Fcitx 5 package behavior while extending release CI.

@@ -271,6 +271,26 @@ bool waitForBackend(const std::string &socket_path, int timeout_ms) {
     return false;
 }
 
+void markAsrPrepareAttempt(
+    const std::shared_ptr<vocotype::AsrPrewarmState> &state) {
+    std::lock_guard<std::mutex> lock(state->mutex);
+    if (!state->first_attempt_done) {
+        state->first_attempt_done = true;
+        state->changed.notify_all();
+    }
+}
+
+bool waitForAsrPrepare(
+    const std::shared_ptr<vocotype::AsrPrewarmState> &state,
+    std::chrono::milliseconds timeout) {
+    if (!state) {
+        return true;
+    }
+    std::unique_lock<std::mutex> lock(state->mutex);
+    return state->changed.wait_for(
+        lock, timeout, [&state] { return state->first_attempt_done; });
+}
+
 std::string resolveBackendSocketPath() {
     if (const char *override_path = std::getenv("VOCOTYPE_FCITX5_SOCKET")) {
         if (*override_path != '\0') {
@@ -339,6 +359,7 @@ VoCoTypeModule::VoCoTypeModule(fcitx::Instance *instance)
 }
 
 VoCoTypeModule::~VoCoTypeModule() {
+    (void)stopAsrPrewarm();
     cancelPendingPttRelease();
     cancelPendingRecordingStart();
     cancelActiveVoiceEditTask();
@@ -898,6 +919,52 @@ void VoCoTypeModule::handleFocusOut(fcitx::InputContextEvent &event) {
     }
 }
 
+void VoCoTypeModule::startAsrPrewarm() {
+    (void)stopAsrPrewarm();
+    auto state = std::make_shared<AsrPrewarmState>();
+    asr_prewarm_ = state;
+    const std::string socket_path = backend_socket_path_;
+    const auto backend_start_pending = backend_start_pending_;
+    std::thread([state, socket_path, backend_start_pending]() {
+        IPCClient client(socket_path);
+        bool backend_ready = client.ping();
+        if (!backend_ready) {
+            bool expected = false;
+            const bool owns_start_gate =
+                backend_start_pending->compare_exchange_strong(
+                    expected, true, std::memory_order_acq_rel);
+            if (owns_start_gate) {
+                (void)startBackendUserService();
+            }
+            backend_ready = waitForBackend(socket_path, 45000);
+            if (owns_start_gate) {
+                backend_start_pending->store(false, std::memory_order_release);
+            }
+        }
+        if (!backend_ready) {
+            markAsrPrepareAttempt(state);
+            return;
+        }
+        while (state->active.load(std::memory_order_acquire)) {
+            (void)client.prepareAsr(45000);
+            markAsrPrepareAttempt(state);
+            for (int tick = 0; tick < 80 &&
+                               state->active.load(std::memory_order_acquire);
+                 ++tick) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(250));
+            }
+        }
+    }).detach();
+}
+
+std::shared_ptr<AsrPrewarmState> VoCoTypeModule::stopAsrPrewarm() {
+    auto state = std::move(asr_prewarm_);
+    if (state) {
+        state->active.store(false, std::memory_order_release);
+    }
+    return state;
+}
+
 void VoCoTypeModule::armPendingRecordingStart(
     fcitx::InputContext *ic, bool long_mode, bool edit_mode,
     const VoiceEditSnapshot &edit_snapshot, const fcitx::Key &pressed_key,
@@ -909,6 +976,7 @@ void VoCoTypeModule::armPendingRecordingStart(
     pending_long_mode_ = long_mode;
     pending_edit_mode_ = edit_mode;
     pending_edit_snapshot_ = edit_snapshot;
+    startAsrPrewarm();
 
     if (ptt_hold_threshold_ms_ <= 0) {
         startRecording(ic, long_mode, edit_mode, edit_snapshot);
@@ -935,6 +1003,7 @@ void VoCoTypeModule::armPendingRecordingStart(
 }
 
 void VoCoTypeModule::cancelPendingRecordingStart() {
+    (void)stopAsrPrewarm();
     ptt_pressed_ = false;
     ptt_suppressed_ = false;
     pending_long_mode_ = false;
@@ -992,40 +1061,20 @@ void VoCoTypeModule::startRecording(fcitx::InputContext *ic, bool long_mode,
         return;
     }
     if (recorder_launcher_path_.empty()) {
+        (void)stopAsrPrewarm();
         showError(ic, "录音配置无效");
         return;
     }
     if (!ipc_client_->ping()) {
-        if (backend_start_pending_.exchange(true)) {
-            showPanelMessage(ic, "⏳ 语音后台正在启动...");
-            return;
-        }
-        auto ic_ref = ic->watch();
-        const std::string socket_path = backend_socket_path_;
-        showPanelMessage(ic, "⏳ 正在启动语音后台...");
-        std::thread([this, ic_ref, socket_path, long_mode, edit_mode,
-                     edit_snapshot]() {
-      const bool ready =
-          startBackendUserService() && waitForBackend(socket_path, 45000);
-            scheduleWithContext(
-          ic_ref, [this, ic_ref, ready, long_mode, edit_mode, edit_snapshot]() {
-                    backend_start_pending_.store(false);
-                    auto *context = ic_ref.get();
-                    if (!context || !context->hasFocus()) {
-                        return;
-                    }
-                    if (!ready) {
-              showError(context, "语音后台启动失败，请在设置中心运行诊断");
-                        return;
-                    }
-            startRecording(context, long_mode, edit_mode, edit_snapshot);
-                });
-        }).detach();
-        return;
+        // Audio capture must begin immediately. The recording-time prewarm
+        // thread starts the backend, while the recorder's preview loop retries
+        // the socket independently.
+        showPanelMessage(ic, "🎤 正在录音并准备语音后台...");
     }
 
     const int recorder_lock_fd = acquireRecorderLock();
     if (recorder_lock_fd < 0) {
+        (void)stopAsrPrewarm();
         // A second module instance or a repeated key stream may observe the
         // same physical F9 press. Consume it until release, but never spawn a
         // second recorder or replay F9 into the client.
@@ -1038,11 +1087,13 @@ void VoCoTypeModule::startRecording(fcitx::InputContext *ic, bool long_mode,
     int stdin_pipe[2];
     int stdout_pipe[2];
     if (pipe(stdin_pipe) != 0) {
+        (void)stopAsrPrewarm();
         close(recorder_lock_fd);
         showError(ic, "启动录音失败");
         return;
     }
     if (pipe(stdout_pipe) != 0) {
+        (void)stopAsrPrewarm();
         close(stdin_pipe[0]);
         close(stdin_pipe[1]);
         close(recorder_lock_fd);
@@ -1052,6 +1103,7 @@ void VoCoTypeModule::startRecording(fcitx::InputContext *ic, bool long_mode,
 
     pid_t pid = fork();
     if (pid < 0) {
+        (void)stopAsrPrewarm();
         close(stdin_pipe[0]);
         close(stdin_pipe[1]);
         close(stdout_pipe[0]);
@@ -1078,6 +1130,7 @@ void VoCoTypeModule::startRecording(fcitx::InputContext *ic, bool long_mode,
     close(stdout_pipe[1]);
     FILE *stdout_file = fdopen(stdout_pipe[0], "r");
     if (!stdout_file) {
+        (void)stopAsrPrewarm();
         close(stdout_pipe[0]);
         close(stdin_pipe[1]);
         kill(pid, SIGTERM);
@@ -1209,6 +1262,7 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
     const bool edit_mode = recording_edit_mode_;
     const VoiceEditSnapshot edit_snapshot = recording_edit_snapshot_;
     const uint64_t session_id = recording_voice_session_id_;
+    const auto asr_prewarm = stopAsrPrewarm();
     recording_long_mode_ = false;
     recording_edit_mode_ = false;
     recording_edit_snapshot_ = VoiceEditSnapshot();
@@ -1246,7 +1300,8 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
     std::thread([this, pid, stdin_fd, lock_fd,
                  output_thread = std::move(output_thread),
                  output_state = std::move(output_state), transcribe, long_mode,
-                 edit_mode, edit_snapshot, session_id, ic_ref]() mutable {
+                 edit_mode, edit_snapshot, session_id, ic_ref,
+                 asr_prewarm]() mutable {
         std::string audio_path = finishRecorderProcess(
             pid, stdin_fd, lock_fd, std::move(output_thread), output_state);
         if (!transcribe) {
@@ -1257,6 +1312,9 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
             }
             return;
         }
+
+        (void)waitForAsrPrepare(asr_prewarm,
+                                std::chrono::milliseconds(45000));
 
         if (edit_mode) {
       scheduleWithContext(ic_ref, [this, ic_ref, audio_path, edit_snapshot,

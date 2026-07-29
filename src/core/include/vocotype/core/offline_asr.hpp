@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -20,6 +21,7 @@ public:
   [[nodiscard]] bool enabled() const noexcept;
   [[nodiscard]] bool ready() noexcept;
   [[nodiscard]] Json initialize();
+  [[nodiscard]] Json prepare(const Json &request = Json::object());
   [[nodiscard]] Json transcribe(const Json &request);
   [[nodiscard]] std::string normalize_text(const std::string &text);
   [[nodiscard]] std::string
@@ -34,6 +36,7 @@ private:
   [[nodiscard]] std::vector<std::string> worker_arguments() const;
 
   OfflineAsrConfig config_;
+  std::mutex request_mutex_;
   TextNormalizer normalizer_;
   JsonLineWorker worker_;
 };

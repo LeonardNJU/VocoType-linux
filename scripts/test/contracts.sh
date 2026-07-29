@@ -214,6 +214,20 @@ rg -Fq 'startBackendUserService' src/integrations/fcitx5/module/vocotype_module.
   fail "Fcitx cannot recover a missing backend service"
 rg -Fq 'backend_start_pending_' src/integrations/fcitx5/module/vocotype_module.cpp || \
   fail "Fcitx backend recovery is not serialized"
+rg -Fq 'start_asr_prewarm(state)' src/desktop/src/ibus_main.cpp || \
+  fail "IBus does not prewarm final ASR at recording start"
+rg -Fq 'wait_for_asr_prepare(asr_lease' src/desktop/src/ibus_main.cpp || \
+  fail "IBus final ASR does not wait for recording-time preparation"
+rg -Fq 'startAsrPrewarm()' src/integrations/fcitx5/module/vocotype_module.cpp || \
+  fail "Fcitx does not prewarm final ASR at voice-key press"
+rg -Fq 'waitForAsrPrepare(asr_prewarm' src/integrations/fcitx5/module/vocotype_module.cpp || \
+  fail "Fcitx final ASR does not wait for recording-time preparation"
+rg -Fq 'prepareAsr(45000)' src/integrations/fcitx5/module/vocotype_module.cpp || \
+  fail "Fcitx prewarm does not request final-ASR preparation"
+rg -Fq 'prewarm_offline_asr(socket, config, asr_lease)' src/integrations/macos/VocoTypeInputController.mm || \
+  fail "macOS does not prewarm final ASR at recording start"
+rg -Fq 'wait_for_asr_prepare(asr_lease' src/integrations/macos/VocoTypeInputController.mm || \
+  fail "macOS final ASR does not wait for recording-time preparation"
 for service in scripts/install/common/install-native-user.sh \
                packaging/common/systemd/vocotype-fcitx5-backend.service; do
   rg -Fq 'Restart=always' "$service" || \

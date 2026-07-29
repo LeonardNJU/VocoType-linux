@@ -4,7 +4,9 @@
 #include <algorithm>
 #include <cctype>
 #include <string>
+#include <thread>
 #include <utility>
+#include <vector>
 
 namespace vocotype::core {
 namespace {
@@ -49,11 +51,25 @@ CoreDispatcher::CoreDispatcher(AppConfig config)
       streaming_asr_(config_.streaming_asr),
       transcription_tasks_(offline_asr_, slm_), voice_edit_planner_(slm_),
       voice_edit_tasks_(offline_asr_, voice_edit_planner_) {
+  std::vector<std::thread> initializers;
   if (offline_asr_.enabled()) {
-    (void)offline_asr_.initialize();
+    initializers.emplace_back([this] {
+      try {
+        (void)offline_asr_.initialize();
+      } catch (const std::exception &) {
+      }
+    });
   }
   if (streaming_asr_.enabled()) {
-    (void)streaming_asr_.initialize();
+    initializers.emplace_back([this] {
+      try {
+        (void)streaming_asr_.initialize();
+      } catch (const std::exception &) {
+      }
+    });
+  }
+  for (auto &initializer : initializers) {
+    initializer.join();
   }
 }
 
@@ -137,6 +153,11 @@ Json CoreDispatcher::dispatch(const Json &request) const {
         {"error", result.error},
         {"latency_ms", result.latency_ms},
     };
+  }
+  if (type == "asr_prepare") {
+    Json result = offline_asr_.prepare(request);
+    result["backend"] = "cpp";
+    return result;
   }
   if (type == "transcribe") {
     Json result = offline_asr_.transcribe(request);

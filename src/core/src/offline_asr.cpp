@@ -68,7 +68,33 @@ bool OfflineAsrProcess::enabled() const noexcept { return config_.enabled; }
 
 bool OfflineAsrProcess::ready() noexcept { return worker_.ready(); }
 
-Json OfflineAsrProcess::initialize() { return ensure_worker(); }
+Json OfflineAsrProcess::initialize() { return prepare(); }
+
+Json OfflineAsrProcess::prepare(const Json &request) {
+  std::lock_guard lock(request_mutex_);
+  if (!config_.enabled) {
+    return error_response("native_final_asr_disabled");
+  }
+  const Json started = ensure_worker();
+  if (!started.value("success", false)) {
+    return started;
+  }
+  const std::string requested_hotwords =
+      request.value("hotwords", config_.hotword);
+  const std::string native_hotwords =
+      normalizer_.build_native_hotwords(requested_hotwords);
+  try {
+    Json result = worker_.request(
+        {{"type", "prepare"}, {"hotwords", native_hotwords}},
+        config_.startup_timeout_ms);
+    if (result.value("success", false)) {
+      result["hotwords"] = native_hotwords;
+    }
+    return result;
+  } catch (const std::exception &error) {
+    return error_response(error.what());
+  }
+}
 
 std::filesystem::path OfflineAsrProcess::resolve_worker_path() const {
   std::vector<std::filesystem::path> candidates;
@@ -175,6 +201,7 @@ Json OfflineAsrProcess::ensure_worker() {
 }
 
 Json OfflineAsrProcess::transcribe(const Json &request) {
+  std::lock_guard lock(request_mutex_);
   if (!config_.enabled) {
     return error_response("native_final_asr_disabled");
   }
@@ -212,10 +239,12 @@ Json OfflineAsrProcess::transcribe(const Json &request) {
 }
 
 std::string OfflineAsrProcess::normalize_text(const std::string &text) {
+  std::lock_guard lock(request_mutex_);
   return normalizer_.normalize(text);
 }
 
 std::string OfflineAsrProcess::build_native_hotwords(const std::string &extra) {
+  std::lock_guard lock(request_mutex_);
   return normalizer_.build_native_hotwords(extra);
 }
 

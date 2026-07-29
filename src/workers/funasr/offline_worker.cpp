@@ -199,6 +199,10 @@ private:
       const std::string type = request.value("type", "");
       if (type == "transcribe") {
         transcribe(request);
+      } else if (type == "prepare") {
+        const std::string hotwords = request.value("hotwords", "");
+        compile_hotwords(hotwords);
+        emit({{"success", true}, {"prepared", true}, {"hotwords", hotwords}});
       } else if (type == "ping") {
         emit({{"success", true}});
       } else if (type == "stop") {

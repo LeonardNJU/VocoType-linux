@@ -19,20 +19,19 @@
 - macOS：原生使用 **InputMethodKit Palette Input Method**，与当前键盘输入源共存；
 - 三个平台前端共用 C++ Core、FunASR worker、术语、ITN、AI润色与受限语音编辑协议。
 
-## 📰 V5 Beta 4：VoCoType-linux 原生进入 macOS
+## 📰 V5 Beta 5：说话时提前准备最终识别模型
 
-**[VoCoType-linux v5.0.0-beta.4](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v5.0.0-beta.4)** 首次提供可直接拖入 Applications 的 Apple Silicon DMG，同时保留完整 Linux发行包。
+**[VoCoType-linux v5.0.0-beta.5](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v5.0.0-beta.5)** 将最终离线识别的冷启动从“松开快捷键之后”提前到“按下快捷键、开始说话时”，并统一覆盖 macOS、IBus、Fcitx 5与 Universal软件包。
 
-- 原生 macOS InputMethodKit输入法与 AppKit设置中心；
-- 标准“拖到 Applications”DMG，首次启动自动安装并激活内置输入法组件；
-- `F9`普通听写、`Shift+F9`长句润色、`Ctrl+F9`语音编辑；
-- 实时识别浮层支持点击取消，终态提示自动消失；
-- 修复首次安装后系统通知抢占文本客户端、按住 F9 时热键重载吞掉 key-up、CoreAudio尚未就绪导致长时间残留等竞态；
-- 用户词典改为图形化新增热词/保护词、导入、Finder定位和热更新；
-- 设置文本框支持 `⌘Z`与 `Ctrl+Z`撤销，以及对应重做操作；
-- Linux Universal、IBus-only、Fcitx5-only软件包继续由同一发布流程构建和验证。
+- 按下 `F9`、润色或语音编辑快捷键后，立即准备最终 ASR、标点模型和当前用户词典热词图；
+- 麦克风无需等待冷 Core或后台服务，录音与模型加载并行进行；
+- 长语音会覆盖大部分冷启动时间，松键后不再重新开始加载模型；
+- 录音期间持续维持 worker，避免长时间说话时模型中途卸载；
+- 冷 Core同时加载离线与流式模型，默认空闲卸载窗口从 60秒延长到 5分钟；
+- 短冷录音会等待本次预热的首次结果，避免松键后与模型启动竞态；
+- Beta 4引入的原生 Apple Silicon DMG、InputMethodKit输入法、AppKit设置中心和完整 Linux发行包继续保留。
 
-[前往 V5 Beta 4 Release 下载](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v5.0.0-beta.4)。macOS Apple Silicon用户请选择 `VoCoType-linux-5.0.0b4-macOS-arm64.dmg`。
+[前往 V5 Beta 5 Release 下载](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v5.0.0-beta.5)。macOS Apple Silicon用户请选择 `VoCoType-linux-5.0.0b5-macOS-arm64.dmg`。
 
 <details>
 <summary><strong>为什么移植到 macOS 后仍然叫 VoCoType-linux？</strong></summary>
@@ -69,19 +68,19 @@ https://github.com/user-attachments/assets/4b936014-9477-4794-8d04-aa31d34577a0
 
 系统要求：**Apple Silicon（arm64），macOS 13或更高版本**。
 
-1. 从 [V5 Beta 4 Release](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v5.0.0-beta.4) 下载 `VoCoType-linux-5.0.0b4-macOS-arm64.dmg`；
+1. 从 [V5 Beta 5 Release](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v5.0.0-beta.5) 下载 `VoCoType-linux-5.0.0b5-macOS-arm64.dmg`；
 2. 打开 DMG，将 `VoCoType-linux.app`拖到右侧 `Applications`；
 3. 从“应用程序”打开 VoCoType-linux；
 4. 首次启动会把内置输入法安装到 `~/Library/Input Methods/VoCoType-linux.app`并激活；
 5. 允许麦克风权限，然后在任意文本框中按住 `F9`说话。
 
-V5 Beta 4采用 **ad-hoc签名且尚未经过 Apple公证**。首次打开若被 Gatekeeper阻止：先尝试打开一次并关闭提示，然后进入 **系统设置 → 隐私与安全性 → 仍要打开**，在确认框中再次选择“仍要打开”。这是为该 App建立本机例外，不是导入或信任一张 ad-hoc证书。
+V5 Beta 5采用 **ad-hoc签名且尚未经过 Apple公证**。首次打开若被 Gatekeeper阻止：先尝试打开一次并关闭提示，然后进入 **系统设置 → 隐私与安全性 → 仍要打开**，在确认框中再次选择“仍要打开”。这是为该 App建立本机例外，不是导入或信任一张 ad-hoc证书。
 
 升级时直接用新版本覆盖 `/Applications/VoCoType-linux.app`并启动；App会更新内置输入法，同时保留配置、用户词典和模型。完整说明见 [macOS安装与排障](docs/getting-started/macos.md)。
 
 ### Linux：安装发行包
 
-在 [V5 Beta 4 Release](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v5.0.0-beta.4) 下载适合发行版与输入法框架的软件包：
+在 [V5 Beta 5 Release](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v5.0.0-beta.5) 下载适合发行版与输入法框架的软件包：
 
 ```bash
 # Debian / Ubuntu
@@ -112,10 +111,10 @@ bash scripts/install/ibus/install.sh --install-system-deps --download-models
 ### Nix / NixOS
 
 ```bash
-nix run github:LeonardNJU/VocoType-linux/v5.0.0-beta.4#settings
-nix build github:LeonardNJU/VocoType-linux/v5.0.0-beta.4#vocotype-fcitx5
-nix build github:LeonardNJU/VocoType-linux/v5.0.0-beta.4#vocotype-ibus
-nix build github:LeonardNJU/VocoType-linux/v5.0.0-beta.4#vocotype-universal
+nix run github:LeonardNJU/VocoType-linux/v5.0.0-beta.5#settings
+nix build github:LeonardNJU/VocoType-linux/v5.0.0-beta.5#vocotype-fcitx5
+nix build github:LeonardNJU/VocoType-linux/v5.0.0-beta.5#vocotype-ibus
+nix build github:LeonardNJU/VocoType-linux/v5.0.0-beta.5#vocotype-universal
 ```
 
 详见 [Nix与NixOS文档](docs/getting-started/nix.md)。

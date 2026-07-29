@@ -2,6 +2,7 @@
 #define VOCOTYPE_FCITX5_MODULE_H
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdio>
 #include <memory>
 #include <mutex>
@@ -30,6 +31,13 @@ struct VoiceEditSnapshot {
     std::string selected_text;
     unsigned int cursor = 0;
     unsigned int anchor = 0;
+};
+
+struct AsrPrewarmState {
+    std::atomic_bool active{true};
+    std::mutex mutex;
+    std::condition_variable changed;
+    bool first_attempt_done = false;
 };
 
 struct RecorderOutputState {
@@ -174,6 +182,8 @@ private:
                         const VoiceEditSnapshot &edit_snapshot);
     void stopRecording(bool transcribe);
     void stopAndTranscribe();
+    void startAsrPrewarm();
+    std::shared_ptr<AsrPrewarmState> stopAsrPrewarm();
 
     void showPanelMessage(fcitx::InputContext *ic, const std::string &message);
   void renderRecordingPanel(fcitx::InputContext *ic, const std::string &status);
@@ -232,7 +242,9 @@ private:
     bool ptt_pressed_ = false;
     bool ptt_suppressed_ = false;
     bool is_recording_ = false;
-    std::atomic_bool backend_start_pending_{false};
+    std::shared_ptr<std::atomic_bool> backend_start_pending_ =
+        std::make_shared<std::atomic_bool>(false);
+    std::shared_ptr<AsrPrewarmState> asr_prewarm_;
     bool recording_long_mode_ = false;
     bool recording_edit_mode_ = false;
     bool pending_long_mode_ = false;

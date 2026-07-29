@@ -504,6 +504,17 @@ void IPCClient::reset() {
     }
 }
 
+bool IPCClient::prepareAsr(int timeout_ms) {
+    try {
+        const json request = {{"type", "asr_prepare"}};
+        const json response = json::parse(sendRequest(request.dump(), timeout_ms));
+        return response.value("success", false) &&
+               response.value("prepared", false);
+    } catch (const std::exception &) {
+        return false;
+    }
+}
+
 bool IPCClient::ping() {
     try {
         json request = {{"type", "ping"}};

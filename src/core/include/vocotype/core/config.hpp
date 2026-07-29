@@ -42,7 +42,7 @@ struct OfflineAsrConfig {
   std::string hotword;
   bool itn = true;
   int threads = 2;
-  int idle_timeout_ms = 60000;
+  int idle_timeout_ms = 300000;
   int startup_timeout_ms = 30000;
   int request_timeout_ms = 120000;
 };

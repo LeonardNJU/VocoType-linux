@@ -20,7 +20,11 @@ int main() {
     try {
       const Json request = Json::parse(line);
       const std::string type = request.value("type", "");
-      if (type == "transcribe") {
+      if (type == "prepare") {
+        response = {{"success", true},
+                    {"prepared", true},
+                    {"hotwords", request.value("hotwords", "")}};
+      } else if (type == "transcribe") {
         response = {{"success", true},
                     {"text", "原生最终转写"},
                     {"raw_text", "原生最终转写"},

@@ -18,7 +18,7 @@ VoCoType-linux V5提供原生 Apple Silicon版本。它由两个协作组件组�
 
 ## 安装
 
-1. 在 [GitHub Releases](https://github.com/LeonardNJU/VocoType-linux/releases) 下载 `VoCoType-linux-5.0.0b4-macOS-arm64.dmg`；
+1. 在 [GitHub Releases](https://github.com/LeonardNJU/VocoType-linux/releases) 下载 `VoCoType-linux-5.0.0b5-macOS-arm64.dmg`；
 2. 双击 DMG；
 3. 将 `VoCoType-linux.app`拖到右侧 `Applications`；
 4. 从“应用程序”打开 VoCoType-linux；
@@ -39,7 +39,7 @@ VoCoType-linux V5提供原生 Apple Silicon版本。它由两个协作组件组�
 
 ## Gatekeeper与ad-hoc签名
 
-V5 Beta 4采用 ad-hoc签名，尚未经过 Apple notarization。ad-hoc只有代码完整性签名，没有一张可导入钥匙串的开发者证书。
+V5 Beta 5采用 ad-hoc签名，尚未经过 Apple notarization。ad-hoc只有代码完整性签名，没有一张可导入钥匙串的开发者证书。
 
 首次打开若被阻止：
 
@@ -108,7 +108,7 @@ V5 Beta 4采用 ad-hoc签名，尚未经过 Apple notarization。ad-hoc只有代
 
 ### 第一次F9松开后不提交，浮层一直存在
 
-V5 Beta 4修复了首次 CoreAudio初始化、系统通知临时激活和按住 F9时热键重载之间的竞态。若仍遇到，先点击浮层清理状态，再确认安装版本至少为 `5.0.0b4`。
+V5 Beta 5在 Beta 4生命周期修复的基础上，进一步在按下语音快捷键时准备最终 ASR与当前热词图。若仍遇到松键后长时间等待，先确认 App与输入法组件版本均至少为 `5.0.0b5`。
 
 ### 功能键控制亮度/媒体而不是F9
 

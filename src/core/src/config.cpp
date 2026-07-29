@@ -90,7 +90,7 @@ Json default_config_json() {
            {"hotword", ""},
            {"itn", true},
            {"intra_op_num_threads", 2},
-           {"idle_timeout_s", 60},
+           {"idle_timeout_s", 300},
            {"startup_timeout_s", 30},
            {"request_timeout_s", 120},
        }},
@@ -266,7 +266,7 @@ AppConfig parse_config(const Json &value) {
   config.offline_asr.threads =
       std::clamp(value_or<int>(asr, "intra_op_num_threads", 2), 1, 8);
   config.offline_asr.idle_timeout_ms =
-      seconds_to_ms(value_or<double>(asr, "idle_timeout_s", 60.0), 60000);
+      seconds_to_ms(value_or<double>(asr, "idle_timeout_s", 300.0), 300000);
   config.offline_asr.startup_timeout_ms =
       seconds_to_ms(value_or<double>(asr, "startup_timeout_s", 30.0), 30000);
   config.offline_asr.request_timeout_ms =

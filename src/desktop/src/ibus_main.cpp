@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -49,6 +50,13 @@ const Hotkey kDefaultTranscribeHotkey = vocotype::desktop::parse_hotkey("F9");
 const Hotkey kDefaultPolishHotkey = vocotype::desktop::parse_hotkey("Shift+F9");
 const Hotkey kDefaultEditHotkey = vocotype::desktop::parse_hotkey("Ctrl+F9");
 
+struct AsrPrewarmState {
+  std::atomic_bool active{true};
+  std::mutex mutex;
+  std::condition_variable changed;
+  bool first_attempt_done = false;
+};
+
 struct EngineState {
   std::mutex recorder_mutex;
   std::unique_ptr<vocotype::desktop::RecorderProcess> recorder;
@@ -68,6 +76,7 @@ struct EngineState {
   Snapshot snapshot;
   std::string socket = vocotype::desktop::backend_socket_path();
   std::string recorder_path;
+  std::shared_ptr<AsrPrewarmState> asr_lease;
   int min_recording_ms = 1000;
   int polish_min_chars = 8;
   int polish_timeout_ms = 20000;
@@ -109,6 +118,56 @@ void post_engine(VocotypeEngine *engine,
     function(engine);
     g_object_unref(engine);
   });
+}
+
+void mark_asr_prepare_attempt(const std::shared_ptr<AsrPrewarmState> &lease) {
+  std::lock_guard lock(lease->mutex);
+  if (!lease->first_attempt_done) {
+    lease->first_attempt_done = true;
+    lease->changed.notify_all();
+  }
+}
+
+bool wait_for_asr_prepare(const std::shared_ptr<AsrPrewarmState> &lease,
+                          std::chrono::milliseconds timeout) {
+  if (!lease)
+    return true;
+  std::unique_lock lock(lease->mutex);
+  return lease->changed.wait_for(
+      lock, timeout, [&] { return lease->first_attempt_done; });
+}
+
+std::shared_ptr<AsrPrewarmState> stop_asr_prewarm(EngineState &state) {
+  auto lease = std::move(state.asr_lease);
+  if (lease)
+    lease->active.store(false, std::memory_order_release);
+  return lease;
+}
+
+void start_asr_prewarm(EngineState &state) {
+  (void)stop_asr_prewarm(state);
+  auto lease = std::make_shared<AsrPrewarmState>();
+  state.asr_lease = lease;
+  const std::string socket = state.socket;
+  const auto config = vocotype::desktop::runtime_config_path();
+  std::thread([socket, config, lease] {
+    if (!vocotype::desktop::ensure_native_core(socket, config, 45000)) {
+      mark_asr_prepare_attempt(lease);
+      return;
+    }
+    while (lease->active.load(std::memory_order_acquire)) {
+      try {
+        (void)vocotype::desktop::unix_json_request(
+            socket, {{"type", "asr_prepare"}}, 45000);
+      } catch (const std::exception &) {
+      }
+      mark_asr_prepare_attempt(lease);
+      for (int tick = 0; tick < 80 &&
+                         lease->active.load(std::memory_order_acquire); ++tick) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+      }
+    }
+  }).detach();
 }
 
 void show_aux(VocotypeEngine *engine, const std::string &text) {
@@ -301,17 +360,13 @@ void start_recording(VocotypeEngine *engine, VoiceMode mode,
     show_aux(engine, "❌ 找不到原生录音器");
     return;
   }
-  if (!vocotype::desktop::ensure_native_core(
-          state.socket, vocotype::desktop::runtime_config_path())) {
-    state.recording.store(false);
-    show_aux(engine, "❌ 原生语音核心启动失败");
-    return;
-  }
+  start_asr_prewarm(state);
   state.long_mode = mode == VoiceMode::polish;
   state.edit_mode = mode == VoiceMode::edit;
   state.active_hotkey = active_hotkey;
   state.snapshot = state.edit_mode ? capture_snapshot(engine) : Snapshot{};
   if (state.edit_mode && !state.snapshot.valid) {
+    (void)stop_asr_prewarm(state);
     state.recording.store(false);
     show_aux(engine, "❌ 当前输入框不支持语音编辑");
     return;
@@ -338,6 +393,7 @@ void start_recording(VocotypeEngine *engine, VoiceMode mode,
           }
         });
   } catch (const std::exception &error) {
+    (void)stop_asr_prewarm(state);
     state.recording.store(false);
     show_aux(engine, std::string("❌ 启动录音失败：") + error.what());
     return;
@@ -529,10 +585,12 @@ void stop_recording(VocotypeEngine *engine) {
   const bool long_mode = state.long_mode;
   const bool edit_mode = state.edit_mode;
   const Snapshot snapshot = state.snapshot;
+  const auto asr_lease = stop_asr_prewarm(state);
   const std::uint64_t generation = state.generation.load();
   show_aux(engine, too_short ? "⚠️ 录音过短" : "⏳ 正在识别…");
   g_object_ref(engine);
-  std::thread([engine, generation, too_short, long_mode, edit_mode, snapshot] {
+  std::thread([engine, generation, too_short, long_mode, edit_mode, snapshot,
+               asr_lease] {
     auto &worker_state = *engine->state;
     std::string audio_path;
     std::string error;
@@ -549,7 +607,11 @@ void stop_recording(VocotypeEngine *engine) {
       }
       if (!too_short && audio_path.empty()) {
         error = "录音失败";
-      } else if (!too_short && edit_mode) {
+      } else if (!too_short) {
+        (void)wait_for_asr_prepare(asr_lease,
+                                   std::chrono::milliseconds(45000));
+      }
+      if (!too_short && error.empty() && edit_mode) {
         Json started = vocotype::desktop::unix_json_request(
             worker_state.socket,
             {{"type", "edit_start"},
@@ -574,7 +636,7 @@ void stop_recording(VocotypeEngine *engine) {
                           apply_edit_result(target, snapshot, result);
                       });
         }
-      } else if (!too_short && long_mode) {
+      } else if (!too_short && error.empty() && long_mode) {
         Json started = vocotype::desktop::unix_json_request(
             worker_state.socket,
             {{"type", "transcribe_start"},
@@ -603,7 +665,7 @@ void stop_recording(VocotypeEngine *engine) {
           } else
             error = result.value("error", "润色失败");
         }
-      } else if (!too_short) {
+      } else if (!too_short && error.empty()) {
         Json result =
             vocotype::desktop::unix_json_request(worker_state.socket,
                                                  {{"type", "transcribe"},
@@ -644,6 +706,7 @@ void stop_recording(VocotypeEngine *engine) {
 void cancel_recording(VocotypeEngine *engine) {
   auto &state = *engine->state;
   ++state.generation;
+  (void)stop_asr_prewarm(state);
   state.recording.store(false);
   std::lock_guard lock(state.recorder_mutex);
   if (state.recorder) {

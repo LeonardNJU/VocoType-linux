@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes.
 
+## [5.0.0-beta.5] - 2026-07-30
+
+### Added
+
+- Added a shared `asr_prepare` protocol that starts the final offline recognizer and compiles the current terminology-derived hotword graph before final transcription is requested.
+- Added recording-scoped ASR preparation leases to macOS InputMethodKit, Linux IBus, and the Fcitx 5 module, including the Universal package paths.
+- Added release contracts that require every supported frontend to start final-ASR preparation at voice-key press and wait for its first preparation attempt before final inference.
+
+### Changed
+
+- Voice recording now begins immediately while a cold Core, offline ASR worker, punctuation model, and hotword graph are prepared in parallel with the user's speech.
+- Core cold startup initializes the offline and streaming ASR workers concurrently instead of serially.
+- The default offline-worker idle timeout increased from 60 seconds to 300 seconds; active recordings refresh the worker lease so long dictation cannot unload it mid-session.
+- Fcitx backend recovery remains serialized by a single-owner start gate without delaying microphone capture, and IBus no longer waits synchronously for Core startup before recording.
+
+### Fixed
+
+- Fixed macOS, IBus, Fcitx 5, and Universal builds paying final-model cold-start and hotword-compilation latency only after the user released the voice shortcut.
+- Fixed long recordings failing to overlap model preparation with speaking time.
+- Fixed short cold recordings racing the background preparation request; final recognition now waits for that recording's first preparation attempt before proceeding.
+- Fixed a possible Fcitx service-start gate ownership race in which a waiting prewarm thread could clear another thread's active start marker.
+
 ## [5.0.0-beta.4] - 2026-07-29
 
 ### Added

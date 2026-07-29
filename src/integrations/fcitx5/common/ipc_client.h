@@ -194,6 +194,9 @@ public:
      */
     bool ping();
 
+    /** Prepare the final offline ASR model and current hotword graph. */
+    bool prepareAsr(int timeout_ms = 45000);
+
 private:
     /**
      * 发送请求并接收响应
