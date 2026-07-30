@@ -864,8 +864,7 @@ NSString *percent_encode(NSString *text) {
 - (void)testAI:(id)sender;
 - (void)aiEnabledChanged:(id)sender;
 - (void)aiConfigurationChanged:(NSNotification *)notification;
-- (void)scheduleAIHealthCheckAfter:(NSTimeInterval)delay force:(BOOL)force;
-- (void)runAIHealthCheckForGeneration:(NSUInteger)generation;
+- (void)runAIConnectionTest;
 - (void)recordPlayground:(id)sender;
 - (void)startPlaygroundRecording;
 - (void)requestMicrophonePermission:(id)sender;
@@ -940,7 +939,6 @@ NSString *percent_encode(NSString *text) {
   NSTextField *_timeoutMilliseconds;
   NSTextField *_aiStatus;
   NSUInteger _aiHealthGeneration;
-  NSTimeInterval _lastAIHealthCheck;
 
   VocoTypeWaveformView *_waveform;
   NSTextField *_playgroundStatus;
@@ -1972,19 +1970,19 @@ NSString *percent_encode(NSString *text) {
       @"启用 Ctrl+F9 语音编辑", @"模型只返回受限替换、提交或按键计划。", _voiceEdit)];
 
   [page addArrangedSubview:section_heading(
-      @"连接状态",
-      @"开启 AI、进入本页或修改连接字段后都会自动测活；按钮可立即重新测试。")];
+      @"可选连接测试",
+      @"仅在需要诊断端点时主动执行；测试会发送一次真实 LLM 请求，可能产生延迟或费用，且无需在每次启动后重复。")];
   NSStackView *testCard = nil;
   [page addArrangedSubview:card_with_stack(&testCard)];
   NSStackView *test = horizontal_stack(10.0);
-  NSButton *testButton = action_button(@"测活端点与模型", self,
+  NSButton *testButton = action_button(@"测试 AI 连接", self,
                                        @selector(testAI:));
   testButton.bezelColor = NSColor.controlAccentColor;
   testButton.image = [NSImage imageWithSystemSymbolName:@"bolt.horizontal.circle"
-                                accessibilityDescription:@"测活 AI"];
+                                accessibilityDescription:@"测试 AI 连接"];
   testButton.imagePosition = NSImageLeading;
   [test addArrangedSubview:testButton];
-  _aiStatus = status_label(@"启用 AI 后将自动测活");
+  _aiStatus = status_label(@"尚未执行连接测试；启用并保存后可直接使用 AI 功能");
   [test addArrangedSubview:_aiStatus];
   [test addArrangedSubview:flexible_spacer()];
   [testCard addArrangedSubview:test];
@@ -2082,7 +2080,7 @@ NSString *percent_encode(NSString *text) {
     @[ @"测试真实 ASR", @"Playground 录音后执行真实转录，确认设备和模型链路。" ],
     @[ @"使用快捷键", @"按住 F9 普通识别，Shift+F9 润色，Ctrl+F9 语音编辑。" ],
     @[ @"添加术语", @"用户词典中的项目名、人名和专业术语用于最终离线 hotword 和识别后标准化；实时预览仅作反馈。" ],
-    @[ @"配置 AI", @"填写 OpenAI-compatible 端点并测活，再测试润色和语音编辑。" ],
+    @[ @"配置 AI", @"填写 OpenAI-compatible 端点，启用并保存后即可测试润色和语音编辑；连接测试为可选诊断。" ],
     @[ @"诊断与反馈", @"Doctor、支持包和反馈功能用于定位无法自行解决的问题。" ],
   ];
   for (NSInteger row = 0; row < 4; ++row) {
@@ -2183,8 +2181,6 @@ NSString *percent_encode(NSString *text) {
   if (!_settingsWindow)
     _settingsWindow = [self buildSettingsWindow];
   [self reloadFields];
-  if (_slmEnabled.state == NSControlStateValueOn)
-    [self scheduleAIHealthCheckAfter:0.0 force:NO];
   [self refreshAudioDevices:nil];
   [self refreshOverview:nil];
   [NSApp activateIgnoringOtherApps:YES];
@@ -2530,8 +2526,6 @@ NSString *percent_encode(NSString *text) {
     return;
   if (index == kOverviewPage)
     [self refreshOverview:nil];
-  else if (index == 4 && _slmEnabled.state == NSControlStateValueOn)
-    [self scheduleAIHealthCheckAfter:0.0 force:NO];
 }
 
 - (void)selectPageFromSender:(id)sender {
@@ -3195,68 +3189,45 @@ NSString *percent_encode(NSString *text) {
 
 - (void)testAI:(id)sender {
   (void)sender;
-  [self scheduleAIHealthCheckAfter:0.0 force:YES];
+  [self runAIConnectionTest];
 }
 
 - (void)aiEnabledChanged:(id)sender {
   (void)sender;
+  ++_aiHealthGeneration;
   if (_slmEnabled.state == NSControlStateValueOn) {
-    [self scheduleAIHealthCheckAfter:0.0 force:YES];
+    set_status(_aiStatus,
+               @"AI 已启用；保存后可直接使用。连接测试是可选诊断。");
   } else {
-    ++_aiHealthGeneration;
     set_status(_aiStatus, @"AI 功能已关闭");
   }
 }
 
 - (void)aiConfigurationChanged:(NSNotification *)notification {
   (void)notification;
-  if (_slmEnabled.state != NSControlStateValueOn)
-    return;
-  [self scheduleAIHealthCheckAfter:0.65 force:YES];
+  ++_aiHealthGeneration;
+  if (_slmEnabled.state == NSControlStateValueOn) {
+    set_status(_aiStatus,
+               @"连接设置已修改；保存后可直接使用，也可选择测试连接。");
+  }
 }
 
-- (void)scheduleAIHealthCheckAfter:(NSTimeInterval)delay force:(BOOL)force {
-  if (!_aiStatus || _slmEnabled.state != NSControlStateValueOn)
+- (void)runAIConnectionTest {
+  if (!_aiStatus || _slmEnabled.state != NSControlStateValueOn) {
+    set_status(_aiStatus, @"请先启用 AI 功能，再执行可选连接测试。", true);
     return;
+  }
   NSString *endpoint = trimmed(_endpoint.stringValue);
   NSString *model = trimmed(_model.stringValue);
   if (endpoint.length == 0 || model.length == 0) {
-    ++_aiHealthGeneration;
     set_status(_aiStatus, @"请先填写 API 地址和模型。", true);
     return;
   }
-
-  const NSTimeInterval now = NSDate.timeIntervalSinceReferenceDate;
-  if (!force && _lastAIHealthCheck > 0.0 &&
-      now - _lastAIHealthCheck < 30.0)
-    return;
-
-  const NSUInteger generation = ++_aiHealthGeneration;
-  set_status(_aiStatus,
-             delay > 0.0 ? @"连接设置已变化，准备自动测活…"
-                         : @"正在自动测活端点与模型…");
-  const int64_t nanoseconds =
-      static_cast<int64_t>(std::max(0.0, delay) * NSEC_PER_SEC);
-  __weak VocoTypeApplicationController *weakSelf = self;
-  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, nanoseconds),
-                 dispatch_get_main_queue(), ^{
-    VocoTypeApplicationController *self = weakSelf;
-    if (!self || generation != self->_aiHealthGeneration ||
-        self->_slmEnabled.state != NSControlStateValueOn)
-      return;
-    [self runAIHealthCheckForGeneration:generation];
-  });
-}
-
-- (void)runAIHealthCheckForGeneration:(NSUInteger)generation {
-  if (generation != _aiHealthGeneration ||
-      _slmEnabled.state != NSControlStateValueOn)
-    return;
   if (![self persistSettings])
     return;
 
-  _lastAIHealthCheck = NSDate.timeIntervalSinceReferenceDate;
-  set_status(_aiStatus, @"正在发送真实请求…");
+  const NSUInteger generation = ++_aiHealthGeneration;
+  set_status(_aiStatus, @"正在发送真实测试请求；可能产生延迟或费用…");
   __weak VocoTypeApplicationController *weakSelf = self;
   run_async([] { return settings::test_ai(); }, [weakSelf, generation](Json result) {
     VocoTypeApplicationController *self = weakSelf;
@@ -3264,11 +3235,11 @@ NSString *percent_encode(NSString *text) {
       return;
     if (result.value("success", false)) {
       set_status(self->_aiStatus,
-                 [@"连接正常：" stringByAppendingString:
+                 [@"连接测试成功：" stringByAppendingString:
                         to_ns(result.value("text", "服务已响应"))]);
     } else {
       set_status(self->_aiStatus,
-                 [@"连接失败：" stringByAppendingString:
+                 [@"连接测试失败：" stringByAppendingString:
                         to_ns(result.value("error", "unknown"))], true);
     }
   });

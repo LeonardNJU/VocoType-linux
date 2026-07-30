@@ -8,7 +8,7 @@ IBus 与 Fcitx 5 的语音编辑动作（默认 `Ctrl+F9`）都会将 ASR 指令
 
 ## 配置
 
-推荐在 `vocotype-settings` 的“AI 润色与语音编辑”页面填写并测活：
+推荐在 `vocotype-settings` 的“AI 润色与语音编辑”页面填写、启用并保存。连接测试是可选诊断，不是运行前置步骤：
 
 ```json
 {
@@ -55,4 +55,4 @@ Fcitx 5 使用异步 `start / poll / cancel` 协议显示 SSE 可见增量；IBu
 
 ## 旧配置迁移
 
-旧版 `provider: local_ephemeral` 配置不会再启动 worker。设置中心会关闭 AI 开关并提示用户先自行启动 OpenAI-compatible 服务，再填写 endpoint 和 model 后重新测活。
+旧版 `provider: local_ephemeral` 配置不会再启动 worker。设置中心会关闭 AI 开关并提示用户先自行启动 OpenAI-compatible 服务，再填写 endpoint 和 model、启用并保存；需要排障时可选择测试连接。

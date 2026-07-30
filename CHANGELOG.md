@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No unreleased changes.
+### Changed
+
+- Renamed AI “health check” UI to an optional connection test and documented that it sends one real LLM request which may incur latency or provider charges.
+- Enabling and saving AI configuration now clearly permits immediate Shift+F9, Ctrl+F9, and Playground use without a prior connection test.
+
+### Fixed
+
+- Removed automatic macOS AI requests when opening Settings, entering the AI page, enabling AI, or editing endpoint fields.
+- Removed misleading runtime, Playground, tutorial, and integration text that treated a successful connection test as persistent activation state.
 
 ## [5.0.0-beta.5] - 2026-07-30
 

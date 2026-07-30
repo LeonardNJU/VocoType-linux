@@ -346,7 +346,7 @@ Json VoiceEditPlanner::plan(const Json &request,
   if (!slm_.enabled()) {
     return {{"success", false},
             {"error", "AI 功能尚未启用；普通转录只验证 ASR，不会调用 "
-                      "LLM。请先在设置中心启用并测活 AI 端点"},
+                      "LLM。请先在设置中心启用 AI、填写端点并保存配置"},
             {"instruction", instruction},
             {"reason", "slm_disabled"}};
   }

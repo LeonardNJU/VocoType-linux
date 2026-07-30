@@ -743,14 +743,14 @@ void refresh_playground_ai_gate(SettingsWindow &window) {
   if (!ai_enabled) {
     set_label(window.playground_ai_gate_status,
               "AI 功能尚未启用；‘测试转录’只验证 ASR，不会调用 LLM。请先在‘AI "
-              "功能’页启用并测活端点。");
+              "功能’页启用并保存配置。");
   } else if (!edit_enabled) {
     set_label(window.playground_ai_gate_status,
               "AI 润色已启用，但语音编辑开关仍关闭。请在‘AI 功能’页启用 "
               "Ctrl+F9 语音编辑并保存。");
   } else {
     set_label(window.playground_ai_gate_status,
-              "AI 功能与语音编辑已启用；建议先在‘AI 功能’页执行一次真实测活。");
+              "AI 功能与语音编辑已启用；连接测试是可选诊断，不影响快捷键或 Playground 使用。");
   }
 }
 
@@ -2937,15 +2937,16 @@ GtkWidget *build_slm(SettingsWindow &window) {
       GTK_SPIN_BUTTON(gtk_spin_button_new_with_range(1000, 120000, 1000));
 
   GtkWidget *test_actions = sui::make_button_row();
-  GtkWidget *test = gtk_button_new_with_label("测活 AI 端点 / 模型");
-  window.slm_status = GTK_LABEL(sui::make_status_label("尚未测活"));
+  GtkWidget *test = gtk_button_new_with_label("测试 AI 连接（可选）");
+  window.slm_status = GTK_LABEL(
+      sui::make_status_label("尚未执行连接测试；启用并保存后可直接使用 AI 功能"));
   gtk_box_pack_start(GTK_BOX(test_actions), test, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(test_actions), GTK_WIDGET(window.slm_status), TRUE,
                      TRUE, 0);
   gtk_box_pack_start(GTK_BOX(card),
-                     sui::make_row("AI 测活",
-                                   "对当前端点和模型发起一次真实请求；成功后即"
-                                   "可在 Playground 测试润色与语音编辑。",
+                     sui::make_row("可选连接测试",
+                                   "向当前端点发送一次真实 LLM 请求，可能产生延迟或费用；"
+                                   "无需在每次启动后执行，也不是 AI 功能的激活步骤。",
                                    test_actions),
                      FALSE, FALSE, 0);
   gtk_box_pack_start(
@@ -3011,11 +3012,12 @@ GtkWidget *build_slm(SettingsWindow &window) {
       test, "clicked", G_CALLBACK(+[](SettingsWindow *self) {
         if (!gtk_switch_get_active(self->slm_enabled)) {
           set_label(self->slm_status,
-                    "请先打开‘启用 AI 功能’，再测活端点与模型。");
+                    "请先打开‘启用 AI 功能’并填写端点与模型，再执行可选连接测试。");
           refresh_playground_ai_gate(*self);
           return;
         }
-        set_label(self->slm_status, "⏳ 正在测活；成功后即可使用 AI 功能…");
+        set_label(self->slm_status,
+                  "⏳ 正在发送真实测试请求；可能产生延迟或费用…");
         try {
           save_config(*self);
         } catch (const std::exception &error) {
@@ -3037,10 +3039,12 @@ GtkWidget *build_slm(SettingsWindow &window) {
             [self](Json result) {
               if (result.value("success", false)) {
                 set_label(self->slm_status,
-                          "✅ 测活成功：" + result.value("text", "服务已响应"));
+                          "✅ 连接测试成功：" +
+                              result.value("text", "服务已响应"));
               } else {
                 set_label(self->slm_status,
-                          "❌ 测活失败：" + result.value("error", "unknown"));
+                          "❌ 连接测试失败：" +
+                              result.value("error", "unknown"));
               }
               refresh_playground_ai_gate(*self);
             });
@@ -3145,7 +3149,7 @@ GtkWidget *build_playground(SettingsWindow &window) {
   gtk_box_pack_start(GTK_BOX(page.content), asr_card, FALSE, FALSE, 0);
 
   window.playground_ai_gate_status =
-      GTK_LABEL(sui::make_status_label("AI 功能尚未启用或未测活。"));
+      GTK_LABEL(sui::make_status_label("AI 功能尚未启用。"));
   gtk_box_pack_start(GTK_BOX(page.content),
                      GTK_WIDGET(window.playground_ai_gate_status), FALSE, FALSE,
                      0);
@@ -3156,7 +3160,7 @@ GtkWidget *build_playground(SettingsWindow &window) {
       GTK_BOX(window.playground_ai_controls),
       sui::make_section_heading(
           "3. 测试 AI 润色",
-          "使用已启用且已测活的当前模型整理文本，不带编辑指令。"),
+          "使用已启用并保存的当前模型整理文本，不带编辑指令。"),
       FALSE, FALSE, 0);
   GtkWidget *polish_card = sui::make_card();
   window.playground_polish_source = GTK_TEXT_VIEW(gtk_text_view_new());
@@ -4006,7 +4010,7 @@ GtkWidget *build_tutorial(SettingsWindow &window) {
       {"3. 选择文本输入方案",
        "可以启用 VoCoType 内置 Rime，也可以只把它作为语音输入引擎使用。"},
       {"4. Playground 验证",
-       "先测试麦克风、回放与真实 ASR；AI 功能需先完成端点 / 模型测活。"},
+       "先测试麦克风、回放与真实 ASR；AI 启用并保存后可直接测试，连接测试为可选诊断。"},
       {"5. 使用语音功能",
        "按住 F9 普通识别，Shift+F9 润色，Ctrl+F9 语音编辑。"},
       {"6. 排障",
@@ -4018,7 +4022,7 @@ GtkWidget *build_tutorial(SettingsWindow &window) {
       {"2. 不要添加 VoCoType 输入法",
        "VoCoType 是全局 Module。继续使用现有输入法，直接按 F9 即可。"},
       {"3. Playground 验证",
-       "先测试麦克风、回放与真实 ASR；AI 功能需先完成端点 / 模型测活。"},
+       "先测试麦克风、回放与真实 ASR；AI 启用并保存后可直接测试，连接测试为可选诊断。"},
       {"4. 使用语音功能",
        "按住 F9 普通识别，Shift+F9 润色，Ctrl+F9 语音编辑。"},
       {"5. 添加术语",

@@ -698,4 +698,43 @@ rg -Fq 'nix path-info -Sh ./result-workers ./result-fcitx5 ./result-ibus ./resul
 rg -Fq 'VOCOTYPE_FCITX5_BACKEND_PATH' src/integrations/fcitx5/module/CMakeLists.txt || \
   fail "Fcitx module cannot receive a Nix store backend path"
 
+
+# AI connection testing is an optional diagnostic, never persistent activation
+# state. Opening settings or editing fields must not send real LLM requests.
+ai_semantics_files=(
+  src/desktop/src/settings_main.cpp
+  src/integrations/macos/VocoTypeApplicationController.mm
+  src/core/src/voice_edit.cpp
+  docs/guides/slm-streaming.md
+  docs/guides/voice-editing.md
+  docs/integrations/ibus.md
+)
+for phrase in \
+  '自动测活' \
+  '成功后即可使用 AI 功能' \
+  'AI 功能尚未启用或未测活' \
+  '启用并测活' \
+  '已启用且已测活' \
+  'AI 功能需先完成端点 / 模型测活'; do
+  if rg -Fq "$phrase" "${ai_semantics_files[@]}"; then
+    fail "AI connection testing is still described as activation state: $phrase"
+  fi
+done
+if rg -q 'scheduleAIHealthCheck|runAIHealthCheck|_lastAIHealthCheck' \
+    src/integrations/macos/VocoTypeApplicationController.mm; then
+  fail "macOS still contains automatic AI health-check scheduling"
+fi
+rg -Fq '测试 AI 连接（可选）' src/desktop/src/settings_main.cpp || \
+  fail "GTK settings does not identify AI connection testing as optional"
+rg -Fq '测试 AI 连接' src/integrations/macos/VocoTypeApplicationController.mm || \
+  fail "macOS settings does not expose the manual AI connection test"
+rg -Fq '无需在每次启动后执行' src/desktop/src/settings_main.cpp || \
+  fail "GTK settings does not explain persistent AI configuration semantics"
+rg -Fq '无需在每次启动后重复' src/integrations/macos/VocoTypeApplicationController.mm || \
+  fail "macOS settings does not explain persistent AI configuration semantics"
+rg -Fq '可能产生延迟或费用' src/desktop/src/settings_main.cpp || \
+  fail "GTK settings does not disclose real-request latency or charges"
+rg -Fq '可能产生延迟或费用' src/integrations/macos/VocoTypeApplicationController.mm || \
+  fail "macOS settings does not disclose real-request latency or charges"
+
 echo NATIVE_CONTRACTS_OK
