@@ -133,7 +133,7 @@ TranscribeResult IPCClient::transcribeAudio(const std::string& audio_path, bool 
         };
 
         // 发送请求
-        std::string response_str = sendRequest(request.dump());
+        std::string response_str = sendRequest(request.dump(), 15000);
 
         // 解析响应
         json response = json::parse(response_str);
