@@ -18,7 +18,7 @@ VoCoType-linux V5提供原生 Apple Silicon版本。它由两个协作组件组�
 
 ## 安装
 
-1. 在 [GitHub Releases](https://github.com/LeonardNJU/VocoType-linux/releases) 下载 `VoCoType-linux-5.0.0b5-macOS-arm64.dmg`；
+1. 在 [GitHub Releases](https://github.com/LeonardNJU/VocoType-linux/releases) 下载 `VoCoType-linux-5.0.0-macOS-arm64.dmg`；
 2. 双击 DMG；
 3. 将 `VoCoType-linux.app`拖到右侧 `Applications`；
 4. 从“应用程序”打开 VoCoType-linux；
@@ -39,7 +39,7 @@ VoCoType-linux V5提供原生 Apple Silicon版本。它由两个协作组件组�
 
 ## Gatekeeper与ad-hoc签名
 
-V5 Beta 5采用 ad-hoc签名，尚未经过 Apple notarization。ad-hoc只有代码完整性签名，没有一张可导入钥匙串的开发者证书。
+V5 正式版仍采用 ad-hoc签名，尚未经过 Apple notarization。ad-hoc只有代码完整性签名，没有一张可导入钥匙串的开发者证书。
 
 首次打开若被阻止：
 
@@ -49,7 +49,7 @@ V5 Beta 5采用 ad-hoc签名，尚未经过 Apple notarization。ad-hoc只有代
 4. 点击 **仍要打开**；
 5. 在确认框中再次点击 **仍要打开**。
 
-系统会为这个具体 App建立本机例外。后续 Beta更新可能再次要求确认麦克风或安全例外。
+系统会为这个具体 App建立本机例外。后续版本更新可能再次要求确认麦克风或安全例外。
 
 ## 快捷键与状态浮层
 
@@ -108,7 +108,7 @@ V5 Beta 5采用 ad-hoc签名，尚未经过 Apple notarization。ad-hoc只有代
 
 ### 第一次F9松开后不提交，浮层一直存在
 
-V5 Beta 5在 Beta 4生命周期修复的基础上，进一步在按下语音快捷键时准备最终 ASR与当前热词图。若仍遇到松键后长时间等待，先确认 App与输入法组件版本均至少为 `5.0.0b5`。
+V5 正式版在 Beta 4生命周期修复的基础上，进一步在按下语音快捷键时准备最终 ASR与当前热词图。若仍遇到松键后长时间等待，先确认 App与输入法组件版本均至少为 `5.0.0`。
 
 ### 功能键控制亮度/媒体而不是F9
 
@@ -116,7 +116,7 @@ V5 Beta 5在 Beta 4生命周期修复的基础上，进一步在按下语音快�
 
 ### 麦克风权限被拒绝
 
-前往 **系统设置 → 隐私与安全性 → 麦克风**，允许 VoCoType-linux。权限身份在 ad-hoc Beta升级后可能需要重新确认。
+前往 **系统设置 → 隐私与安全性 → 麦克风**，允许 VoCoType-linux。权限身份在 ad-hoc版本升级后可能需要重新确认。
 
 ### 输入法已安装但快捷键没有反应
 
