@@ -30,16 +30,6 @@ struct RimeUIState {
     int page_size = 5;                  // 每页候选词数
 };
 
-/**
- * 语音识别结果
- */
-struct TranscribeResult {
-    bool success = false;
-    std::string text;
-    std::string error;
-    std::string original_text;
-};
-
 struct TranscribeStartResult {
     bool success = false;
     std::string task_id;
@@ -125,14 +115,6 @@ public:
      * 析构函数
      */
     ~IPCClient();
-
-    /**
-     * 语音识别
-     *
-     * @param audio_path 音频文件路径
-     * @return 识别结果
-     */
-    TranscribeResult transcribeAudio(const std::string& audio_path, bool long_mode = false);
 
     VoiceEditResult editAudio(const std::string& audio_path,
                               const std::string& context_id,

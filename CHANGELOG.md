@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fcitx 5 ordinary F9 recognition now uses the asynchronous Core transcription-task protocol instead of a single blocking socket request; Escape, continued typing, a new voice shortcut, and focus loss cancel the pending result immediately.
+- Added a 120-second final-ASR watchdog for Fcitx 5 while retaining short per-poll socket timeouts, so a stuck backend cannot leave the frontend waiting indefinitely.
 - Removed automatic macOS AI requests when opening Settings, entering the AI page, enabling AI, or editing endpoint fields.
 - Removed misleading runtime, Playground, tutorial, and integration text that treated a successful connection test as persistent activation state.
 

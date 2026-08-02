@@ -159,7 +159,8 @@ private:
                               const std::string &instruction);
     void cancelActiveVoiceEditTask();
 
-    void startPolishPolling(fcitx::InputContext *ic, const std::string &task_id);
+    void startPolishPolling(fcitx::InputContext *ic, const std::string &task_id,
+                            bool polish_enabled, uint64_t session_id);
     void schedulePolishPoll(
         fcitx::TrackableObjectReference<fcitx::InputContext> ic_ref);
     void handlePolishPollResult(fcitx::InputContext *ic,
@@ -242,6 +243,7 @@ private:
     bool ptt_pressed_ = false;
     bool ptt_suppressed_ = false;
     bool is_recording_ = false;
+    bool transcription_start_pending_ = false;
     std::shared_ptr<std::atomic_bool> backend_start_pending_ =
         std::make_shared<std::atomic_bool>(false);
     std::shared_ptr<AsrPrewarmState> asr_prewarm_;
@@ -287,6 +289,8 @@ private:
     VoiceEditSnapshot active_voice_edit_snapshot_;
 
     bool polish_poll_in_flight_ = false;
+    bool active_polish_enabled_ = false;
+    uint64_t active_polish_session_id_ = 0;
     std::string active_polish_task_id_;
     std::string active_polish_preview_;
     std::string active_polish_original_;
