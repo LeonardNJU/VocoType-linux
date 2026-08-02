@@ -1,0 +1,46 @@
+name: Report V5 release status
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - .github/workflows/report-v5-release-status.yml
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  report:
+    if: ${{ github.head_ref == 'ops/v5-release-status' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ops/v5-release-status
+      - name: Capture workflow and release state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --limit 50 \
+            --json databaseId,name,workflowName,status,conclusion,event,headSha,createdAt,updatedAt,url \
+            > v5-release-runs.json
+
+          if gh release view v5.0.0 --repo "$GITHUB_REPOSITORY" \
+              --json tagName,isDraft,isPrerelease,url,assets > v5-release-view.json 2>v5-release-error.txt; then
+            :
+          else
+            printf '{"release":null}\n' > v5-release-view.json
+          fi
+
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add v5-release-runs.json v5-release-view.json v5-release-error.txt
+          git commit -m "chore: capture V5 release status"
+          git push origin HEAD:ops/v5-release-status
