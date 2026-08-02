@@ -322,9 +322,21 @@ done
 echo "VoCoType native audio recorder is not installed" >&2
 exit 78
 LAUNCH
-  cat > "$USER_BIN/vocotype-settings" <<'LAUNCH'
-#!/usr/bin/env bash
-set -euo pipefail
+  # The settings center resolves scripts/install/common/*.sh relative to its
+  # project root. Desktop launchers start it with the home directory as the
+  # working directory, not the tree used for install, so record that tree here.
+  # printf %q keeps arbitrary characters in the path safe inside the launcher.
+  {
+    printf '%s\n' '#!/usr/bin/env bash' 'set -euo pipefail'
+    printf 'recorded_project_dir=%q\n' "$PROJECT_DIR"
+    cat <<'LAUNCH'
+# Respect a caller-provided root, and only fall back to the recorded tree while
+# it still holds the installer. A stale path must not shadow the system package.
+if [[ -z "${VOCOTYPE_PROJECT_DIR:-}" &&
+      -f "$recorded_project_dir/scripts/install/common/install-native-user.sh" ]]; then
+  export VOCOTYPE_PROJECT_DIR="$recorded_project_dir"
+fi
+unset recorded_project_dir
 for settings in "$HOME/.local/lib/vocotype-native/bin/vocotype-settings" /usr/bin/vocotype-settings; do
   [[ -x "$settings" ]] || continue
   [[ "$settings" == "$0" ]] && continue
@@ -333,6 +345,7 @@ done
 echo "VoCoType native settings center is not installed" >&2
 exit 78
 LAUNCH
+  } > "$USER_BIN/vocotype-settings"
   chmod 0755 "$USER_BIN/vocotype-fcitx5-backend" \
     "$USER_BIN/vocotype-fcitx5-recorder" "$USER_BIN/vocotype-settings"
 }
