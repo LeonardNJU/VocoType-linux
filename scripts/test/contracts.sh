@@ -224,6 +224,17 @@ rg -Fq 'waitForAsrPrepare(asr_prewarm' src/integrations/fcitx5/module/vocotype_m
   fail "Fcitx final ASR does not wait for recording-time preparation"
 rg -Fq 'prepareAsr(45000)' src/integrations/fcitx5/module/vocotype_module.cpp || \
   fail "Fcitx prewarm does not request final-ASR preparation"
+rg -Fq 'startTranscription(' src/integrations/fcitx5/module/vocotype_module.cpp || \
+  fail "Fcitx ordinary final ASR does not use the async task protocol"
+if rg -q 'transcribeAudio\(' src/integrations/fcitx5/module src/integrations/fcitx5/common; then
+  fail "blocking Fcitx final-transcription API returned"
+fi
+for token in 'transcription_start_pending_' 'active_polish_session_id_' \
+             'FINAL_ASR_WATCHDOG_US' 'cancelPolishTask(task_id)' \
+             '按 Esc 或继续输入可取消'; do
+  rg -Fq "$token" src/integrations/fcitx5/module || \
+    fail "cancellable Fcitx final-ASR task contract missing: $token"
+done
 rg -Fq 'prewarm_offline_asr(socket, config, asr_lease)' src/integrations/macos/VocoTypeInputController.mm || \
   fail "macOS does not prewarm final ASR at recording start"
 rg -Fq 'wait_for_asr_prepare(asr_lease' src/integrations/macos/VocoTypeInputController.mm || \

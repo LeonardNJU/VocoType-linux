@@ -55,6 +55,7 @@ constexpr auto FCITX_CONFIG_PATH = "conf/vocotype.conf";
 constexpr uint64_t RECORDING_ANIMATION_INTERVAL_US = 200000;
 constexpr uint64_t PTT_AUTOREPEAT_RELEASE_GRACE_US = 30000;
 constexpr uint64_t POLISH_POLL_INTERVAL_US = 100000;
+constexpr uint64_t FINAL_ASR_WATCHDOG_US = 120000000;
 constexpr uint64_t DUPLICATE_COMMIT_SUPPRESS_US = 250000;
 
 #if VOCOTYPE_HAS_STANDARD_PATHS
@@ -824,7 +825,8 @@ void VoCoTypeModule::handleKeyEvent(fcitx::KeyEvent &event) {
             return;
         }
     }
-    if (!active_polish_task_id_.empty() && !event.isRelease()) {
+    if ((transcription_start_pending_ || !active_polish_task_id_.empty()) &&
+        !event.isRelease()) {
         cancelActivePolishTask();
         clearOwnedUI(ic);
         if (key.sym() == FcitxKey_Escape) {
@@ -1263,6 +1265,11 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
     const VoiceEditSnapshot edit_snapshot = recording_edit_snapshot_;
     const uint64_t session_id = recording_voice_session_id_;
     const auto asr_prewarm = stopAsrPrewarm();
+    if (transcribe && !edit_mode) {
+        transcription_start_pending_ = true;
+    } else if (!transcribe) {
+        active_voice_session_id_ = 0;
+    }
     recording_long_mode_ = false;
     recording_edit_mode_ = false;
     recording_edit_snapshot_ = VoiceEditSnapshot();
@@ -1345,71 +1352,55 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
             return;
         }
 
-        if (long_mode) {
-            TranscribeStartResult start_result;
-            if (audio_path.empty()) {
-                start_result.error = "录音失败";
-            } else {
-                start_result = ipc_client_->startTranscription(
-            audio_path, true, polish_min_chars_, polish_timeout_ms_,
-                    enable_thinking_);
-                if (!start_result.success || start_result.task_id.empty()) {
-                    std::remove(audio_path.c_str());
-                }
-            }
-
-      scheduleWithContext(ic_ref, [this, ic_ref, start_result]() {
-                    auto *ic_ptr = ic_ref.get();
-                    if (!ic_ptr || !ic_ptr->hasFocus()) {
-                        if (start_result.success && !start_result.task_id.empty()) {
-                            const std::string task_id = start_result.task_id;
-                            const std::string socket_path = backend_socket_path_;
-                            std::thread([socket_path, task_id]() {
-                                IPCClient client(socket_path);
-                                (void)client.cancelPolishTask(task_id);
-                            }).detach();
-                        }
-                        active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
-                        return;
-                    }
-                    if (start_result.success && !start_result.task_id.empty()) {
-                        startPolishPolling(ic_ptr, start_result.task_id);
-                    } else {
-          showError(ic_ptr, start_result.error.empty() ? "转录失败"
-                                                       : start_result.error);
-                    }
-                });
-            return;
-        }
-
-        TranscribeResult result;
+        TranscribeStartResult start_result;
         if (audio_path.empty()) {
-            result.error = "录音失败";
+            start_result.error = "录音失败";
         } else {
-            result = ipc_client_->transcribeAudio(audio_path, false);
-            std::remove(audio_path.c_str());
+            start_result = ipc_client_->startTranscription(
+                audio_path, long_mode, polish_min_chars_, polish_timeout_ms_,
+                enable_thinking_);
+            // A successful async start transfers ownership of the WAV to Core.
+            // Failed starts leave cleanup to the frontend.
+            if (!start_result.success || start_result.task_id.empty()) {
+                std::remove(audio_path.c_str());
+            }
         }
 
-    scheduleWithContext(ic_ref, [this, ic_ref, result]() {
+        event_dispatcher_.schedule(
+            [this, ic_ref, start_result, long_mode, session_id]() {
                 auto *ic_ptr = ic_ref.get();
-                if (!ic_ptr || !ic_ptr->hasFocus()) {
-        FCITX_INFO() << "Discarded transcription because original input "
-                        "context lost focus";
-                    active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
+                const bool current =
+                    transcription_start_pending_ && session_id != 0 &&
+                    session_id == active_voice_session_id_;
+                if (!ic_ptr || !ic_ptr->hasFocus() || !current) {
+                    if (start_result.success && !start_result.task_id.empty()) {
+                        const std::string socket_path = backend_socket_path_;
+                        const std::string task_id = start_result.task_id;
+                        std::thread([socket_path, task_id]() {
+                            IPCClient client(socket_path);
+                            (void)client.cancelPolishTask(task_id);
+                        }).detach();
+                    }
+                    if (current) {
+                        transcription_start_pending_ = false;
+                        active_voice_session_id_ = 0;
+                        active_ic_ =
+                            fcitx::TrackableObjectReference<fcitx::InputContext>();
+                    }
                     return;
                 }
-                bool keep_context_for_fallback = false;
-                if (result.success && !result.text.empty()) {
-        commitText(ic_ptr, result.text, strip_trailing_period_on_commit_);
-                } else if (!result.success) {
-        showError(ic_ptr, result.error.empty() ? "转录失败" : result.error,
-                              result.original_text);
-                    keep_context_for_fallback = !result.original_text.empty();
+
+                transcription_start_pending_ = false;
+                if (start_result.success && !start_result.task_id.empty()) {
+                    startPolishPolling(ic_ptr, start_result.task_id, long_mode,
+                                       session_id);
                 } else {
-                    clearOwnedUI(ic_ptr);
-                }
-                if (!keep_context_for_fallback) {
-                    active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
+                    active_voice_session_id_ = 0;
+                    showError(ic_ptr,
+                              start_result.error.empty() ? "转录启动失败"
+                                                         : start_result.error);
+                    active_ic_ =
+                        fcitx::TrackableObjectReference<fcitx::InputContext>();
                 }
             });
     }).detach();
@@ -1636,16 +1627,22 @@ void VoCoTypeModule::cancelActiveVoiceEditTask() {
 }
 
 void VoCoTypeModule::startPolishPolling(fcitx::InputContext *ic,
-                                            const std::string &task_id) {
+                                           const std::string &task_id,
+                                           bool polish_enabled,
+                                           uint64_t session_id) {
     stopPanelAnimation();
     active_polish_task_id_ = task_id;
+    active_polish_enabled_ = polish_enabled;
+    active_polish_session_id_ = session_id;
     active_polish_preview_.clear();
     active_polish_original_.clear();
     active_polish_after_seq_ = 0;
     active_polish_started_us_ = fcitx::now(CLOCK_MONOTONIC);
     polish_poll_in_flight_ = false;
     polish_poll_timer_.reset();
-    showPanelMessage(ic, "⏳ 识别中");
+    showPanelMessage(
+        ic, polish_enabled ? "⏳ 识别中"
+                           : "⏳ 识别中（按 Esc 或继续输入可取消）");
     schedulePolishPoll(ic->watch());
 }
 
@@ -1657,27 +1654,59 @@ void VoCoTypeModule::schedulePolishPoll(
     }
 
     polish_poll_timer_ = instance_->eventLoop().addTimeEvent(
-      CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + POLISH_POLL_INTERVAL_US, 0,
+        CLOCK_MONOTONIC,
+        fcitx::now(CLOCK_MONOTONIC) + POLISH_POLL_INTERVAL_US, 0,
         [this, ic_ref](fcitx::EventSourceTime *, uint64_t) {
             polish_poll_timer_.reset();
             if (active_polish_task_id_.empty() || polish_poll_in_flight_) {
                 return false;
             }
 
+            auto *ic_ptr = ic_ref.get();
+            const uint64_t now_us = fcitx::now(CLOCK_MONOTONIC);
+            const uint64_t watchdog_us =
+                active_polish_enabled_
+                    ? static_cast<uint64_t>(polish_timeout_ms_ + 120000) *
+                          1000ULL
+                    : FINAL_ASR_WATCHDOG_US;
+            const bool watchdog_expired =
+                active_polish_started_us_ > 0 &&
+                now_us >= active_polish_started_us_ &&
+                now_us - active_polish_started_us_ >= watchdog_us;
+            if (watchdog_expired) {
+                const bool was_polish = active_polish_enabled_;
+                cancelActivePolishTask();
+                if (ic_ptr && ic_ptr->hasFocus()) {
+                    showTemporaryMessage(
+                        ic_ptr, was_polish ? "❌ 润色任务超时，已取消"
+                                           : "❌ 识别超时，已取消");
+                }
+                return false;
+            }
+
             const std::string task_id = active_polish_task_id_;
             const int after_seq = active_polish_after_seq_;
+            const uint64_t session_id = active_polish_session_id_;
             polish_poll_in_flight_ = true;
-            std::thread([this, ic_ref, task_id, after_seq]() {
+            std::thread([this, ic_ref, task_id, after_seq, session_id]() {
                 const PolishPollResult result =
                     ipc_client_->pollPolishTask(task_id, after_seq);
-          scheduleWithContext(ic_ref, [this, ic_ref, task_id, result]() {
+                event_dispatcher_.schedule(
+                    [this, ic_ref, task_id, session_id, result]() {
                         polish_poll_in_flight_ = false;
-                        auto *ic_ptr = ic_ref.get();
-                        if (!ic_ptr || !ic_ptr->hasFocus() ||
-                            task_id != active_polish_task_id_) {
+                        auto *target = ic_ref.get();
+                        const bool current =
+                            task_id == active_polish_task_id_ &&
+                            session_id != 0 &&
+                            session_id == active_polish_session_id_ &&
+                            session_id == active_voice_session_id_;
+                        if (!target || !target->hasFocus() || !current) {
+                            if (current) {
+                                cancelActivePolishTask();
+                            }
                             return;
                         }
-                        handlePolishPollResult(ic_ptr, result);
+                        handlePolishPollResult(target, result);
                     });
             }).detach();
             return false;
@@ -1685,14 +1714,25 @@ void VoCoTypeModule::schedulePolishPoll(
     polish_poll_timer_->setOneShot();
 }
 
-void VoCoTypeModule::handlePolishPollResult(fcitx::InputContext *ic,
-    const PolishPollResult &result) {
+void VoCoTypeModule::handlePolishPollResult(
+    fcitx::InputContext *ic, const PolishPollResult &result) {
+    const bool polish_enabled = active_polish_enabled_;
     if (!result.success) {
-        const std::string fallback = active_polish_original_;
+        const std::string fallback =
+            polish_enabled ? active_polish_original_ : std::string();
         active_polish_task_id_.clear();
+        active_polish_enabled_ = false;
+        active_polish_session_id_ = 0;
+        active_polish_preview_.clear();
+        active_polish_original_.clear();
+        active_polish_after_seq_ = 0;
         active_polish_started_us_ = 0;
         polish_poll_timer_.reset();
-    showError(ic, result.error.empty() ? "润色任务失败" : result.error,
+        active_voice_session_id_ = 0;
+        showError(ic,
+                  result.error.empty()
+                      ? (polish_enabled ? "润色任务失败" : "识别任务失败")
+                      : result.error,
                   fallback);
         return;
     }
@@ -1712,14 +1752,18 @@ void VoCoTypeModule::handlePolishPollResult(fcitx::InputContext *ic,
     }
 
     if (result.status == "final") {
-    const std::string final_text =
-        result.final_text.empty() ? active_polish_preview_ : result.final_text;
+        const std::string final_text =
+            result.final_text.empty() ? active_polish_preview_
+                                      : result.final_text;
         active_polish_task_id_.clear();
+        active_polish_enabled_ = false;
+        active_polish_session_id_ = 0;
         polish_poll_timer_.reset();
         active_polish_preview_.clear();
         active_polish_original_.clear();
         active_polish_after_seq_ = 0;
         active_polish_started_us_ = 0;
+        active_voice_session_id_ = 0;
         if (!final_text.empty()) {
             commitText(ic, final_text, strip_trailing_period_on_commit_);
         } else {
@@ -1730,21 +1774,33 @@ void VoCoTypeModule::handlePolishPollResult(fcitx::InputContext *ic,
     }
 
     if (result.status == "error" || result.status == "cancelled") {
-        const std::string error = result.error.empty() ? "润色失败" : result.error;
-        const std::string fallback = result.original_text.empty()
-                                         ? active_polish_original_
-                                         : result.original_text;
+        const std::string fallback =
+            polish_enabled
+                ? (result.original_text.empty() ? active_polish_original_
+                                                : result.original_text)
+                : std::string();
+        const std::string error =
+            result.error.empty()
+                ? (result.status == "cancelled"
+                       ? (polish_enabled ? "润色已取消" : "识别已取消")
+                       : (polish_enabled ? "润色失败" : "识别失败"))
+                : result.error;
         active_polish_task_id_.clear();
+        active_polish_enabled_ = false;
+        active_polish_session_id_ = 0;
         polish_poll_timer_.reset();
         active_polish_preview_.clear();
         active_polish_original_.clear();
         active_polish_after_seq_ = 0;
         active_polish_started_us_ = 0;
+        active_voice_session_id_ = 0;
         showError(ic, error, fallback);
         return;
     }
 
-  showPolishProgress(ic, active_polish_preview_, active_polish_original_);
+    if (polish_enabled) {
+        showPolishProgress(ic, active_polish_preview_, active_polish_original_);
+    }
     schedulePolishPoll(ic->watch());
 }
 
@@ -1774,8 +1830,8 @@ void VoCoTypeModule::showPolishProgress(fcitx::InputContext *ic,
     auto candidates = std::make_unique<fcitx::CommonCandidateList>();
     candidates->setPageSize(2);
     fcitx::Text original;
-  original.append(original_text.empty() ? "粗识别文本：等待识别结果..."
-                        : "粗识别文本：" + original_text);
+    original.append(original_text.empty() ? "粗识别文本：等待识别结果..."
+                                          : "粗识别文本：" + original_text);
     candidates->append<fcitx::DisplayOnlyCandidateWord>(original);
     if (!preview.empty()) {
         fcitx::Text preview_text;
@@ -1801,11 +1857,15 @@ void VoCoTypeModule::cancelActivePolishTask() {
             (void)client.cancelPolishTask(task_id);
         }).detach();
     }
+    transcription_start_pending_ = false;
     active_polish_task_id_.clear();
+    active_polish_enabled_ = false;
+    active_polish_session_id_ = 0;
     active_polish_preview_.clear();
     active_polish_original_.clear();
     active_polish_after_seq_ = 0;
     active_polish_started_us_ = 0;
+    active_voice_session_id_ = 0;
     active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
 }
 
