@@ -13,12 +13,11 @@ permissions:
   actions: write
   contents: write
 
-timeout-minutes: 300
-
 jobs:
   publish:
     if: ${{ github.repository == 'LeonardNJU/VocoType-linux' }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v6
         with:
