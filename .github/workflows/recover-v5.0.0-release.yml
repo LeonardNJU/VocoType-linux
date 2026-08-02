@@ -1,0 +1,56 @@
+name: Recover v5.0.0 release publication
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - .github/workflows/recover-v5.0.0-release.yml
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    if: ${{ github.head_ref == 'ops/publish-v5.0.0' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ops/publish-v5.0.0
+      - name: Publish and verify existing tested release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(tr -d '[:space:]' < VERSION)" = "5.0.0"
+
+          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v5.0.0" --jq .id)
+          jq -n '{draft:false, prerelease:false, make_latest:"true"}' |
+            gh api --method PATCH \
+              "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+              --input - >/dev/null
+
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/v5.0.0" > /tmp/tagged.json
+          gh api "repos/$GITHUB_REPOSITORY/releases/latest" > /tmp/latest.json
+
+          jq -e '.tag_name == "v5.0.0" and .draft == false and .prerelease == false and (.assets | length) == 11' \
+            /tmp/tagged.json >/dev/null
+          jq -e '.tag_name == "v5.0.0" and .draft == false and .prerelease == false' \
+            /tmp/latest.json >/dev/null
+
+          jq -n \
+            --slurpfile tagged /tmp/tagged.json \
+            --slurpfile latest /tmp/latest.json \
+            '{tag_name:$tagged[0].tag_name, html_url:$tagged[0].html_url, draft:$tagged[0].draft, prerelease:$tagged[0].prerelease, published_at:$tagged[0].published_at, asset_count:($tagged[0].assets|length), asset_names:[$tagged[0].assets[].name], latest_tag:$latest[0].tag_name}' \
+            > v5-release-published.json
+
+          cat v5-release-published.json
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add v5-release-published.json
+          git commit -m "chore: record v5.0.0 publication verification"
+          git push origin HEAD:ops/publish-v5.0.0
