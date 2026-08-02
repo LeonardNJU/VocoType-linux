@@ -1,0 +1,43 @@
+     const uint64_t session_id = recording_voice_session_id_;
+     const auto asr_prewarm = stopAsrPrewarm();
++    if (transcribe && !edit_mode) {
++        transcription_start_pending_ = true;
++    } else if (!transcribe) {
++        active_voice_session_id_ = 0;
++    }
+     recording_long_mode_ = false;
+     recording_edit_mode_ = false;
+     recording_edit_snapshot_ = VoiceEditSnapshot();
+@@ -1345,71 +1352,55 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
+             return;
+         }
+ 
+-        if (long_mode) {
+-            TranscribeStartResult start_result;
+-            if (audio_path.empty()) {
+-                start_result.error = "录音失败";
+-            } else {
+-                start_result = ipc_client_->startTranscription(
+-            audio_path, true, polish_min_chars_, polish_timeout_ms_,
+-                    enable_thinking_);
+-                if (!start_result.success || start_result.task_id.empty()) {
+-                    std::remove(audio_path.c_str());
+-                }
+-            }
+-
+-      scheduleWithContext(ic_ref, [this, ic_ref, start_result]() {
+-                    auto *ic_ptr = ic_ref.get();
+-                    if (!ic_ptr || !ic_ptr->hasFocus()) {
+-                        if (start_result.success && !start_result.task_id.empty()) {
+-                            const std::string task_id = start_result.task_id;
+-                            const std::string socket_path = backend_socket_path_;
+-                            std::thread([socket_path, task_id]() {
+-                                IPCClient client(socket_path);
+-                                (void)client.cancelPolishTask(task_id);
+-                            }).detach();
+-                        }
+-                        active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
+-                        return;
+-                    }
+-                    if (start_result.success && !start_result.task_id.empty()) {
+-                        startP

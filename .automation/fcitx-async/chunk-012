@@ -1,0 +1,38 @@
+                    const std::string task_id = start_result.task_id;
++                        std::thread([socket_path, task_id]() {
++                            IPCClient client(socket_path);
++                            (void)client.cancelPolishTask(task_id);
++                        }).detach();
++                    }
++                    if (current) {
++                        transcription_start_pending_ = false;
++                        active_voice_session_id_ = 0;
++                        active_ic_ =
++                            fcitx::TrackableObjectReference<fcitx::InputContext>();
++                    }
+                     return;
+                 }
+-                bool keep_context_for_fallback = false;
+-                if (result.success && !result.text.empty()) {
+-        commitText(ic_ptr, result.text, strip_trailing_period_on_commit_);
+-                } else if (!result.success) {
+-        showError(ic_ptr, result.error.empty() ? "转录失败" : result.error,
+-                              result.original_text);
+-                    keep_context_for_fallback = !result.original_text.empty();
++
++                transcription_start_pending_ = false;
++                if (start_result.success && !start_result.task_id.empty()) {
++                    startPolishPolling(ic_ptr, start_result.task_id, long_mode,
++                                       session_id);
+                 } else {
+-                    clearOwnedUI(ic_ptr);
+-                }
+-                if (!keep_context_for_fallback) {
+-                    active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
++                    active_voice_session_id_ = 0;
++                    showError(ic_ptr,
++                              start_result.error.empty() ? "转录启动失败"
++                                                         : start_result.error);
++                    active_ic_ =
++                        fcitx::TrackableObjectReference<fcitx::InputContext>();
+     
