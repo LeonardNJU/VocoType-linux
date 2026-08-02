@@ -132,8 +132,9 @@ TranscribeResult IPCClient::transcribeAudio(const std::string& audio_path, bool 
             {"long_mode", long_mode}
         };
 
-        // 发送请求
-        std::string response_str = sendRequest(request.dump());
+        // Final ASR may include a cold worker/model start. Keep this wait bounded
+        // but longer than the 2-second control-request default.
+        std::string response_str = sendRequest(request.dump(), 15000);
 
         // 解析响应
         json response = json::parse(response_str);
