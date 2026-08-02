@@ -1,0 +1,22 @@
+{
+  "tag_name": "v5.0.0",
+  "html_url": "https://github.com/LeonardNJU/VocoType-linux/releases/tag/v5.0.0",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-08-02T03:45:17Z",
+  "asset_count": 11,
+  "asset_names": [
+    "SHA256SUMS",
+    "vocotype-linux-5.0.0-1-x86_64.pkg.tar.zst",
+    "vocotype-linux-5.0.0-1.fc44.x86_64.rpm",
+    "VoCoType-linux-5.0.0-macOS-arm64.dmg",
+    "vocotype-linux-fcitx5-5.0.0-1-x86_64.pkg.tar.zst",
+    "vocotype-linux-fcitx5-5.0.0-1.fc44.x86_64.rpm",
+    "vocotype-linux-fcitx5_5.0.0-1_amd64.deb",
+    "vocotype-linux-ibus-5.0.0-1-x86_64.pkg.tar.zst",
+    "vocotype-linux-ibus-5.0.0-1.fc44.x86_64.rpm",
+    "vocotype-linux-ibus_5.0.0-1_amd64.deb",
+    "vocotype-linux_5.0.0-1_amd64.deb"
+  ],
+  "latest_tag": "v5.0.0"
+}
