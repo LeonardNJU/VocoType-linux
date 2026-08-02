@@ -1,0 +1,29 @@
+--- a/src/integrations/fcitx5/module/vocotype_module.cpp
++++ b/src/integrations/fcitx5/module/vocotype_module.cpp
+@@ -1693,17 +1693,21 @@
+                     ipc_client_->pollPolishTask(task_id, after_seq);
+                 event_dispatcher_.schedule(
+                     [this, ic_ref, task_id, session_id, result]() {
+-                        polish_poll_in_flight_ = false;
+                         auto *target = ic_ref.get();
+                         const bool current =
+                             task_id == active_polish_task_id_ &&
+                             session_id != 0 &&
+                             session_id == active_polish_session_id_ &&
+                             session_id == active_voice_session_id_;
+-                        if (!target || !target->hasFocus() || !current) {
+-                            if (current) {
+-                                cancelActivePolishTask();
+-                            }
++                        // A cancelled task may finish its in-flight poll after a
++                        // newer voice session has started. Never let that stale
++                        // callback clear the new session's in-flight guard.
++                        if (!current) {
++                            return;
++                        }
++                        polish_poll_in_flight_ = false;
++                        if (!target || !target->hasFocus()) {
++                            cancelActivePolishTask();
+                             return;
+                         }
+                         handlePolishPollResult(target, result);

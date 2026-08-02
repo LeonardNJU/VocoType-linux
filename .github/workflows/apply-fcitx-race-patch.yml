@@ -1,0 +1,43 @@
+name: Apply Fcitx stale-poll guard
+
+on:
+  push:
+    branches:
+      - fix/fcitx-async-transcription
+    paths:
+      - .github/workflows/apply-fcitx-race-patch.yml
+      - .automation/fcitx-race.patch
+  pull_request:
+    branches:
+      - master
+    paths:
+      - .github/workflows/apply-fcitx-race-patch.yml
+      - .automation/fcitx-race.patch
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.head_ref || github.ref_name }}
+      - name: Apply stale-poll guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check .automation/fcitx-race.patch
+          git apply .automation/fcitx-race.patch
+          rm .automation/fcitx-race.patch
+          rmdir .automation
+          rm .github/workflows/apply-fcitx-race-patch.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: isolate stale Fcitx poll callbacks"
+          branch="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          git push origin "HEAD:${branch}"
