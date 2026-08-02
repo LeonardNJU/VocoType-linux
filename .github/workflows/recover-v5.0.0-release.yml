@@ -28,7 +28,16 @@ jobs:
           set -euo pipefail
           test "$(tr -d '[:space:]' < VERSION)" = "5.0.0"
 
-          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v5.0.0" --jq .id)
+          # GitHub's release-by-tag endpoint intentionally hides draft releases.
+          # Locate the tested draft through the authenticated release listing.
+          release_id=$(gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select(.tag_name == "v5.0.0") | .id' | head -n1)
+          [[ -n "$release_id" ]] || {
+            echo "Could not locate the v5.0.0 draft release" >&2
+            exit 1
+          }
+
           jq -n '{draft:false, prerelease:false, make_latest:"true"}' |
             gh api --method PATCH \
               "repos/$GITHUB_REPOSITORY/releases/$release_id" \
