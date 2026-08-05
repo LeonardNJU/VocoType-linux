@@ -1,0 +1,74 @@
+name: Audit remote branches
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - .github/workflows/audit-remote-branches.yml
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  audit:
+    if: ${{ github.head_ref == 'ops/branch-cleanup' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ops/branch-cleanup
+      - name: Audit every remote branch against master
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --all --prune
+          python3 - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+
+          def run(*args, check=True):
+              p = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+              if check and p.returncode:
+                  raise SystemExit(f"command failed: {args}\n{p.stderr}")
+              return p
+
+          refs = run('git', 'for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin').stdout.splitlines()
+          rows = []
+          for ref in sorted(refs):
+              if ref == 'origin/HEAD':
+                  continue
+              name = ref.removeprefix('origin/')
+              sha = run('git', 'rev-parse', ref).stdout.strip()
+              if name == 'master':
+                  rows.append({'branch': name, 'sha': sha, 'keep': True})
+                  continue
+              counts = run('git', 'rev-list', '--left-right', '--count', f'origin/master...{ref}').stdout.strip().split()
+              behind, ahead = map(int, counts)
+              ancestor = run('git', 'merge-base', '--is-ancestor', ref, 'origin/master', check=False).returncode == 0
+              tree_equal = run('git', 'diff', '--quiet', 'origin/master', ref, '--', check=False).returncode == 0
+              changed = run('git', 'diff', '--name-status', 'origin/master', ref, '--').stdout.splitlines()
+              prs_raw = run('gh', 'pr', 'list', '--state', 'all', '--head', name, '--limit', '20', '--json', 'number,title,state,mergedAt,headRefName,baseRefName,url').stdout
+              prs = json.loads(prs_raw or '[]')
+              rows.append({
+                  'branch': name,
+                  'sha': sha,
+                  'ahead': ahead,
+                  'behind': behind,
+                  'ancestor_of_master': ancestor,
+                  'tree_equal_master': tree_equal,
+                  'changed_files_vs_master': changed,
+                  'pull_requests': prs,
+              })
+          Path('remote-branch-audit.json').write_text(json.dumps(rows, ensure_ascii=False, indent=2) + '\n')
+          PY
+          cat remote-branch-audit.json
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add remote-branch-audit.json
+          git commit -m "chore: record remote branch audit"
+          git push origin HEAD:ops/branch-cleanup
