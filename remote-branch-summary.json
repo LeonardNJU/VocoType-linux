@@ -1,0 +1,180 @@
+[
+  {
+    "branch": "docs/macos-preview",
+    "sha": "d2d2e8062910a9a1117683e64b5ae79ee62a9c88",
+    "ahead": 0,
+    "behind": 16,
+    "ancestor_of_master": true,
+    "tree_equal_master": false,
+    "pull_requests": [
+      {
+        "mergedAt": null,
+        "number": 43,
+        "state": "CLOSED",
+        "title": "docs: announce upcoming macOS support",
+        "url": "https://github.com/LeonardNJU/VocoType-linux/pull/43"
+      }
+    ]
+  },
+  {
+    "branch": "fix/fcitx-async-transcription",
+    "sha": "0dad70dbfc4ee4ca9638cca335a2573339b3880c",
+    "ahead": 8,
+    "behind": 3,
+    "ancestor_of_master": false,
+    "tree_equal_master": false,
+    "pull_requests": [
+      {
+        "mergedAt": "2026-08-02T02:28:30Z",
+        "number": 49,
+        "state": "MERGED",
+        "title": "fix: make Fcitx final transcription cancellable",
+        "url": "https://github.com/LeonardNJU/VocoType-linux/pull/49"
+      }
+    ]
+  },
+  {
+    "branch": "fix/issue-34-kubuntu26",
+    "sha": "816343bf624da7c721337975ee31c4dbbb3e56f5",
+    "ahead": 9,
+    "behind": 20,
+    "ancestor_of_master": false,
+    "tree_equal_master": false,
+    "pull_requests": [
+      {
+        "mergedAt": "2026-07-27T16:39:52Z",
+        "number": 42,
+        "state": "MERGED",
+        "title": "release: prepare v4.1.2 beta 1 for issue 34",
+        "url": "https://github.com/LeonardNJU/VocoType-linux/pull/42"
+      }
+    ]
+  },
+  {
+    "branch": "master",
+    "sha": "6dfe8b44d5e0ccefc43369392a72b628c6115160",
+    "keep": true
+  },
+  {
+    "branch": "ops/audit-cleanup-run",
+    "sha": "6dfe8b44d5e0ccefc43369392a72b628c6115160",
+    "ahead": 0,
+    "behind": 0,
+    "ancestor_of_master": true,
+    "tree_equal_master": true,
+    "pull_requests": []
+  },
+  {
+    "branch": "ops/branch-cleanup",
+    "sha": "3c6270e0208ef64cc29158ca7e22bdc9d3048185",
+    "ahead": 3,
+    "behind": 0,
+    "ancestor_of_master": false,
+    "tree_equal_master": false,
+    "pull_requests": [
+      {
+        "mergedAt": null,
+        "number": 53,
+        "state": "OPEN",
+        "title": "chore: audit and remove stale remote branches",
+        "url": "https://github.com/LeonardNJU/VocoType-linux/pull/53"
+      }
+    ]
+  },
+  {
+    "branch": "ops/branch-cleanup-final",
+    "sha": "6dfe8b44d5e0ccefc43369392a72b628c6115160",
+    "ahead": 0,
+    "behind": 0,
+    "ancestor_of_master": true,
+    "tree_equal_master": true,
+    "pull_requests": []
+  },
+  {
+    "branch": "ops/branch-cleanup-final2",
+    "sha": "6dfe8b44d5e0ccefc43369392a72b628c6115160",
+    "ahead": 0,
+    "behind": 0,
+    "ancestor_of_master": true,
+    "tree_equal_master": true,
+    "pull_requests": []
+  },
+  {
+    "branch": "ops/branch-cleanup2",
+    "sha": "6dfe8b44d5e0ccefc43369392a72b628c6115160",
+    "ahead": 0,
+    "behind": 0,
+    "ancestor_of_master": true,
+    "tree_equal_master": true,
+    "pull_requests": []
+  },
+  {
+    "branch": "ops/delete-remote-branches",
+    "sha": "6dfe8b44d5e0ccefc43369392a72b628c6115160",
+    "ahead": 0,
+    "behind": 0,
+    "ancestor_of_master": true,
+    "tree_equal_master": true,
+    "pull_requests": []
+  },
+  {
+    "branch": "ops/publish-v5.0.0",
+    "sha": "8d027d8d1cda80433303546566e6090b3c8ddf80",
+    "ahead": 3,
+    "behind": 1,
+    "ancestor_of_master": false,
+    "tree_equal_master": false,
+    "pull_requests": [
+      {
+        "mergedAt": null,
+        "number": 52,
+        "state": "CLOSED",
+        "title": "chore: publish existing tested v5.0.0 draft",
+        "url": "https://github.com/LeonardNJU/VocoType-linux/pull/52"
+      }
+    ]
+  },
+  {
+    "branch": "ops/remote-branch-audit",
+    "sha": "6dfe8b44d5e0ccefc43369392a72b628c6115160",
+    "ahead": 0,
+    "behind": 0,
+    "ancestor_of_master": true,
+    "tree_equal_master": true,
+    "pull_requests": []
+  },
+  {
+    "branch": "ops/v5-release-status",
+    "sha": "7de57c864f36efc0b7b3ef03ea4ca56acb7646e0",
+    "ahead": 2,
+    "behind": 1,
+    "ancestor_of_master": false,
+    "tree_equal_master": false,
+    "pull_requests": [
+      {
+        "mergedAt": null,
+        "number": 51,
+        "state": "CLOSED",
+        "title": "chore: inspect v5.0.0 release workflow status",
+        "url": "https://github.com/LeonardNJU/VocoType-linux/pull/51"
+      }
+    ]
+  },
+  {
+    "branch": "release/v5.0.0",
+    "sha": "6dfe8b44d5e0ccefc43369392a72b628c6115160",
+    "ahead": 0,
+    "behind": 0,
+    "ancestor_of_master": true,
+    "tree_equal_master": true,
+    "pull_requests": [
+      {
+        "mergedAt": "2026-08-02T03:20:32Z",
+        "number": 50,
+        "state": "MERGED",
+        "title": "release: promote VoCoType-linux V5 to v5.0.0 stable",
+        "url": "https://github.com/LeonardNJU/VocoType-linux/pull/50"
+      }
+    ]
+  }
+]
