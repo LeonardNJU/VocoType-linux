@@ -1,4 +1,4 @@
-name: Audit remote branches
+name: Delete non-master remote branches
 
 on:
   pull_request:
@@ -12,7 +12,7 @@ permissions:
   pull-requests: read
 
 jobs:
-  audit:
+  cleanup:
     if: ${{ github.head_ref == 'ops/branch-cleanup' }}
     runs-on: ubuntu-24.04
     steps:
@@ -20,51 +20,65 @@ jobs:
         with:
           fetch-depth: 0
           ref: ops/branch-cleanup
-      - name: Summarize every remote branch against master
+      - name: Verify and delete every branch except master
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           git fetch --all --prune
-          python3 - <<'PY'
-          import json, subprocess
-          from pathlib import Path
 
-          def run(*args, check=True):
-              p = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-              if check and p.returncode:
-                  raise SystemExit(f"command failed: {args}\n{p.stderr}")
-              return p
+          mapfile -t branches < <(
+            gh api --paginate "repos/$GITHUB_REPOSITORY/branches?per_page=100" \
+              --jq '.[].name' | sort -u
+          )
 
-          refs = run('git', 'for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin').stdout.splitlines()
-          rows = []
-          for ref in sorted(refs):
-              if ref in {'origin/HEAD', 'origin'}:
-                  continue
-              name = ref.removeprefix('origin/')
-              sha = run('git', 'rev-parse', ref).stdout.strip()
-              if name == 'master':
-                  rows.append({'branch': name, 'sha': sha, 'keep': True})
-                  continue
-              behind, ahead = map(int, run('git', 'rev-list', '--left-right', '--count', f'origin/master...{ref}').stdout.split())
-              ancestor = run('git', 'merge-base', '--is-ancestor', ref, 'origin/master', check=False).returncode == 0
-              tree_equal = run('git', 'diff', '--quiet', 'origin/master', ref, '--', check=False).returncode == 0
-              prs = json.loads(run('gh', 'pr', 'list', '--state', 'all', '--head', name, '--limit', '20', '--json', 'number,title,state,mergedAt,url').stdout or '[]')
-              rows.append({
-                  'branch': name,
-                  'sha': sha,
-                  'ahead': ahead,
-                  'behind': behind,
-                  'ancestor_of_master': ancestor,
-                  'tree_equal_master': tree_equal,
-                  'pull_requests': prs,
-              })
-          Path('remote-branch-summary.json').write_text(json.dumps(rows, ensure_ascii=False, indent=2) + '\n')
-          PY
-          cat remote-branch-summary.json
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add remote-branch-summary.json
-          git commit -m "chore: summarize remote branch audit"
-          git push origin HEAD:ops/branch-cleanup
+          for branch in "${branches[@]}"; do
+            [[ "$branch" == "master" ]] && continue
+
+            ref="origin/$branch"
+            git show-ref --verify --quiet "refs/remotes/$ref" || {
+              echo "Missing fetched ref for $branch" >&2
+              exit 1
+            }
+
+            safe=false
+            if git merge-base --is-ancestor "$ref" origin/master; then
+              safe=true
+            elif git diff --quiet origin/master "$ref" --; then
+              safe=true
+            elif [[ "$branch" == ops/* ]]; then
+              safe=true
+            else
+              merged_prs=$(gh pr list \
+                --state merged \
+                --head "$branch" \
+                --limit 1 \
+                --json number \
+                --jq 'length')
+              [[ "$merged_prs" == "1" ]] && safe=true
+            fi
+
+            if [[ "$safe" != true ]]; then
+              echo "Refusing to delete unverified branch: $branch" >&2
+              exit 1
+            fi
+          done
+
+          # Delete every other branch first. Delete this workflow's branch last.
+          for branch in "${branches[@]}"; do
+            [[ "$branch" == "master" || "$branch" == "ops/branch-cleanup" ]] && continue
+            echo "Deleting $branch"
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$branch"
+          done
+
+          remaining=$(gh api --paginate "repos/$GITHUB_REPOSITORY/branches?per_page=100" --jq '.[].name' | sort -u)
+          expected=$'master\nops/branch-cleanup'
+          [[ "$remaining" == "$expected" ]] || {
+            echo "Unexpected branches remain before final deletion:" >&2
+            printf '%s\n' "$remaining" >&2
+            exit 1
+          }
+
+          echo "Deleting ops/branch-cleanup"
+          gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/ops/branch-cleanup"
