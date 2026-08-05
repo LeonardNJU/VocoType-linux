@@ -20,7 +20,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ops/branch-cleanup
-      - name: Audit every remote branch against master
+      - name: Summarize every remote branch against master
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -40,20 +40,17 @@ jobs:
           refs = run('git', 'for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin').stdout.splitlines()
           rows = []
           for ref in sorted(refs):
-              if ref == 'origin/HEAD':
+              if ref in {'origin/HEAD', 'origin'}:
                   continue
               name = ref.removeprefix('origin/')
               sha = run('git', 'rev-parse', ref).stdout.strip()
               if name == 'master':
                   rows.append({'branch': name, 'sha': sha, 'keep': True})
                   continue
-              counts = run('git', 'rev-list', '--left-right', '--count', f'origin/master...{ref}').stdout.strip().split()
-              behind, ahead = map(int, counts)
+              behind, ahead = map(int, run('git', 'rev-list', '--left-right', '--count', f'origin/master...{ref}').stdout.split())
               ancestor = run('git', 'merge-base', '--is-ancestor', ref, 'origin/master', check=False).returncode == 0
               tree_equal = run('git', 'diff', '--quiet', 'origin/master', ref, '--', check=False).returncode == 0
-              changed = run('git', 'diff', '--name-status', 'origin/master', ref, '--').stdout.splitlines()
-              prs_raw = run('gh', 'pr', 'list', '--state', 'all', '--head', name, '--limit', '20', '--json', 'number,title,state,mergedAt,headRefName,baseRefName,url').stdout
-              prs = json.loads(prs_raw or '[]')
+              prs = json.loads(run('gh', 'pr', 'list', '--state', 'all', '--head', name, '--limit', '20', '--json', 'number,title,state,mergedAt,url').stdout or '[]')
               rows.append({
                   'branch': name,
                   'sha': sha,
@@ -61,14 +58,13 @@ jobs:
                   'behind': behind,
                   'ancestor_of_master': ancestor,
                   'tree_equal_master': tree_equal,
-                  'changed_files_vs_master': changed,
                   'pull_requests': prs,
               })
-          Path('remote-branch-audit.json').write_text(json.dumps(rows, ensure_ascii=False, indent=2) + '\n')
+          Path('remote-branch-summary.json').write_text(json.dumps(rows, ensure_ascii=False, indent=2) + '\n')
           PY
-          cat remote-branch-audit.json
+          cat remote-branch-summary.json
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add remote-branch-audit.json
-          git commit -m "chore: record remote branch audit"
+          git add remote-branch-summary.json
+          git commit -m "chore: summarize remote branch audit"
           git push origin HEAD:ops/branch-cleanup
