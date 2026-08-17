@@ -1,5 +1,6 @@
 #include "vocotype/common/terms_yaml.hpp"
 #include "vocotype/desktop/audio.hpp"
+#include "vocotype/desktop/config.hpp"
 #include "vocotype/desktop/fcitx_profile.hpp"
 #include "vocotype/desktop/hotkey.hpp"
 #include "vocotype/desktop/ipc.hpp"
@@ -278,6 +279,47 @@ protect:
           "runtime config resolves to the shared config");
   require(!migrate_config_layout().changed,
           "config layout migration is idempotent");
+
+  {
+    std::ofstream audio_override(audio_config_path());
+    audio_override << "[audio]\n"
+                      "device_id = 77\n"
+                      "device_name = stale microphone\n"
+                      "sample_rate = 44100\n";
+  }
+  const AudioConfig overridden_audio = load_audio_config();
+  require(
+      overridden_audio.device_id && *overridden_audio.device_id == 77 &&
+          overridden_audio.device_name == "stale microphone" &&
+          overridden_audio.sample_rate == 44100,
+      "legacy audio.conf remains active before a modern device is selected");
+  Json rewritten_shared = read_json_file(shared_config_path(), false);
+  rewritten_shared["audio"] = Json{{"device", 8},
+                                   {"device_name", "saved microphone"},
+                                   {"sample_rate", 48000},
+                                   {"block_ms", 20}};
+  // Bypass write_shared_config once so the stale override is still present:
+  // normal runtime loading must nevertheless prefer the modern selection.
+  write_json_file_atomic(shared_config_path(), rewritten_shared);
+  const AudioConfig modern_wins = load_audio_config();
+  require(modern_wins.device_id && *modern_wins.device_id == 8 &&
+              modern_wins.device_name == "saved microphone" &&
+              modern_wins.sample_rate == 48000,
+          "modern microphone selection ignores an implicit stale audio.conf");
+  const AudioConfig explicit_override = load_audio_config(audio_config_path());
+  require(explicit_override.device_id && *explicit_override.device_id == 77 &&
+              explicit_override.device_name == "stale microphone" &&
+              explicit_override.sample_rate == 44100,
+          "explicitly requested legacy/headless audio override still works");
+  write_shared_config(rewritten_shared);
+  require(!std::filesystem::exists(audio_config_path()),
+          "saving shared settings retires stale audio.conf override");
+  const AudioConfig saved_audio = load_audio_config();
+  require(
+      saved_audio.device_id && *saved_audio.device_id == 8 &&
+          saved_audio.device_name == "saved microphone" &&
+          saved_audio.sample_rate == 48000,
+      "saved shared microphone becomes effective after override retirement");
   if (old_xdg)
     setenv("XDG_CONFIG_HOME", old_xdg->c_str(), 1);
   else

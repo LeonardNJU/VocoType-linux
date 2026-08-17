@@ -205,6 +205,18 @@ void write_shared_config(Json value) {
   const char *custom = std::getenv("VOCOTYPE_CONFIG");
   write_json_file_atomic(
       custom && *custom ? expand_user(custom) : shared_config_path(), value);
+
+  // audio.conf predates the shared JSON settings and intentionally has higher
+  // precedence in load_audio_config() so installer/headless overrides still
+  // work. Once the modern shared settings are explicitly written, however,
+  // leaving that file behind makes the UI appear to save a microphone while
+  // capture silently keeps using the stale override. Hand ownership back to
+  // config.json after any shared-settings save.
+  std::error_code error;
+  std::filesystem::remove(audio_config_path(), error);
+  if (error)
+    throw std::runtime_error("cannot retire legacy audio config: " +
+                             error.message());
 }
 void write_ibus_hotkeys(const Json &hotkeys) {
   if (!hotkeys.is_object())
@@ -228,18 +240,33 @@ void write_macos_hotkeys(const Json &hotkeys) {
 }
 AudioConfig load_audio_config(const std::filesystem::path &requested) {
   AudioConfig config;
+  bool shared_selects_device = false;
   const auto json = read_json_file(runtime_config_path(), true);
   if (json.contains("audio") && json["audio"].is_object()) {
     const auto &audio = json["audio"];
-    if (audio.contains("device") && audio["device"].is_number_integer())
+    if (audio.contains("device") && audio["device"].is_number_integer()) {
       config.device_id = audio["device"].get<int>();
-    if (audio.contains("device_name") && audio["device_name"].is_string())
+      shared_selects_device = true;
+    }
+    if (audio.contains("device_name") && audio["device_name"].is_string()) {
       config.device_name = audio["device_name"].get<std::string>();
+      shared_selects_device =
+          shared_selects_device || !config.device_name.empty();
+    }
     config.sample_rate = audio.value("sample_rate", config.sample_rate);
     config.block_ms = audio.value("block_ms", config.block_ms);
   }
+
+  // audio.conf is a legacy/headless override. Once config.json contains an
+  // explicit microphone selection, the modern settings are authoritative.
+  // This prevents a stale PortAudio device id in audio.conf from silently
+  // selecting a different device after USB enumeration changes. Callers that
+  // explicitly pass an override path still get the requested override.
+  const bool apply_override = !requested.empty() || !shared_selects_device;
   const auto path = requested.empty() ? audio_config_path() : requested;
-  std::ifstream input(expand_user(path));
+  std::ifstream input;
+  if (apply_override)
+    input.open(expand_user(path));
   std::string line;
   bool in_audio = false;
   while (std::getline(input, line)) {

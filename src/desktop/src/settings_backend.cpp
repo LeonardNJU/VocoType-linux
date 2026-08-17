@@ -661,6 +661,30 @@ Json run_doctor(const std::string &version) {
   } catch (const std::exception &error) {
     add_check(checks, "audio_devices", "音频设备", false, error.what());
   }
+  try {
+    const auto legacy_path = audio_config_path();
+    if (!std::filesystem::is_regular_file(legacy_path)) {
+      add_check(checks, "audio_config_authority", "音频配置一致性", true,
+                "仅使用 config.json；未发现旧 audio.conf 覆盖");
+    } else {
+      const AudioConfig effective = load_audio_config();
+      const AudioConfig legacy = load_audio_config(legacy_path);
+      const bool conflict = effective.device_id != legacy.device_id ||
+                            effective.device_name != legacy.device_name ||
+                            effective.sample_rate != legacy.sample_rate ||
+                            effective.block_ms != legacy.block_ms;
+      add_check(
+          checks, "audio_config_authority", "音频配置一致性", !conflict,
+          conflict
+              ? "config.json 与旧 audio.conf 冲突；现代设备选择已优先，保存设置会清理旧覆盖：" +
+                    legacy_path.string()
+              : "旧 audio.conf 存在但与当前有效音频设置一致：" +
+                    legacy_path.string());
+    }
+  } catch (const std::exception &error) {
+    add_check(checks, "audio_config_authority", "音频配置一致性", false,
+              error.what());
+  }
   add_check(checks, "core_socket", "native core socket", native_core_ready(),
             backend_socket_path());
   const Json models = model_status();
