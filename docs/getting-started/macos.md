@@ -18,7 +18,7 @@ VoCoType-linux V5提供原生 Apple Silicon版本。它由两个协作组件组�
 
 ## 安装
 
-1. 在 [GitHub Releases](https://github.com/LeonardNJU/VocoType-linux/releases) 下载 `VoCoType-linux-5.0.0-macOS-arm64.dmg`；
+1. 在 [GitHub Releases](https://github.com/LeonardNJU/VocoType-linux/releases) 下载 `VoCoType-linux-5.0.1-macOS-arm64.dmg`；
 2. 双击 DMG；
 3. 将 `VoCoType-linux.app`拖到右侧 `Applications`；
 4. 从“应用程序”打开 VoCoType-linux；

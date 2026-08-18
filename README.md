@@ -21,7 +21,7 @@
 
 ## 📰 VoCoType-linux V5 正式版
 
-**[VoCoType-linux v5.0.0](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v5.0.0)** 是 V5 原生架构的首个稳定版本，正式覆盖 Linux Fcitx 5、Linux IBus 与 Apple Silicon macOS。
+**[VoCoType-linux v5.0.1](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v5.0.1)** 是当前 V5 稳定补丁版本；V5 原生架构正式覆盖 Linux Fcitx 5、Linux IBus 与 Apple Silicon macOS。
 
 - 本地 FunASR 最终识别、可选实时预览、热词、术语保护与 ITN 全部由共享 C++ Core 提供；
 - `F9` 普通听写、`Shift+F9` AI 润色和 `Ctrl+F9` 语音编辑在三套前端保持一致语义；
@@ -29,8 +29,9 @@
 - Fcitx 5 普通 F9 已改为异步、可取消任务：按 `Esc`、继续输入、开始新语音操作或输入框失焦都会立即取消等待；
 - 设置中心的 AI“连接测试”明确为可选诊断；保存有效配置后可直接使用 AI 功能，无需每次启动后测试；
 - 正式版安装资产包含 macOS arm64 DMG，以及 Debian、RPM、Arch 的 Universal、IBus-only、Fcitx5-only 软件包和统一校验和。
+- v5.0.1 修复保存的旧音频设备索引抢占当前麦克风的问题，并避免 macOS 开发构建的临时 `.app` 在 Spotlight 中显示成重复安装应用。
 
-[前往 V5 正式版 Release 下载](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v5.0.0)。macOS Apple Silicon 用户请选择 `VoCoType-linux-5.0.0-macOS-arm64.dmg`。
+[前往 V5 正式版 Release 下载](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v5.0.1)。macOS Apple Silicon 用户请选择 `VoCoType-linux-5.0.1-macOS-arm64.dmg`。
 
 macOS 安装包目前仍采用 ad-hoc 签名、尚未经过 Apple notarization；首次打开可能需要在“系统设置 → 隐私与安全性”中选择“仍要打开”。
 
@@ -69,7 +70,7 @@ https://github.com/user-attachments/assets/4b936014-9477-4794-8d04-aa31d34577a0
 
 系统要求：**Apple Silicon（arm64），macOS 13或更高版本**。
 
-1. 从 [V5 正式版 Release](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v5.0.0) 下载 `VoCoType-linux-5.0.0-macOS-arm64.dmg`；
+1. 从 [V5 正式版 Release](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v5.0.1) 下载 `VoCoType-linux-5.0.1-macOS-arm64.dmg`；
 2. 打开 DMG，将 `VoCoType-linux.app`拖到右侧 `Applications`；
 3. 从“应用程序”打开 VoCoType-linux；
 4. 首次启动会把内置输入法安装到 `~/Library/Input Methods/VoCoType-linux.app`并激活；
@@ -81,7 +82,7 @@ V5 正式版仍采用 **ad-hoc签名且尚未经过 Apple公证**。首次打开
 
 ### Linux：安装发行包
 
-在 [V5 正式版 Release](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v5.0.0) 下载适合发行版与输入法框架的软件包：
+在 [V5 正式版 Release](https://github.com/LeonardNJU/VocoType-linux/releases/tag/v5.0.1) 下载适合发行版与输入法框架的软件包：
 
 ```bash
 # Debian / Ubuntu
@@ -112,10 +113,10 @@ bash scripts/install/ibus/install.sh --install-system-deps --download-models
 ### Nix / NixOS
 
 ```bash
-nix run github:LeonardNJU/VocoType-linux/v5.0.0#settings
-nix build github:LeonardNJU/VocoType-linux/v5.0.0#vocotype-fcitx5
-nix build github:LeonardNJU/VocoType-linux/v5.0.0#vocotype-ibus
-nix build github:LeonardNJU/VocoType-linux/v5.0.0#vocotype-universal
+nix run github:LeonardNJU/VocoType-linux/v5.0.1#settings
+nix build github:LeonardNJU/VocoType-linux/v5.0.1#vocotype-fcitx5
+nix build github:LeonardNJU/VocoType-linux/v5.0.1#vocotype-ibus
+nix build github:LeonardNJU/VocoType-linux/v5.0.1#vocotype-universal
 ```
 
 详见 [Nix与NixOS文档](docs/getting-started/nix.md)。

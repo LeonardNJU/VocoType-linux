@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.1] - 2026-08-18
+
+### Fixed
+
+- Prevented stale saved audio-device indices from overriding the currently resolved microphone after PortAudio device enumeration changes, avoiding cases where the selected microphone appears healthy elsewhere but VoCoType records silence or the wrong device.
+- Excluded transient macOS CMake and DMG staging `.app` bundles from Spotlight indexing so development builds no longer appear as duplicate installed VoCoType applications in system search.
+
 ## [5.0.0] - 2026-08-02
 
 ### Changed
