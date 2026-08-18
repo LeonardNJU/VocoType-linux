@@ -6,6 +6,11 @@ include(CTest)
 if(NOT APPLE)
   message(FATAL_ERROR "The macOS input method can only be built on Apple platforms")
 endif()
+
+# Keep development .app bundles out of Spotlight/LaunchServices search results.
+# Every direct macOS CMake build gets its own exclusion marker before bundle
+# targets are generated, regardless of the caller-selected build directory.
+file(TOUCH "${CMAKE_BINARY_DIR}/.metadata_never_index")
 if(NOT DEFINED VOCOTYPE_VERSION)
   file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../../../VERSION" VOCOTYPE_VERSION)
   string(STRIP "${VOCOTYPE_VERSION}" VOCOTYPE_VERSION)

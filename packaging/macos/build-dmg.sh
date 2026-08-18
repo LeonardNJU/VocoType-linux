@@ -31,6 +31,12 @@ VOLUME_NAME="VoCoType-linux ${VERSION}"
 RW_DMG="$BUILD_ROOT/VoCoType-linux-${VERSION}-rw.dmg"
 DMG_MOUNT="$BUILD_ROOT/dmg-mount"
 
+# Packaging creates several sibling .app bundles under BUILD_ROOT (stage,
+# dmg-root, input-method). Exclude the whole transient tree from Spotlight so
+# development/release artifacts do not appear as duplicate installed apps.
+mkdir -p "$BUILD_ROOT"
+touch "$BUILD_ROOT/.metadata_never_index"
+
 IDENTITY=${CODESIGN_IDENTITY:-}
 SIGNING_KIND=developer-id
 if [[ -z "$IDENTITY" ]]; then

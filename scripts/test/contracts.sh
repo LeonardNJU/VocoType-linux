@@ -630,6 +630,11 @@ for required in packaging/macos/build-dmg.sh docs/getting-started/macos.md \
                 docs/development/macos-packaging.md; do
   test -f "$required" || fail "macOS release/documentation file is missing: $required"
 done
+rg -Fq 'file(TOUCH "${CMAKE_BINARY_DIR}/.metadata_never_index")' \
+  src/integrations/macos/CMakeLists.txt || \
+  fail "direct macOS CMake builds are visible to Spotlight"
+rg -Fq 'touch "$BUILD_ROOT/.metadata_never_index"' packaging/macos/build-dmg.sh || \
+  fail "macOS packaging staging bundles are visible to Spotlight"
 
 # The tested-release publisher must consume the single assembled artifact.  It
 # must never merge package-job artifacts with final-release-assets, which would
