@@ -135,7 +135,6 @@ if(BUILD_TESTING)
   add_test(NAME vocotype-streaming-preview-tests
            COMMAND vocotype-streaming-preview-tests)
 
-
   add_executable(vocotype-ipc-quick-response-tests
     tests/ipc_quick_response_tests.cpp
   )
@@ -144,6 +143,19 @@ if(BUILD_TESTING)
   )
   add_test(NAME vocotype-ipc-quick-response-tests
            COMMAND vocotype-ipc-quick-response-tests)
+
+  add_executable(vocotype-fake-native-core
+    tests/fake_native_core.cpp
+  )
+  add_executable(vocotype-ipc-core-start-tests
+    tests/ipc_core_start_tests.cpp
+  )
+  target_link_libraries(vocotype-ipc-core-start-tests PRIVATE
+    vocotype_desktop_common
+  )
+  add_test(NAME vocotype-ipc-core-cold-start
+           COMMAND vocotype-ipc-core-start-tests
+                   $<TARGET_FILE:vocotype-fake-native-core>)
 
   add_executable(vocotype-fake-slow-preview-recorder
     tests/fake_slow_preview_recorder.cpp

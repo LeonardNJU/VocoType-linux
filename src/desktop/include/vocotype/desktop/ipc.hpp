@@ -6,6 +6,13 @@
 #include <sys/types.h>
 namespace vocotype::desktop {
 using Json = nlohmann::json;
+
+struct NativeCoreEnsureResult {
+  bool ready = false;
+  std::string error;
+  int exit_code = -1;
+};
+
 Json unix_json_request(const std::string &socket_path, const Json &request,
                        int timeout_ms = 2000);
 std::string base64_encode(const unsigned char *data, std::size_t size);
@@ -17,6 +24,11 @@ bool start_native_core_service(bool restart = false,
                                int wait_ms = 45000);
 pid_t start_native_core(const std::string &socket_path = {},
                         const std::filesystem::path &config_path = {});
+NativeCoreEnsureResult
+ensure_native_core_status(const std::string &socket_path = {},
+                          const std::filesystem::path &config_path = {},
+                          int wait_ms = 45000);
+std::string native_core_last_error(const std::string &socket_path = {});
 bool ensure_native_core(const std::string &socket_path = {},
                         const std::filesystem::path &config_path = {},
                         int wait_ms = 45000);
