@@ -1,0 +1,26 @@
+name: Dispatch v5.0.2 release
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/release-dispatch/v5.0.2'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    if: github.event.head_commit.message == 'Dispatch v5.0.2 release'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Dispatch canonical release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run release.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref master \
+            -f version=v5.0.2 \
+            -f publish=true
