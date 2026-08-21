@@ -1,0 +1,36 @@
+name: Publish v5.0.2 draft
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/release-dispatch/publish-v5.0.2'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Publish and verify stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release edit v5.0.2 \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft=false \
+            --latest
+          gh release view v5.0.2 \
+            --repo "$GITHUB_REPOSITORY" \
+            --json tagName,isDraft,isPrerelease,url,publishedAt,assets \
+            > .github/release-dispatch/published-v5.0.2.json
+          jq -e '.tagName == "v5.0.2" and .isDraft == false and .isPrerelease == false and (.publishedAt != null) and (.assets | length > 0)' \
+            .github/release-dispatch/published-v5.0.2.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/release-dispatch/published-v5.0.2.json
+          git commit -m 'Record published v5.0.2 release'
+          git push
