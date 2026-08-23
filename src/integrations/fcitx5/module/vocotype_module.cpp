@@ -1,4 +1,5 @@
 #include "vocotype_module.h"
+#include "recorder_shutdown.hpp"
 
 #include <algorithm>
 #include <array>
@@ -158,22 +159,39 @@ std::string finishRecorderProcess(
     if (stdin_fd >= 0) {
         close(stdin_fd);
     }
+
+    auto audioReady = [&output_state]() {
+        if (!output_state) {
+            return false;
+        }
+        std::lock_guard<std::mutex> lock(output_state->mutex);
+        return !output_state->audio_path.empty();
+    };
+    auto releaseLock = [&lock_fd]() {
+        if (lock_fd >= 0) {
+            close(lock_fd);
+            lock_fd = -1;
+        }
+    };
+
+    const auto shutdown = vocotype::fcitx5::shutdownRecorderProcess(
+        pid, audioReady, releaseLock);
+    if (shutdown.forced_kill) {
+        FCITX_WARN() << "Killed stuck VoCoType recorder after shutdown timeout";
+    } else if (shutdown.forced_terminate) {
+        FCITX_WARN() << "Terminated slow VoCoType recorder after shutdown timeout";
+    }
+
     if (output_thread.joinable()) {
         output_thread.join();
     }
-    if (pid > 0) {
-        int status = 0;
-        while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
-        }
-    }
+
     std::string audio_path;
     if (output_state) {
         std::lock_guard<std::mutex> lock(output_state->mutex);
         audio_path = output_state->audio_path;
     }
-    if (lock_fd >= 0) {
-        close(lock_fd);
-    }
+    releaseLock();
     return audio_path;
 }
 

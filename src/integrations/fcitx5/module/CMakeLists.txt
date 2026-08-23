@@ -28,6 +28,7 @@ endif()
 add_library(vocotype MODULE
     vocotype_module.cpp
     ../common/ipc_client.cpp
+    ../common/recorder_shutdown.cpp
 )
 target_include_directories(vocotype PRIVATE ../common)
 target_compile_definitions(vocotype PRIVATE
@@ -45,4 +46,17 @@ else()
     target_include_directories(vocotype PRIVATE /usr/include)
 endif()
 set_target_properties(vocotype PROPERTIES PREFIX "")
+
+option(VOCOTYPE_BUILD_FCITX_TESTS "Build focused Fcitx integration tests" OFF)
+if(VOCOTYPE_BUILD_FCITX_TESTS)
+    enable_testing()
+    add_executable(vocotype-recorder-shutdown-tests
+        tests/recorder_shutdown_tests.cpp
+        ../common/recorder_shutdown.cpp
+    )
+    target_include_directories(vocotype-recorder-shutdown-tests PRIVATE ../common)
+    add_test(NAME vocotype-recorder-shutdown
+             COMMAND vocotype-recorder-shutdown-tests)
+endif()
+
 install(TARGETS vocotype LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}/fcitx5)
