@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <stdexcept>
+#include <unistd.h>
 
 namespace vocotype::core {
 namespace {
@@ -64,11 +65,30 @@ std::size_t positive_size(const Json &object, const char *key,
 
 } // namespace
 
+std::string default_server_socket_path() {
+  if (const char *value = std::getenv("VOCOTYPE_FCITX5_SOCKET");
+      value && *value) {
+    return value;
+  }
+  if (const char *value = std::getenv("VOCOTYPE_SOCKET"); value && *value) {
+    return value;
+  }
+#if defined(__APPLE__)
+  return "/tmp/vocotype-" + std::to_string(::getuid()) + ".sock";
+#else
+  if (const char *runtime = std::getenv("XDG_RUNTIME_DIR");
+      runtime && runtime[0] == '/') {
+    return std::string(runtime) + "/vocotype-fcitx5.sock";
+  }
+  return "/tmp/vocotype-fcitx5-" + std::to_string(::getuid()) + ".sock";
+#endif
+}
+
 Json default_config_json() {
   return {
       {"core",
        {
-           {"socket_path", "/tmp/vocotype-fcitx5.sock"},
+           {"socket_path", default_server_socket_path()},
            {"max_request_bytes", 1024 * 1024},
            {"request_timeout_ms", 2000},
        }},

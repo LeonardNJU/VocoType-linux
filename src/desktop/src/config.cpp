@@ -309,7 +309,10 @@ std::string backend_socket_path() {
 #if defined(__APPLE__)
   return "/tmp/vocotype-" + std::to_string(getuid()) + ".sock";
 #else
-  return "/tmp/vocotype-fcitx5.sock";
+  if (const char *runtime = std::getenv("XDG_RUNTIME_DIR");
+      runtime && runtime[0] == '/')
+    return std::string(runtime) + "/vocotype-fcitx5.sock";
+  return "/tmp/vocotype-fcitx5-" + std::to_string(getuid()) + ".sock";
 #endif
 }
 std::string

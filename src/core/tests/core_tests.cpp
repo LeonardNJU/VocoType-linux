@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -584,6 +585,49 @@ void test_config_merge() {
   require(legacy.slm.enabled && legacy.slm.remote_stream &&
               !legacy.slm.enable_thinking && legacy.slm.edit_enabled,
           "legacy SLM booleans were not accepted");
+}
+
+void test_default_socket_path() {
+  const char *old_fcitx = std::getenv("VOCOTYPE_FCITX5_SOCKET");
+  const char *old_socket = std::getenv("VOCOTYPE_SOCKET");
+  const char *old_runtime = std::getenv("XDG_RUNTIME_DIR");
+  const bool had_fcitx = old_fcitx != nullptr;
+  const bool had_socket = old_socket != nullptr;
+  const bool had_runtime = old_runtime != nullptr;
+  const std::string saved_fcitx = had_fcitx ? old_fcitx : "";
+  const std::string saved_socket = had_socket ? old_socket : "";
+  const std::string saved_runtime = had_runtime ? old_runtime : "";
+
+  ::unsetenv("VOCOTYPE_FCITX5_SOCKET");
+  ::unsetenv("VOCOTYPE_SOCKET");
+  ::setenv("XDG_RUNTIME_DIR", "/tmp/vocotype-runtime-test", 1);
+  const std::string runtime_path = vocotype::core::default_server_socket_path();
+  ::setenv("VOCOTYPE_SOCKET", "/tmp/vocotype-explicit-test.sock", 1);
+  const std::string override_path = vocotype::core::default_server_socket_path();
+
+  if (had_fcitx)
+    ::setenv("VOCOTYPE_FCITX5_SOCKET", saved_fcitx.c_str(), 1);
+  else
+    ::unsetenv("VOCOTYPE_FCITX5_SOCKET");
+  if (had_socket)
+    ::setenv("VOCOTYPE_SOCKET", saved_socket.c_str(), 1);
+  else
+    ::unsetenv("VOCOTYPE_SOCKET");
+  if (had_runtime)
+    ::setenv("XDG_RUNTIME_DIR", saved_runtime.c_str(), 1);
+  else
+    ::unsetenv("XDG_RUNTIME_DIR");
+
+#if defined(__APPLE__)
+  require(runtime_path == "/tmp/vocotype-" + std::to_string(::getuid()) +
+                              ".sock",
+          "macOS default socket path changed unexpectedly");
+#else
+  require(runtime_path == "/tmp/vocotype-runtime-test/vocotype-fcitx5.sock",
+          "Linux default socket did not follow XDG_RUNTIME_DIR");
+#endif
+  require(override_path == "/tmp/vocotype-explicit-test.sock",
+          "explicit socket environment override was ignored");
 }
 
 void test_dispatcher() {
@@ -1276,6 +1320,7 @@ int main(int argc, char **argv) {
     std::filesystem::remove(isolated_terms);
     ::setenv("VOCOTYPE_TERMS_FILE", isolated_terms.c_str(), 1);
     test_config_merge();
+    test_default_socket_path();
     test_text_normalizer();
     test_voice_edit_plan_validation();
     test_voice_edit_feature_gates();

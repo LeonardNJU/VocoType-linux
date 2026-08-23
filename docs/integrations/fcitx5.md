@@ -63,8 +63,11 @@ Module 源码位于 `src/integrations/fcitx5/`，只拦截已配置的语音快�
 本地 backend socket：
 
 ```text
-/tmp/vocotype-fcitx5.sock
+$XDG_RUNTIME_DIR/vocotype-fcitx5.sock
 ```
+
+若桌面会话没有提供 `XDG_RUNTIME_DIR`，则回退到带 UID 的
+`/tmp/vocotype-fcitx5-<uid>.sock`，避免不同登录用户互相抢占 socket。
 
 主要用户配置：
 

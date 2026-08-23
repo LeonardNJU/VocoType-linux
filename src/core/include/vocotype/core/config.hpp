@@ -11,8 +11,10 @@ namespace vocotype::core {
 
 using Json = nlohmann::json;
 
+std::string default_server_socket_path();
+
 struct ServerConfig {
-  std::string socket_path = "/tmp/vocotype-fcitx5.sock";
+  std::string socket_path = default_server_socket_path();
   std::size_t max_request_bytes = 1024U * 1024U;
   int request_timeout_ms = 2000;
 };

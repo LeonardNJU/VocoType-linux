@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
-SOCKET=${VOCOTYPE_SOCKET_PATH:-/tmp/vocotype-fcitx5.sock}
+if [[ -n "${VOCOTYPE_SOCKET_PATH:-}" ]]; then
+  SOCKET=$VOCOTYPE_SOCKET_PATH
+elif [[ -n "${VOCOTYPE_FCITX5_SOCKET:-}" ]]; then
+  SOCKET=$VOCOTYPE_FCITX5_SOCKET
+elif [[ -n "${XDG_RUNTIME_DIR:-}" ]]; then
+  SOCKET=$XDG_RUNTIME_DIR/vocotype-fcitx5.sock
+else
+  SOCKET=/tmp/vocotype-fcitx5-$(id -u).sock
+fi
 REPEAT=3
 DISABLE_SLM=false
 while [[ $# -gt 0 ]]; do

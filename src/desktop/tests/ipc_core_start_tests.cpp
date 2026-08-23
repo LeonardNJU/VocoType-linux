@@ -56,7 +56,12 @@ int main(int argc, char **argv) {
   const std::string path = bin.string() + (old_path.empty() ? "" : ":" + old_path);
   ::setenv("HOME", home.c_str(), 1);
   ::setenv("PATH", path.c_str(), 1);
-  ::unsetenv("VOCOTYPE_RUNTIME_DIR");
+  // Force executable discovery into this fixture. Developer machines may
+  // already have /usr/lib/vocotype/vocotype-core installed, and production
+  // discovery intentionally prefers known package paths over PATH. Without an
+  // isolated runtime root this test can silently launch the installed core
+  // instead of the fake executable below.
+  ::setenv("VOCOTYPE_RUNTIME_DIR", temporary.c_str(), 1);
   ::unsetenv("VOCOTYPE_CONFIG");
 
   bool success = true;

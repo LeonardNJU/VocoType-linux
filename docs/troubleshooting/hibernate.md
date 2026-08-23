@@ -1,6 +1,6 @@
 # Fcitx 5 休眠或唤醒后的恢复
 
-V4 的 Fcitx 5 安装会部署原生 backend 用户服务，当前 unit 使用 `Restart=always`。Fcitx Module 在发现 `/tmp/vocotype-fcitx5.sock` 不存在时也会请求启动服务，因此旧版“把 `Restart=on-failure` 手工改成 `always`”教程已经不再适用。
+V4 的 Fcitx 5 安装会部署原生 backend 用户服务，当前 unit 使用 `Restart=always`。Fcitx Module 在发现 `${XDG_RUNTIME_DIR}/vocotype-fcitx5.sock` 不存在时也会请求启动服务，因此旧版“把 `Restart=on-failure` 手工改成 `always`”教程已经不再适用。
 
 ## 推荐恢复方式
 
@@ -36,7 +36,7 @@ RestartSec=3
 ## 检查 socket 与进程
 
 ```bash
-ls -l /tmp/vocotype-fcitx5.sock
+ls -l "${XDG_RUNTIME_DIR}/vocotype-fcitx5.sock"
 pgrep -af 'vocotype-core|vocotype-(offline|streaming)-worker'
 ```
 

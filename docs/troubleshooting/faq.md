@@ -8,7 +8,7 @@
 scripts/diagnostics/native-doctor.sh
 ```
 
-Fcitx 5 用户应确认 `/tmp/vocotype-fcitx5.sock` 由当前用户的 `vocotype-core` 持有，并确认没有旧版 VoCoType Python 进程残留。
+Fcitx 5 用户应确认 `${XDG_RUNTIME_DIR}/vocotype-fcitx5.sock` 由当前用户的 `vocotype-core` 持有，并确认没有旧版 VoCoType Python 进程残留。没有 `XDG_RUNTIME_DIR` 时，VoCoType 会回退到带 UID 的 `/tmp/vocotype-fcitx5-<uid>.sock`。
 
 ## Fcitx 没有候选窗口或状态提示
 

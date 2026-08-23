@@ -298,7 +298,17 @@ std::string resolveBackendSocketPath() {
             return override_path;
         }
     }
-    return "/tmp/vocotype-fcitx5.sock";
+    if (const char *override_path = std::getenv("VOCOTYPE_SOCKET")) {
+        if (*override_path != '\0') {
+            return override_path;
+        }
+    }
+    if (const char *runtime_dir = std::getenv("XDG_RUNTIME_DIR");
+        runtime_dir && runtime_dir[0] == '/') {
+        return std::string(runtime_dir) + "/vocotype-fcitx5.sock";
+    }
+    return "/tmp/vocotype-fcitx5-" +
+           std::to_string(static_cast<unsigned long>(getuid())) + ".sock";
 }
 
 } // namespace

@@ -284,6 +284,12 @@ bool start_native_core_service(bool restart,
   if (!native_core_service_available())
     return false;
   const std::string socket = resolved_socket_path(requested_socket);
+  // The user service has no way to receive an arbitrary --socket-path. It
+  // always starts the core on backend_socket_path(). Trying it for a custom
+  // socket can accidentally probe an unrelated already-running service and
+  // also delays/falsifies the direct-spawn fallback used by tests and tools.
+  if (socket != backend_socket_path())
+    return false;
   if (!run_user_service_action(restart ? "restart" : "start"))
     return false;
   const auto deadline =
