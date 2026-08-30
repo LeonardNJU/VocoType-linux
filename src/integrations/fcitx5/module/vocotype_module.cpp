@@ -643,7 +643,6 @@ void VoCoTypeModule::showTemporaryMessage(fcitx::InputContext *ic,
     edit_hint_timer_ = instance_->eventLoop().addTimeEvent(
       CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 1200000ULL, 0,
         [this, ic_ref](fcitx::EventSourceTime *, uint64_t) {
-            edit_hint_timer_.reset();
             auto *ic_ptr = ic_ref.get();
             if (ic_ptr && ic_ptr->hasFocus()) {
                 clearOwnedUI(ic_ptr);
@@ -846,18 +845,18 @@ void VoCoTypeModule::handleKeyEvent(fcitx::KeyEvent &event) {
 
     const auto key = event.key();
     if (!active_voice_edit_task_id_.empty() && !event.isRelease()) {
-        cancelActiveVoiceEditTask();
-        clearOwnedUI(ic);
         if (key.sym() == FcitxKey_Escape) {
+            cancelActiveVoiceEditTask();
+            clearOwnedUI(ic);
             event.filterAndAccept();
             return;
         }
     }
     if ((transcription_start_pending_ || !active_polish_task_id_.empty()) &&
         !event.isRelease()) {
-        cancelActivePolishTask();
-        clearOwnedUI(ic);
         if (key.sym() == FcitxKey_Escape) {
+            cancelActivePolishTask();
+            clearOwnedUI(ic);
             event.filterAndAccept();
             return;
         }
@@ -1014,12 +1013,12 @@ void VoCoTypeModule::armPendingRecordingStart(
     }
 
     auto ic_ref = ic->watch();
+    ptt_hold_timer_.reset();
     ptt_hold_timer_ = instance_->eventLoop().addTimeEvent(
         CLOCK_MONOTONIC,
         fcitx::now(CLOCK_MONOTONIC) +
             static_cast<uint64_t>(ptt_hold_threshold_ms_) * 1000ULL,
       0, [this, ic_ref](fcitx::EventSourceTime *, uint64_t) {
-            ptt_hold_timer_.reset();
             auto *ic_ptr = ic_ref.get();
             if (!ptt_pressed_ || is_recording_ || !ic_ptr || !ic_ptr->hasFocus()) {
                 cancelPendingRecordingStart();
@@ -1051,7 +1050,6 @@ void VoCoTypeModule::armPendingPttRelease(fcitx::InputContext *ic) {
         CLOCK_MONOTONIC,
       fcitx::now(CLOCK_MONOTONIC) + PTT_AUTOREPEAT_RELEASE_GRACE_US, 0,
         [this, ic_ref](fcitx::EventSourceTime *, uint64_t) {
-            ptt_release_timer_.reset();
             auto *ic_ptr = ic_ref.get();
             if (is_recording_) {
                 stopAndTranscribe();
@@ -1502,14 +1500,13 @@ void VoCoTypeModule::startVoiceEditPolling(fcitx::InputContext *ic,
 
 void VoCoTypeModule::scheduleVoiceEditPoll(
     fcitx::TrackableObjectReference<fcitx::InputContext> ic_ref) {
-    if (active_voice_edit_task_id_.empty() || voice_edit_poll_timer_ ||
-        voice_edit_poll_in_flight_) {
+    if (active_voice_edit_task_id_.empty() || voice_edit_poll_in_flight_) {
         return;
     }
+    voice_edit_poll_timer_.reset();
     voice_edit_poll_timer_ = instance_->eventLoop().addTimeEvent(
       CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + POLISH_POLL_INTERVAL_US, 0,
         [this, ic_ref](fcitx::EventSourceTime *, uint64_t) {
-            voice_edit_poll_timer_.reset();
         if (active_voice_edit_task_id_.empty() || voice_edit_poll_in_flight_) {
                 return false;
             }
@@ -1676,16 +1673,15 @@ void VoCoTypeModule::startPolishPolling(fcitx::InputContext *ic,
 
 void VoCoTypeModule::schedulePolishPoll(
     fcitx::TrackableObjectReference<fcitx::InputContext> ic_ref) {
-    if (active_polish_task_id_.empty() || polish_poll_timer_ ||
-        polish_poll_in_flight_) {
+    if (active_polish_task_id_.empty() || polish_poll_in_flight_) {
         return;
     }
+    polish_poll_timer_.reset();
 
     polish_poll_timer_ = instance_->eventLoop().addTimeEvent(
         CLOCK_MONOTONIC,
         fcitx::now(CLOCK_MONOTONIC) + POLISH_POLL_INTERVAL_US, 0,
         [this, ic_ref](fcitx::EventSourceTime *, uint64_t) {
-            polish_poll_timer_.reset();
             if (active_polish_task_id_.empty() || polish_poll_in_flight_) {
                 return false;
             }
@@ -1993,16 +1989,15 @@ void VoCoTypeModule::schedulePanelAnimationFrame(
     fcitx::TrackableObjectReference<fcitx::InputContext> ic_ref,
     uint64_t generation) {
     if (generation != panel_animation_generation_ ||
-        panel_animation_kind_ == PanelAnimationKind::None ||
-        recording_animation_timer_) {
+        panel_animation_kind_ == PanelAnimationKind::None) {
         return;
     }
+    recording_animation_timer_.reset();
 
     recording_animation_timer_ = instance_->eventLoop().addTimeEvent(
         CLOCK_MONOTONIC,
         fcitx::now(CLOCK_MONOTONIC) + RECORDING_ANIMATION_INTERVAL_US, 0,
         [this, ic_ref, generation](fcitx::EventSourceTime *, uint64_t) {
-            recording_animation_timer_.reset();
             if (generation != panel_animation_generation_) {
                 return false;
             }
