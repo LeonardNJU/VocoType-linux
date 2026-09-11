@@ -1539,6 +1539,15 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
               NSLog(@"VoCoType-linux: microphone recording at %lld ms via %@",
                     static_cast<long long>(latency), to_ns(event_value));
             } else {
+              strong_self->_state->recording.store(false);
+              strong_self->_state->busy.store(false);
+              {
+                std::lock_guard lock(strong_self->_state->recorder_mutex);
+                if (strong_self->_state->recorder)
+                  strong_self->_state->recorder->cancel_async();
+              }
+              stop_asr_lease(*strong_self->_state);
+              release_voice_operation(strong_self);
               [strong_self showStatus:[@"❌ " stringByAppendingString:to_ns(event_value)]];
             }
           });
