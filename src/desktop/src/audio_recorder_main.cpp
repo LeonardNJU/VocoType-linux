@@ -270,15 +270,18 @@ int main(int argc, char **argv) {
                          input.native_capture_name);
     std::string capture_error;
     std::atomic_bool first_audio_block{false};
+    std::atomic_bool capture_finished{false};
 #ifdef __APPLE__
     // CoreAudio can occasionally wedge inside AudioDeviceStart without
     // returning an error. Do not leave the input method stuck in a permanent
-    // "recording" state when no PCM callback ever arrives.
-    std::thread([&first_audio_block, &stop] {
+    // "recording" state when no PCM callback ever arrives. The stop flag is
+    // not sufficient here: a timed recording may request stop while the
+    // capture thread is still blocked inside AudioDeviceStart.
+    std::thread([&first_audio_block, &capture_finished] {
       constexpr auto kMicrophoneStartupTimeout = std::chrono::seconds(5);
       std::this_thread::sleep_for(kMicrophoneStartupTimeout);
       if (!first_audio_block.load(std::memory_order_acquire) &&
-          !stop.load(std::memory_order_acquire)) {
+          !capture_finished.load(std::memory_order_acquire)) {
         emit({{"type", "error"},
               {"error", "麦克风启动超时（CoreAudio 未返回音频）；请重试，必要时重启系统音频服务"}});
         std::_Exit(2);
@@ -309,6 +312,7 @@ int main(int argc, char **argv) {
         capture_error = error.what();
         stop.store(true);
       }
+      capture_finished.store(true, std::memory_order_release);
     });
 
     const auto started_at = std::chrono::steady_clock::now();
