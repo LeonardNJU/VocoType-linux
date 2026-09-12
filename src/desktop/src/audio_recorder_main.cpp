@@ -3,6 +3,7 @@
 #include "vocotype/desktop/ipc.hpp"
 #include "vocotype/desktop/streaming_preview.hpp"
 #include "vocotype/desktop/wav.hpp"
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -33,6 +34,8 @@ void emit(const Json &value) {
 struct Options {
   bool list_devices = false;
   bool probe = false;
+  bool emit_levels = false;
+  bool preview = true;
   int duration_ms = 0;
   std::filesystem::path config;
   std::string socket = backend_socket_path();
@@ -45,6 +48,10 @@ Options parse(int argc, char **argv) {
       options.list_devices = true;
     else if (arg == "--probe")
       options.probe = true;
+    else if (arg == "--emit-levels")
+      options.emit_levels = true;
+    else if (arg == "--no-preview")
+      options.preview = false;
     else if (arg == "--duration-ms" && i + 1 < argc)
       options.duration_ms = std::stoi(argv[++i]);
     else if (arg == "--config" && i + 1 < argc)
@@ -53,7 +60,8 @@ Options parse(int argc, char **argv) {
       options.socket = argv[++i];
     else if (arg == "--help") {
       std::cout << "Usage: vocotype-audio-recorder [--list-devices|--probe] "
-                   "[--duration-ms N] [--config PATH] [--socket PATH]\n";
+                   "[--emit-levels] [--no-preview] [--duration-ms N] "
+                   "[--config PATH] [--socket PATH]\n";
       std::exit(0);
     } else
       throw std::runtime_error("unknown argument: " + arg);
@@ -97,7 +105,9 @@ int main(int argc, char **argv) {
     std::atomic_bool preview_accepting{true};
     int preview_chunk_samples = 9600;
 
-    std::thread preview_thread([&] {
+    std::thread preview_thread;
+    if (options.preview) {
+      preview_thread = std::thread([&] {
       StreamingPreviewTranscript transcript;
       std::deque<std::vector<std::int16_t>> recent_chunks;
       constexpr std::size_t kRecentChunkLimit = 3;
@@ -264,12 +274,16 @@ int main(int argc, char **argv) {
         }
       }
       preview_accepting.store(false);
-    });
+      });
+    } else {
+      preview_accepting.store(false);
+    }
 
     AudioCapture capture(device, sample_rate, config.block_ms,
                          input.native_capture_name);
     std::string capture_error;
     std::atomic_bool first_audio_block{false};
+    std::atomic_int64_t first_audio_started_ns{0};
     std::atomic_bool capture_finished{false};
 #ifdef __APPLE__
     // CoreAudio can occasionally wedge inside AudioDeviceStart without
@@ -278,12 +292,16 @@ int main(int argc, char **argv) {
     // not sufficient here: a timed recording may request stop while the
     // capture thread is still blocked inside AudioDeviceStart.
     std::thread([&first_audio_block, &capture_finished] {
-      constexpr auto kMicrophoneStartupTimeout = std::chrono::seconds(5);
+      // A built-in microphone that has been idle for a long time can take just
+      // over five seconds to leave its deep CoreAudio power state on macOS 26.
+      // Keep enough margin to avoid killing the recorder exactly as the HAL
+      // reports the device Running, while still bounding genuine startup hangs.
+      constexpr auto kMicrophoneStartupTimeout = std::chrono::seconds(8);
       std::this_thread::sleep_for(kMicrophoneStartupTimeout);
       if (!first_audio_block.load(std::memory_order_acquire) &&
           !capture_finished.load(std::memory_order_acquire)) {
         emit({{"type", "error"},
-              {"error", "麦克风启动超时（CoreAudio 未返回音频）；请重试，必要时重启系统音频服务"}});
+              {"error", "麦克风启动超过 8 秒（CoreAudio 未返回音频）；请重试，必要时重启系统音频服务"}});
         std::_Exit(2);
       }
     }).detach();
@@ -291,14 +309,27 @@ int main(int argc, char **argv) {
     std::thread capture_thread([&] {
       try {
         capture.run(stop, [&](const std::vector<std::int16_t> &block) {
-          if (!first_audio_block.exchange(true))
+          if (!first_audio_block.exchange(true)) {
+            first_audio_started_ns.store(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch())
+                    .count(),
+                std::memory_order_release);
             emit({{"type", "recording"},
                   {"device_id", device.id},
                   {"device_name", device.name},
                   {"sample_rate", sample_rate}});
+          }
           {
             std::lock_guard lock(samples_mutex);
             samples.insert(samples.end(), block.begin(), block.end());
+          }
+          if (options.emit_levels && !block.empty()) {
+            const auto [minimum, maximum] =
+                std::minmax_element(block.begin(), block.end());
+            emit({{"type", "level"},
+                  {"minimum", static_cast<double>(*minimum) / 32768.0},
+                  {"maximum", static_cast<double>(*maximum) / 32768.0}});
           }
           if (preview_accepting.load(std::memory_order_relaxed)) {
             auto converted = resample_linear(block, sample_rate, 16000);
@@ -315,13 +346,19 @@ int main(int argc, char **argv) {
       capture_finished.store(true, std::memory_order_release);
     });
 
-    const auto started_at = std::chrono::steady_clock::now();
     while (!stop.load()) {
-      if (options.duration_ms > 0 &&
-          std::chrono::steady_clock::now() - started_at >=
-              std::chrono::milliseconds(options.duration_ms))
-        break;
       if (options.duration_ms > 0) {
+        const std::int64_t audio_started_ns =
+            first_audio_started_ns.load(std::memory_order_acquire);
+        if (audio_started_ns > 0) {
+          const std::int64_t now_ns =
+              std::chrono::duration_cast<std::chrono::nanoseconds>(
+                  std::chrono::steady_clock::now().time_since_epoch())
+                  .count();
+          if (now_ns - audio_started_ns >=
+              static_cast<std::int64_t>(options.duration_ms) * 1000000)
+            break;
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
         continue;
       }
@@ -347,7 +384,8 @@ int main(int argc, char **argv) {
         preview_done = true;
       }
       queue_cv.notify_all();
-      preview_thread.join();
+      if (preview_thread.joinable())
+        preview_thread.join();
       throw std::runtime_error(capture_error);
     }
 
@@ -364,7 +402,8 @@ int main(int argc, char **argv) {
         preview_done = true;
       }
       queue_cv.notify_all();
-      preview_thread.join();
+      if (preview_thread.joinable())
+        preview_thread.join();
       throw std::runtime_error("recording produced no audio samples");
     }
 

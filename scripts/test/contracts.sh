@@ -239,6 +239,19 @@ rg -Fq 'prewarm_offline_asr(socket, config, asr_lease)' src/integrations/macos/V
   fail "macOS does not prewarm final ASR at recording start"
 rg -Fq 'wait_for_asr_prepare(asr_lease' src/integrations/macos/VocoTypeInputController.mm || \
   fail "macOS final ASR does not wait for recording-time preparation"
+rg -Fq 'kMicrophoneStartupTimeout = std::chrono::seconds(8)' src/desktop/src/audio_recorder_main.cpp || \
+  fail "macOS microphone startup watchdog must allow the observed >5s deep-idle wakeup"
+if rg -Fq 'kMicrophoneStartupTimeout = std::chrono::seconds(5)' src/desktop/src/audio_recorder_main.cpp; then
+  fail "macOS microphone startup watchdog regressed to the post-idle 5s race"
+fi
+for token in 'first_audio_started_ns' '--emit-levels' '--no-preview'; do
+  rg -Fq -- "$token" src/desktop/src/audio_recorder_main.cpp || \
+    fail "macOS timed recorder no longer measures from real PCM or exposes isolated Playground capture: $token"
+done
+for token in 'capture_recording_via_helper' '"--emit-levels"' '"--no-preview"'; do
+  rg -Fq -- "$token" src/desktop/src/settings_backend.cpp || \
+    fail "macOS Playground capture no longer uses the watchdog-protected recorder helper: $token"
+done
 mac_install=packaging/macos/install.command
 rg -Fq '"$OLD_TOOL" --disable "$IDENTIFIER"' "$mac_install" || \
   fail "macOS installer does not disable the old input source before replacement"

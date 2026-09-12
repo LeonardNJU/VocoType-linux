@@ -351,7 +351,93 @@ Json run_process(const std::vector<std::string> &arguments) {
           {"error", exit_code == 0 ? "" : output}};
 }
 
+#ifdef __APPLE__
+Json capture_recording_via_helper(int duration_ms,
+                                  const WaveformCallback &callback) {
+  const auto recorder = runtime_root() / "bin/vocotype-audio-recorder";
+  if (!std::filesystem::is_regular_file(recorder))
+    return {{"success", false}, {"error", "找不到原生录音器"}};
+
+  int output_pipe[2]{};
+  if (vocotype::common::create_pipe_close_on_exec(output_pipe) != 0)
+    return {{"success", false}, {"error", "无法创建录音器输出管道"}};
+
+  const pid_t child = ::fork();
+  if (child < 0) {
+    ::close(output_pipe[0]);
+    ::close(output_pipe[1]);
+    return {{"success", false}, {"error", "无法启动原生录音器"}};
+  }
+  if (child == 0) {
+    ::dup2(output_pipe[1], STDOUT_FILENO);
+    ::close(output_pipe[0]);
+    ::close(output_pipe[1]);
+    const std::string duration = std::to_string(std::max(1, duration_ms));
+    const std::string config = runtime_config_path().string();
+    ::execl(recorder.c_str(), recorder.c_str(), "--duration-ms",
+            duration.c_str(), "--config", config.c_str(), "--emit-levels",
+            "--no-preview", static_cast<char *>(nullptr));
+    ::_exit(127);
+  }
+
+  ::close(output_pipe[1]);
+  std::string error;
+  Json audio = Json::object();
+  FILE *file = ::fdopen(output_pipe[0], "r");
+  if (file) {
+    char *line = nullptr;
+    std::size_t capacity = 0;
+    while (::getline(&line, &capacity, file) >= 0) {
+      try {
+        const Json event = Json::parse(line);
+        const std::string type = event.value("type", "");
+        if (type == "level") {
+          if (callback)
+            callback(event.value("minimum", 0.0),
+                     event.value("maximum", 0.0));
+        } else if (type == "audio") {
+          audio = {{"success", true},
+                   {"path", event.value("path", "")},
+                   {"sample_rate", event.value("sample_rate", 0)},
+                   {"frames", event.value("frames", std::size_t{0})},
+                   {"device_id", event.value("device_id", -1)},
+                   {"device", event.value("device_name", "")}};
+        } else if (type == "error") {
+          error = event.value("error", "录音失败");
+        }
+      } catch (const std::exception &) {
+      }
+    }
+    std::free(line);
+    ::fclose(file);
+  } else {
+    ::close(output_pipe[0]);
+  }
+
+  int status = 0;
+  while (::waitpid(child, &status, 0) < 0 && errno == EINTR) {
+  }
+  if (!audio.empty() && WIFEXITED(status) && WEXITSTATUS(status) == 0)
+    return audio;
+  if (error.empty()) {
+    if (WIFEXITED(status))
+      error = "原生录音器退出，状态码 " + std::to_string(WEXITSTATUS(status));
+    else
+      error = "原生录音器异常退出";
+  }
+  return {{"success", false}, {"error", error}};
+}
+#endif
+
 Json capture_recording(int duration_ms, const WaveformCallback &callback) {
+#ifdef __APPLE__
+  // Keep CoreAudio in a disposable helper process. A deep-idle microphone can
+  // need more than five seconds before the first PCM callback, while a truly
+  // wedged AudioDeviceStart cannot be safely cancelled from inside Settings.
+  // The helper owns the bounded startup watchdog and starts the requested
+  // duration only after the first real audio block arrives.
+  return capture_recording_via_helper(duration_ms, callback);
+#else
   try {
     const auto config = load_audio_config();
     const auto device = resolve_input_device(config);
@@ -395,6 +481,7 @@ Json capture_recording(int duration_ms, const WaveformCallback &callback) {
   } catch (const std::exception &error) {
     return {{"success", false}, {"error", error.what()}};
   }
+#endif
 }
 
 Json play_recording(const std::filesystem::path &path, int output_device_id) {

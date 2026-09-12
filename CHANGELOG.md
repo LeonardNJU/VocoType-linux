@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- macOS microphone startup watchdog now allows 8 seconds instead of 5 seconds for the first PCM block. On macOS 26.5, a built-in microphone left unused for a long period was observed taking about 5.004 seconds to transition from CoreAudio `idle` to `Running`; the previous 5-second watchdog killed the recorder at the exact moment the HAL finished waking, making the first F9 after inactivity fail deterministically.
+- macOS timed recorder sessions now start their requested duration from the first real PCM block instead of process launch. The Settings Playground records through the isolated recorder helper with waveform level events and no streaming-ASR preview, so a cold microphone can finish waking before the 3-second capture window begins and a genuine CoreAudio hang cannot wedge the Settings process.
 - macOS upgrades now disable the old input source before replacing its bundle and force a final InputMethod process restart only after the new bundle is fully installed and registered. This prevents a stale in-memory input-method executable from remaining responsible for a newly signed on-disk bundle, which can make TCC microphone identity attribution fail intermittently even though the replacement bundle passes `codesign` verification.
 - The Settings App embedded-input-method updater now enforces the same final process boundary after activation, so both DMG installs and in-app upgrades converge on a fresh process loaded from the final installed bundle.
 
