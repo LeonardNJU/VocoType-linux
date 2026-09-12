@@ -117,13 +117,14 @@ Pipe create_pipe(bool parent_writes) {
   }
   return {std::move(parent),std::move(child)};
 }
-DWORD transfer(HANDLE pipe,void* data,DWORD bytes,bool write,int timeout) {
+DWORD transfer(HANDLE pipe,void* data,DWORD bytes,bool write,int timeout,HANDLE cancelled) {
   OVERLAPPED ov{}; Handle event(CreateEventW(nullptr,TRUE,FALSE,nullptr)); check(static_cast<bool>(event),"I/O event"); ov.hEvent=event.get();
   DWORD count=0; BOOL ok=write?WriteFile(pipe,data,bytes,&count,&ov):ReadFile(pipe,data,bytes,&count,&ov);
   if(!ok) {
     DWORD error=GetLastError();
     if(error!=ERROR_IO_PENDING) throw std::runtime_error("pipe closed (Win32 "+std::to_string(error)+")");
-    DWORD waited=WaitForSingleObject(event.get(),static_cast<DWORD>(std::max(1,timeout)));
+    HANDLE waits[]={event.get(),cancelled};
+    DWORD waited=WaitForMultipleObjects(2,waits,FALSE,static_cast<DWORD>(std::max(1,timeout)));
     if(waited!=WAIT_OBJECT_0) { CancelIoEx(pipe,&ov); if(GetOverlappedResult(pipe,&ov,&count,TRUE) && count>0) return count; throw std::runtime_error("worker_request_timeout"); }
     check(GetOverlappedResult(pipe,&ov,&count,FALSE),"pipe I/O");
   }
@@ -131,7 +132,7 @@ DWORD transfer(HANDLE pipe,void* data,DWORD bytes,bool write,int timeout) {
 }
 }
 void ChildProcess::start(const std::filesystem::path& exe,const std::vector<std::wstring>& args) {
-  stop(); auto in=create_pipe(true); auto out=create_pipe(false);
+  stop(); check(static_cast<bool>(cancelled_),"cancel event"); ResetEvent(cancelled_.get()); auto in=create_pipe(true); auto out=create_pipe(false);
   SECURITY_ATTRIBUTES inherit{sizeof(SECURITY_ATTRIBUTES),nullptr,TRUE};
   Handle err(CreateFileW(L"NUL",GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE,&inherit,OPEN_EXISTING,0,nullptr)); check(static_cast<bool>(err),"child stderr");
   SIZE_T size=0; InitializeProcThreadAttributeList(nullptr,1,0,&size); std::vector<BYTE> storage(size);
@@ -158,7 +159,7 @@ DWORD ChildProcess::pid() const { return process_?GetProcessId(process_.get()):0
 void ChildProcess::write_line(const std::string& line,int timeout_ms) {
   if(line.size()>1024*1024) throw std::runtime_error("worker_request_too_large");
   std::string s=line+"\n"; std::size_t offset=0; const auto deadline=GetTickCount64()+static_cast<ULONGLONG>(std::max(1,timeout_ms));
-  while(offset<s.size()) { if(GetTickCount64()>=deadline) throw std::runtime_error("worker_request_timeout"); offset+=transfer(input_.get(),s.data()+offset,static_cast<DWORD>(s.size()-offset),true,static_cast<int>(deadline-GetTickCount64())); }
+  while(offset<s.size()) { if(GetTickCount64()>=deadline) throw std::runtime_error("worker_request_timeout"); offset+=transfer(input_.get(),s.data()+offset,static_cast<DWORD>(s.size()-offset),true,static_cast<int>(deadline-GetTickCount64()),cancelled_.get()); }
 }
 std::string ChildProcess::read_line(int timeout_ms) {
   const auto deadline=GetTickCount64()+static_cast<ULONGLONG>(std::max(1,timeout_ms));
@@ -167,7 +168,7 @@ std::string ChildProcess::read_line(int timeout_ms) {
     if(n!=std::string::npos) { if(n>1024*1024) throw std::runtime_error("worker_response_too_large"); auto s=buffer_.substr(0,n); buffer_.erase(0,n+1); return s; }
     if(buffer_.size()>1024*1024) throw std::runtime_error("worker_response_too_large");
     if(GetTickCount64()>=deadline) throw std::runtime_error("worker_request_timeout");
-    char b[8192]; DWORD bytes=transfer(output_.get(),b,sizeof(b),false,static_cast<int>(deadline-GetTickCount64())); buffer_.append(b,bytes);
+    char b[8192]; DWORD bytes=transfer(output_.get(),b,sizeof(b),false,static_cast<int>(deadline-GetTickCount64()),cancelled_.get()); buffer_.append(b,bytes);
   }
 }
 void ChildProcess::stop() noexcept {

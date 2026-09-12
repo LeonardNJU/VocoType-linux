@@ -46,6 +46,7 @@ public:
 // object owns the entire child tree, including a core's ASR worker processes.
 class ChildProcess {
   Handle process_, job_, input_, output_;
+  Handle cancelled_{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
   std::string buffer_;
 public:
   ChildProcess() = default;
@@ -57,5 +58,6 @@ public:
   std::string read_line(int timeout_ms);
   void write_line(const std::string& line, int timeout_ms);
   void stop() noexcept;
+  void cancel() { if(cancelled_) SetEvent(cancelled_.get()); }
 };
 }

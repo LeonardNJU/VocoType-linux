@@ -41,3 +41,6 @@ endif()
 
 add_executable(vocotype-wasapi-recorder wasapi_recorder.cpp)
 target_link_libraries(vocotype-wasapi-recorder PRIVATE vocotype_windows_support)
+
+add_library(vocotype_windows_pipeline pipeline.cpp)
+target_link_libraries(vocotype_windows_pipeline PUBLIC vocotype_windows_support)
