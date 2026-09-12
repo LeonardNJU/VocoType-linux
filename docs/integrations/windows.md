@@ -45,7 +45,8 @@ application before relying on automatic insertion for important work.
 ./vocotype-windows.exe --config C:\path\windows.json --transcribe C:\path\sample.wav
 ```
 
-The last two commands perform real local recognition and print JSON. CLI recording
+The last two commands perform real local recognition and print JSON. File transcription
+uses a private temporary copy; the original WAV is not modified or deleted. CLI recording
 uses final recognition only; the tray UI also streams previews. The helper accepts
 `--device-id` with a WASAPI endpoint ID; set `windows.device_id` in the configuration
 to use a non-default microphone.

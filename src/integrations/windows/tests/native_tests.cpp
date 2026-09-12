@@ -1,5 +1,6 @@
 #include "pipeline.hpp"
 #include <fstream>
+#include <cstring>
 #include <iostream>
 #include <thread>
 using namespace vocotype::windows;
@@ -33,6 +34,14 @@ int wmain(int argc,wchar_t** argv) {
     CoreClient core;core.start(core_exe,config);CaptureControl control;auto notify=[](const Json&){};
     if(which==L"pipeline") {
       for(int i=0;i<3;++i){auto result=dictate(core,nullptr,helper,{L"--capture"},control,false,notify);expect(result.value("success",false),result.dump().c_str());expect(result.value("frames",0)==16000,"truncated audio");expect(result.value("text","")=="Windows 中文录音完整 16000","final text mismatch");}
+      auto original=dir/L"用户原始录音.wav";
+      std::vector<unsigned char> original_bytes(44+32000,0);
+      std::memcpy(original_bytes.data(),"RIFF",4);
+      for(std::size_t i=44;i<original_bytes.size();i+=2){original_bytes[i]=0xd2;original_bytes[i+1]=0x04;}
+      {std::ofstream out(original,std::ios::binary);out.write(reinterpret_cast<const char*>(original_bytes.data()),static_cast<std::streamsize>(original_bytes.size()));}
+      auto from_file=transcribe_file(core,original,control,false,notify);expect(from_file.value("success",false),"file transcription failed");
+      std::ifstream after(original,std::ios::binary);std::vector<unsigned char> retained((std::istreambuf_iterator<char>(after)),{});
+      expect(retained==original_bytes,"core removed or modified original user audio");
       auto empty=dictate(core,nullptr,helper,{L"--empty"},control,false,notify);expect(!empty.value("success",true),"empty recording accepted");
       auto malformed=dictate(core,nullptr,helper,{L"--bad-offset"},control,false,notify);expect(malformed.value("error","")=="invalid_pcm_packet","bad offset accepted");
       control.cancel.store(true);auto cancelled=dictate(core,nullptr,helper,{L"--silent"},control,false,notify);expect(cancelled.value("error","")=="cancelled","cancelled capture accepted");

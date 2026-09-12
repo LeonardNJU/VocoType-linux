@@ -56,3 +56,8 @@ if(BUILD_TESTING)
     set_tests_properties(windows-${case} PROPERTIES TIMEOUT 45)
   endforeach()
 endif()
+
+if(BUILD_TESTING)
+  add_executable(vocotype-windows-real-asr-tests tests/real_asr_smoke.cpp)
+  target_link_libraries(vocotype-windows-real-asr-tests PRIVATE vocotype_windows_pipeline)
+endif()

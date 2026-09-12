@@ -11,7 +11,8 @@ New-Item -ItemType Directory -Force $Destination | Out-Null
 foreach ($name in @('vocotype-windows.exe', 'vocotype-core.exe', 'vocotype-wasapi-recorder.exe')) { Copy-Item "$exeRoot/$name" $Destination -Force }
 Get-ChildItem "$exeRoot/*.dll" | Copy-Item -Destination $Destination -Force
 Get-ChildItem $NativeBundle -File | Copy-Item -Destination $Destination -Force
-foreach ($file in @('setup-models.ps1', 'models.json', 'README.md')) { Copy-Item "$PSScriptRoot/$file" $Destination -Force }
+foreach ($file in @('setup-models.ps1', 'models.json')) { Copy-Item "$PSScriptRoot/$file" $Destination -Force }
+Copy-Item "$root/docs/integrations/windows.md" "$Destination/README.md" -Force
 Copy-Item "$root/LICENSE" "$Destination/LICENSE.txt" -Force
 Copy-Item "$root/THIRD_PARTY_NOTICES.md" $Destination -Force
 # Include dependency notices from vcpkg; no test helper executables are shipped.

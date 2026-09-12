@@ -7,6 +7,7 @@ param(
   [switch]$Force
 )
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 $InstallDir = (Resolve-Path $InstallDir).Path
 if ((Test-Path $ConfigPath) -and -not $Force) { throw "Configuration already exists: $ConfigPath. Use -Force only to replace it deliberately." }
 foreach ($exe in @('vocotype-core.exe', 'vocotype-offline-worker.exe', 'vocotype-windows.exe', 'vocotype-wasapi-recorder.exe')) {

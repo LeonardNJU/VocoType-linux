@@ -85,9 +85,7 @@ jobs:
         run: ./packaging/windows/setup-models.ps1 -InstallDir dist/windows-preview -ModelRoot "$env:RUNNER_TEMP/vocotype-models" -ConfigPath "$env:RUNNER_TEMP/vocotype-asr-test/配置.json" -SkipPunctuation
       - name: Test real offline and streaming inference on recorded public speech
         shell: pwsh
-        env:
-          PYTHONUTF8: '1'
-        run: python packaging/windows/smoke-real-asr.py --bundle "$PWD/dist/windows-preview" --config "$env:RUNNER_TEMP/vocotype-asr-test/配置.json"
+        run: ./packaging/windows/smoke-real-asr.ps1 -Bundle "$PWD/dist/windows-preview" -Config "$env:RUNNER_TEMP/vocotype-asr-test/配置.json"
       - uses: actions/upload-artifact@v7
         with:
           name: VocoType-Windows-x64-preview

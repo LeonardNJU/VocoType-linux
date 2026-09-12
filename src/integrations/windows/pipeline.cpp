@@ -8,6 +8,32 @@ namespace {
 Json require_success(Json result) {
   if(!result.value("success",false)) throw std::runtime_error(result.value("error","request_failed")); return result;
 }
+// The shared core takes ownership of audio_path and deletes it after ASR.
+// Public CLI inputs must never be transferred directly into that contract.
+struct PrivateAudioCopy {
+  std::filesystem::path path;
+  explicit PrivateAudioCopy(const std::filesystem::path& source) {
+    Handle input(CreateFileW(source.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_FLAG_SEQUENTIAL_SCAN,nullptr));
+    check(static_cast<bool>(input),"open source audio (read-only)");
+    LARGE_INTEGER size{};check(GetFileSizeEx(input.get(),&size),"source audio size");
+    if(size.QuadPart<=0 || size.QuadPart>256LL*1024*1024)throw std::runtime_error("audio file must be between 1 byte and 256 MiB");
+    wchar_t temp[32768]{};DWORD length=GetTempPathW(32768,temp);check(length>0&&length<32768,"temporary directory");
+    GUID guid{};if(FAILED(CoCreateGuid(&guid)))throw std::runtime_error("audio copy name failed");wchar_t id[40]{};StringFromGUID2(guid,id,40);
+    auto candidate=std::filesystem::path(temp)/(std::wstring(L"vocotype-owned-")+id+L".wav");
+    Security security;Handle output(CreateFileW(candidate.c_str(),GENERIC_WRITE,FILE_SHARE_READ,&security.attributes,CREATE_NEW,FILE_ATTRIBUTE_TEMPORARY,nullptr));
+    check(static_cast<bool>(output),"create private ASR audio copy");
+    try {
+      char buffer[65536];DWORD read=0;LONGLONG total=0;
+      for(;;){check(ReadFile(input.get(),buffer,sizeof(buffer),&read,nullptr),"read source audio");if(!read)break;DWORD offset=0;
+        while(offset<read){DWORD wrote=0;check(WriteFile(output.get(),buffer+offset,read-offset,&wrote,nullptr)&&wrote>0,"write private audio copy");offset+=wrote;}
+        total+=read;
+      }
+      if(total!=size.QuadPart)throw std::runtime_error("source audio changed while copying");
+      path=candidate;
+    }catch(...){output.reset();DeleteFileW(candidate.c_str());throw;}
+  }
+  ~PrivateAudioCopy(){if(!path.empty())DeleteFileW(path.c_str());}
+};
 struct TemporaryWav {
   std::filesystem::path path;
   explicit TemporaryWav(const std::vector<std::int16_t>& pcm) {
@@ -50,7 +76,8 @@ Json CoreClient::request(const Json& request,int timeout) {
 Json transcribe_file(CoreClient& core,const std::filesystem::path& path,CaptureControl& control,bool polish,const EventCallback& event) {
   if(control.cancel.load())return {{"success",false},{"error","cancelled"}};
   event({{"type","finalizing"}});
-  auto task=require_success(core.request({{"type","transcribe_start"},{"audio_path",path_utf8(path)},{"long_mode",polish}}));
+  PrivateAudioCopy owned(path);
+  auto task=require_success(core.request({{"type","transcribe_start"},{"audio_path",path_utf8(owned.path)},{"long_mode",polish}}));
   auto id=task.at("task_id").get<std::string>(); const auto deadline=GetTickCount64()+150000;
   for(;;) {
     if(control.cancel.load() || GetTickCount64()>deadline) {
