@@ -15,7 +15,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_library(vocotype_windows_support win_support.cpp)
 target_include_directories(vocotype_windows_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(vocotype_windows_support PUBLIC nlohmann_json::nlohmann_json user32 ole32 shell32 advapi32 crypt32)
+target_link_libraries(vocotype_windows_support PUBLIC nlohmann_json::nlohmann_json user32 gdi32 ole32 shell32 advapi32 crypt32)
 set(CORE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../core)
 add_library(vocotype_windows_core
   ../../common/src/terms_yaml.cpp
@@ -34,7 +34,7 @@ target_link_libraries(vocotype_windows_core PUBLIC vocotype_windows_support CURL
 add_executable(vocotype-core core_main.cpp)
 target_link_libraries(vocotype-core PRIVATE vocotype_windows_core)
 add_executable(vocotype-windows windows_main.cpp)
-target_link_libraries(vocotype-windows PRIVATE vocotype_windows_support winmm)
+target_link_libraries(vocotype-windows PRIVATE vocotype_windows_pipeline)
 if(BUILD_TESTING)
   add_test(NAME vocotype-windows-self-test COMMAND vocotype-windows --self-test)
 endif()
@@ -44,3 +44,15 @@ target_link_libraries(vocotype-wasapi-recorder PRIVATE vocotype_windows_support)
 
 add_library(vocotype_windows_pipeline pipeline.cpp)
 target_link_libraries(vocotype_windows_pipeline PUBLIC vocotype_windows_support)
+
+if(BUILD_TESTING)
+  add_executable(vocotype-windows-test-helper tests/test_helper.cpp)
+  target_link_libraries(vocotype-windows-test-helper PRIVATE vocotype_windows_support)
+  add_executable(vocotype-windows-tests tests/native_tests.cpp)
+  target_link_libraries(vocotype-windows-tests PRIVATE vocotype_windows_pipeline)
+  foreach(case unicode process pipeline timeouts)
+    add_test(NAME windows-${case} COMMAND vocotype-windows-tests ${case}
+      $<TARGET_FILE:vocotype-windows-test-helper> $<TARGET_FILE:vocotype-core>)
+    set_tests_properties(windows-${case} PROPERTIES TIMEOUT 45)
+  endforeach()
+endif()

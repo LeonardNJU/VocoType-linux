@@ -79,7 +79,7 @@ int record(int duration_ms,const std::wstring& endpoint) {
         emit({{"type","pcm"},{"sample_rate",16000},{"offset",frames},{"frames",taken},{"pcm16",base64(samples.data(),taken*2)},{"discontinuity",(status&AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY)!=0}});
         frames+=taken; last_block=GetTickCount64();
       }
-      // ReleaseBuffer must run before asking for the next packet.
+      // Release this packet before draining queued data on the next event.
       break;
     }
   }

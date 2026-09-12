@@ -41,6 +41,7 @@ $bin.Replace('@ROOT@', $root.Replace('\','/')) | Set-Content "$runtime/bin/CMake
 $p = "$runtime/src/CMakeLists.txt"
 $s = Get-Content $p -Raw
 $s = $s.Replace('target_compile_definitions(funasr PUBLIC -D_FUNASR_API_EXPORT -DNOMINMAX -DYAML_CPP_DLL)', 'target_compile_definitions(funasr PRIVATE _FUNASR_API_EXPORT PUBLIC NOMINMAX YAML_CPP_DLL)')
+$s = $s.Replace('/execution-charset:utf-8', '/utf-8').Replace('add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/source-charset:utf-8>")', '')
 $s | Set-Content $p -Encoding utf8
 cmake -S $runtime -B "$work/build" -A x64 "-DONNXRUNTIME_DIR=$ort" -DENABLE_FFMPEG=OFF -DCMAKE_CXX_STANDARD=17 '-DCMAKE_POLICY_VERSION_MINIMUM=3.5' '-DCMAKE_CXX_FLAGS=/EHsc /utf-8 /bigobj'
 if ($LASTEXITCODE) { throw 'FunASR configure failed' }
