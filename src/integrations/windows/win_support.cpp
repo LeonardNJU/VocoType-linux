@@ -124,7 +124,7 @@ DWORD transfer(HANDLE pipe,void* data,DWORD bytes,bool write,int timeout) {
     DWORD error=GetLastError();
     if(error!=ERROR_IO_PENDING) throw std::runtime_error("pipe closed (Win32 "+std::to_string(error)+")");
     DWORD waited=WaitForSingleObject(event.get(),static_cast<DWORD>(std::max(1,timeout)));
-    if(waited!=WAIT_OBJECT_0) { CancelIoEx(pipe,&ov); GetOverlappedResult(pipe,&ov,&count,TRUE); throw std::runtime_error("worker_request_timeout"); }
+    if(waited!=WAIT_OBJECT_0) { CancelIoEx(pipe,&ov); if(GetOverlappedResult(pipe,&ov,&count,TRUE) && count>0) return count; throw std::runtime_error("worker_request_timeout"); }
     check(GetOverlappedResult(pipe,&ov,&count,FALSE),"pipe I/O");
   }
   if(count==0) throw std::runtime_error("worker_exited"); return count;

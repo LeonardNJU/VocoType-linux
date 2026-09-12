@@ -38,3 +38,6 @@ target_link_libraries(vocotype-windows PRIVATE vocotype_windows_support winmm)
 if(BUILD_TESTING)
   add_test(NAME vocotype-windows-self-test COMMAND vocotype-windows --self-test)
 endif()
+
+add_executable(vocotype-wasapi-recorder wasapi_recorder.cpp)
+target_link_libraries(vocotype-wasapi-recorder PRIVATE vocotype_windows_support)
