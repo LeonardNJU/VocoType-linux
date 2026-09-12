@@ -15,6 +15,14 @@ if [[ ! -d "$SOURCE_INPUT" || ! -d "$SOURCE_SETTINGS" ]]; then
 fi
 
 mkdir -p "$HOME/Library/Input Methods" "$HOME/Applications"
+# Disable the old source before touching its bundle. InputMethodKit may
+# otherwise relaunch a killed input-method process while ditto is replacing
+# the app, leaving an old in-memory executable responsible for a newly signed
+# on-disk bundle. TCC then cannot reliably attribute microphone access.
+OLD_TOOL="$INPUT_DESTINATION/Contents/Resources/bin/vocotype-input-source-tool"
+if [[ -x "$OLD_TOOL" ]]; then
+  "$OLD_TOOL" --disable "$IDENTIFIER" >/dev/null 2>&1 || true
+fi
 pkill -f "$INPUT_DESTINATION/Contents/MacOS/VoCoTypeLinuxInputMethod" 2>/dev/null || true
 pkill -f "$SETTINGS_DESTINATION/Contents/MacOS/VoCoTypeLinuxSettings" 2>/dev/null || true
 for runtime in vocotype-audio-recorder vocotype-core vocotype-streaming-worker vocotype-offline-worker; do
@@ -40,6 +48,12 @@ fi
 
 TOOL="$INPUT_DESTINATION/Contents/Resources/bin/vocotype-input-source-tool"
 "$TOOL" --install "$INPUT_DESTINATION" "$IDENTIFIER"
+# Establish a process boundary after the final bundle bytes are installed and
+# registered. Even if macOS launched the input method during registration,
+# the surviving process must come from the final signed bundle on disk.
+pkill -f "$INPUT_DESTINATION/Contents/MacOS/VoCoTypeLinuxInputMethod" 2>/dev/null || true
+sleep 0.2
+"$TOOL" --activate "$IDENTIFIER"
 open "$SETTINGS_DESTINATION" --args --settings-page 1 2>/dev/null || true
 
 cat <<'MESSAGE'

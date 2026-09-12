@@ -239,6 +239,23 @@ rg -Fq 'prewarm_offline_asr(socket, config, asr_lease)' src/integrations/macos/V
   fail "macOS does not prewarm final ASR at recording start"
 rg -Fq 'wait_for_asr_prepare(asr_lease' src/integrations/macos/VocoTypeInputController.mm || \
   fail "macOS final ASR does not wait for recording-time preparation"
+mac_install=packaging/macos/install.command
+rg -Fq '"$OLD_TOOL" --disable "$IDENTIFIER"' "$mac_install" || \
+  fail "macOS installer does not disable the old input source before replacement"
+mac_copy_line=$(grep -nF 'ditto "$SOURCE_INPUT" "$INPUT_DESTINATION"' "$mac_install" | head -1 | cut -d: -f1)
+mac_final_kill_line=$(grep -nF 'pkill -f "$INPUT_DESTINATION/Contents/MacOS/VoCoTypeLinuxInputMethod"' "$mac_install" | tail -1 | cut -d: -f1)
+mac_final_activate_line=$(grep -nF '"$TOOL" --activate "$IDENTIFIER"' "$mac_install" | tail -1 | cut -d: -f1)
+if [[ -z "$mac_copy_line" || -z "$mac_final_kill_line" || -z "$mac_final_activate_line" ]] || \
+   (( mac_final_kill_line <= mac_copy_line || mac_final_activate_line <= mac_final_kill_line )); then
+  fail "macOS installer does not force a fresh InputMethod process after the final bundle is installed"
+fi
+for token in \
+  'Contents/MacOS/VoCoTypeLinuxInputMethod' \
+  '(void)run_task(@"/usr/bin/pkill", @[ @"-f", inputExecutable ], nil);' \
+  '输入法组件已安装，但最终进程重启失败'; do
+  rg -Fq "$token" src/integrations/macos/VocoTypeRuntime.mm || \
+    fail "macOS in-app upgrade does not enforce a final InputMethod process restart: $token"
+done
 for service in scripts/install/common/install-native-user.sh \
                packaging/common/systemd/vocotype-fcitx5-backend.service; do
   rg -Fq 'Restart=always' "$service" || \

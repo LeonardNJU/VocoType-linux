@@ -237,6 +237,29 @@ BOOL VocoTypeEnsureEmbeddedInputMethod(NSString **errorMessage) {
           toolOutput.length > 0 ? toolOutput : @"未知错误"];
     return NO;
   }
+
+  // TIS/InputMethodKit may start the input-method process as soon as the
+  // source is registered. Force one process boundary after the final bundle
+  // is fully in place so the process responsible for microphone access is
+  // guaranteed to match the final on-disk code signature. A stale process
+  // from an earlier bundle can make TCC identity attribution fail even though
+  // codesign verification of the replacement bundle succeeds.
+  NSString *inputExecutable = [destination stringByAppendingPathComponent:
+      @"Contents/MacOS/VoCoTypeLinuxInputMethod"];
+  (void)run_task(@"/usr/bin/pkill", @[ @"-f", inputExecutable ], nil);
+  [NSThread sleepForTimeInterval:0.2];
+  activated = run_task(
+      tool,
+      @[ @"--activate",
+         @"io.github.LeonardNJU.VoCoTypeLinux.InputMethod" ],
+      &toolOutput);
+  if (!activated) {
+    if (errorMessage)
+      *errorMessage = [NSString stringWithFormat:
+          @"输入法组件已安装，但最终进程重启失败。\n\n%@",
+          toolOutput.length > 0 ? toolOutput : @"未知错误"];
+    return NO;
+  }
   return YES;
 }
 

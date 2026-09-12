@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.8] - 2026-09-12
+
+### Fixed
+
+- macOS upgrades now disable the old input source before replacing its bundle and force a final InputMethod process restart only after the new bundle is fully installed and registered. This prevents a stale in-memory input-method executable from remaining responsible for a newly signed on-disk bundle, which can make TCC microphone identity attribution fail intermittently even though the replacement bundle passes `codesign` verification.
+- The Settings App embedded-input-method updater now enforces the same final process boundary after activation, so both DMG installs and in-app upgrades converge on a fresh process loaded from the final installed bundle.
+
 ## [5.0.7] - 2026-09-11
 
 ### Fixed
