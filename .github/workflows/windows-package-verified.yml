@@ -1,0 +1,80 @@
+name: Package verified Windows preview
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful Windows native dictation run containing the tested preview
+        required: true
+        default: '34675859921'
+        type: string
+  push:
+    branches: [feat/windows-native-dictation]
+    paths:
+      - '.github/workflows/windows-package-verified.yml'
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    env:
+      SOURCE_RUN: ${{ inputs.source_run_id || '34675859921' }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Verify the source build and unchanged native implementation
+        shell: pwsh
+        run: |
+          if ($env:SOURCE_RUN -notmatch '^\d+$') { throw 'Invalid source run' }
+          $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:SOURCE_RUN" | ConvertFrom-Json
+          if ($run.conclusion -ne 'success' -or $run.head_repository.full_name -ne $env:GITHUB_REPOSITORY -or $run.name -ne 'Windows native dictation') { throw 'Source build was not successfully validated' }
+          $changed = git diff --name-only $run.head_sha HEAD -- src packaging/windows/setup-models.ps1 packaging/windows/models.json packaging/windows/build-funasr.ps1
+          if ($LASTEXITCODE -ne 0 -or $changed) { throw "Native implementation changed; run the full inference workflow first: $changed" }
+          "SOURCE_COMMIT=$($run.head_sha)" >> $env:GITHUB_ENV
+      - uses: actions/download-artifact@v5
+        with:
+          name: VocoType-Windows-x64-preview
+          path: verified-input
+          run-id: ${{ env.SOURCE_RUN }}
+          github-token: ${{ github.token }}
+      - name: Add notices without changing tested binaries
+        shell: pwsh
+        run: |
+          $archive = @(Get-ChildItem verified-input -Filter '*.zip')
+          if ($archive.Count -ne 1) { throw 'Expected exactly one tested portable archive' }
+          Expand-Archive $archive[0].FullName -DestinationPath stage
+          $root = (Resolve-Path stage).Path
+          $metadata = Get-Content stage/build-info.json -Raw | ConvertFrom-Json
+          if ($metadata.git_commit -ne $env:SOURCE_COMMIT) { throw 'Archive source metadata mismatch' }
+          foreach ($entry in Get-Content stage/SHA256SUMS) {
+            if ($entry -notmatch '^([a-f0-9]{64})  (.+)$') { throw 'Invalid original checksum manifest' }
+            $expected = $Matches[1]; $path = Join-Path $root $Matches[2]
+            if (-not ([IO.Path]::GetFullPath($path).StartsWith($root + [IO.Path]::DirectorySeparatorChar))) { throw 'Unsafe manifest path' }
+            if ((Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw "Source checksum mismatch: $path" }
+          }
+          $before = @{}
+          Get-ChildItem stage -Recurse -File | Where-Object Extension -in '.exe', '.dll' | ForEach-Object { $before[$_.FullName] = (Get-FileHash $_.FullName -Algorithm SHA256).Hash }
+          New-Item -ItemType Directory -Force stage/share/licenses | Out-Null
+          Copy-Item resources/licenses/windows-runtime/* stage/share/licenses -Force
+          if (Test-Path stage/licenses) { Copy-Item stage/licenses/* stage/share/licenses -Force; Remove-Item stage/licenses -Recurse }
+          Copy-Item docs/integrations/windows.md stage/README.md -Force
+          $metadata | Add-Member -NotePropertyName packaging_git_commit -NotePropertyValue $env:GITHUB_SHA
+          $metadata | Add-Member -NotePropertyName validated_inference_run -NotePropertyValue $env:SOURCE_RUN
+          $metadata | ConvertTo-Json | Set-Content stage/build-info.json -Encoding utf8NoBOM
+          foreach ($file in $before.Keys) { if ((Get-FileHash $file -Algorithm SHA256).Hash -ne $before[$file]) { throw 'Tested executable or DLL changed' } }
+          ./stage/vocotype-windows.exe --self-test
+          if ($LASTEXITCODE) { throw 'Packaged executable failed' }
+          ./stage/vocotype-offline-worker.exe --help
+          if ($LASTEXITCODE) { throw 'Packaged native runtime failed' }
+          Get-ChildItem stage -Recurse -File | Where-Object Name -ne 'SHA256SUMS' | Sort-Object FullName | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $([IO.Path]::GetRelativePath($root, $_.FullName))" } | Set-Content stage/SHA256SUMS -Encoding utf8NoBOM
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive stage/* "dist/VocoType-Windows-x64-preview-$($env:GITHUB_SHA.Substring(0,7)).zip"
+          Copy-Item verified-input/real-asr-report.json dist/
+          Get-FileHash dist/*.zip -Algorithm SHA256 | Format-List
+      - uses: actions/upload-artifact@v7
+        with:
+          name: VocoType-Windows-x64-preview
+          path: dist/*
+          if-no-files-found: error

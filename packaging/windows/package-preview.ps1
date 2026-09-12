@@ -16,8 +16,9 @@ Copy-Item "$root/docs/integrations/windows.md" "$Destination/README.md" -Force
 Copy-Item "$root/LICENSE" "$Destination/LICENSE.txt" -Force
 Copy-Item "$root/THIRD_PARTY_NOTICES.md" $Destination -Force
 # Include dependency notices from vcpkg; no test helper executables are shipped.
-$notices = "$Destination/licenses"
+$notices = "$Destination/share/licenses"
 New-Item -ItemType Directory -Force $notices | Out-Null
+Copy-Item "$root/resources/licenses/windows-runtime/*" $notices -Force
 Get-ChildItem "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/share" -Recurse -Filter copyright | ForEach-Object { Copy-Item $_.FullName "$notices/$($_.Directory.Name).txt" -Force }
 # Include the MSVC runtime app-locally when the redistributable files are present.
 $vswhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
