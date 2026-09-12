@@ -253,8 +253,17 @@ for token in 'capture_recording_via_helper' '"--emit-levels"' '"--no-preview"'; 
     fail "macOS Playground capture no longer uses the watchdog-protected recorder helper: $token"
 done
 mac_install=packaging/macos/install.command
+mac_dmg=packaging/macos/build-dmg.sh
 rg -Fq '"$OLD_TOOL" --disable "$IDENTIFIER"' "$mac_install" || \
   fail "macOS installer does not disable the old input source before replacement"
+for token in \
+  'security find-identity -v -p codesigning' \
+  '/Developer ID Application:/{print $2; exit}' \
+  '/Apple Development:/{print $2; exit}' \
+  'repeatedly installing same-bundle-ID ad-hoc builds can invalidate an'; do
+  rg -Fq "$token" "$mac_dmg" || \
+    fail "macOS package build can fall back to ad-hoc signing before using a stable local Apple identity: $token"
+done
 mac_copy_line=$(grep -nF 'ditto "$SOURCE_INPUT" "$INPUT_DESTINATION"' "$mac_install" | head -1 | cut -d: -f1)
 mac_final_kill_line=$(grep -nF 'pkill -f "$INPUT_DESTINATION/Contents/MacOS/VoCoTypeLinuxInputMethod"' "$mac_install" | tail -1 | cut -d: -f1)
 mac_final_activate_line=$(grep -nF '"$TOOL" --activate "$IDENTIFIER"' "$mac_install" | tail -1 | cut -d: -f1)

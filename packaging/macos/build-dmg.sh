@@ -40,17 +40,31 @@ touch "$BUILD_ROOT/.metadata_never_index"
 IDENTITY=${CODESIGN_IDENTITY:-}
 SIGNING_KIND=developer-id
 if [[ -z "$IDENTITY" ]]; then
-  if [[ ${ALLOW_ADHOC_TEST:-0} != 1 ]]; then
+  # Local macOS development often has a valid Apple signing identity even when
+  # CODESIGN_IDENTITY was not exported explicitly. Prefer that stable identity
+  # over ad-hoc signing: TCC microphone grants are code-requirement based, so
+  # repeatedly installing same-bundle-ID ad-hoc builds can invalidate an
+  # otherwise enabled microphone permission after every rebuild.
+  IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null |
+    awk -F'"' '/Developer ID Application:/{print $2; exit}')
+  if [[ -z "$IDENTITY" ]]; then
+    IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null |
+      awk -F'"' '/Apple Development:/{print $2; exit}')
+  fi
+  if [[ -n "$IDENTITY" ]]; then
+    echo "Using discovered Apple code-signing identity: $IDENTITY"
+  elif [[ ${ALLOW_ADHOC_TEST:-0} == 1 ]]; then
+    IDENTITY=-
+    SIGNING_KIND=adhoc-test
+  else
     cat >&2 <<'MESSAGE'
 Set CODESIGN_IDENTITY to an Apple Development or Developer ID Application
-identity for a normally trusted build. For local compile/package diagnostics,
-set ALLOW_ADHOC_TEST=1; that package is ad-hoc signed and may require the user
-to bypass Gatekeeper manually.
+identity for a normally trusted build. If no Apple signing identity is present,
+set ALLOW_ADHOC_TEST=1 only for isolated package diagnostics; same-bundle-ID
+ad-hoc installs can invalidate existing TCC microphone grants.
 MESSAGE
     exit 2
   fi
-  IDENTITY=-
-  SIGNING_KIND=adhoc-test
 fi
 
 cmake -S "$ROOT/src/core" -B "$CORE_BUILD" \
