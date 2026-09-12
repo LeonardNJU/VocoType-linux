@@ -264,6 +264,16 @@ for token in \
   rg -Fq "$token" "$mac_dmg" || \
     fail "macOS package build can fall back to ad-hoc signing before using a stable local Apple identity: $token"
 done
+release_workflow=.github/workflows/release.yml
+for token in \
+  'release_signed: ${{ steps.macos-signing.outputs.release_signed }}' \
+  'echo "release_signed=false" >> "$GITHUB_OUTPUT"' \
+  'Refuse publishing an ad-hoc macOS artifact' \
+  "needs.macos.outputs.release_signed != 'true'" \
+  'The GitHub macOS runner only produced an ad-hoc test DMG.'; do
+  rg -Fq "$token" "$release_workflow" || \
+    fail "release workflow can publish a test-only ad-hoc macOS DMG: $token"
+done
 mac_copy_line=$(grep -nF 'ditto "$SOURCE_INPUT" "$INPUT_DESTINATION"' "$mac_install" | head -1 | cut -d: -f1)
 mac_final_kill_line=$(grep -nF 'pkill -f "$INPUT_DESTINATION/Contents/MacOS/VoCoTypeLinuxInputMethod"' "$mac_install" | tail -1 | cut -d: -f1)
 mac_final_activate_line=$(grep -nF '"$TOOL" --activate "$IDENTIFIER"' "$mac_install" | tail -1 | cut -d: -f1)

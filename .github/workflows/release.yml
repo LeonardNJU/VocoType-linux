@@ -83,6 +83,8 @@ jobs:
     needs: validate-version
     runs-on: macos-15
     timeout-minutes: 180
+    outputs:
+      release_signed: ${{ steps.macos-signing.outputs.release_signed }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -95,7 +97,10 @@ jobs:
             macos-arm64-funasr-
       - name: Install macOS native build dependencies
         run: brew install cmake nlohmann-json openssl@3 portaudio pkg-config
-      - name: Build and verify the tested ad-hoc macOS arm64 DMG
+      - id: macos-signing
+        name: Mark CI macOS artifact as test-only ad-hoc
+        run: echo "release_signed=false" >> "$GITHUB_OUTPUT"
+      - name: Build and verify the test-only ad-hoc macOS arm64 DMG
         env:
           ALLOW_ADHOC_TEST: 1
           JOBS: 3
@@ -324,9 +329,15 @@ jobs:
 
   publish:
     if: ${{ inputs.publish == true }}
-    needs: [validate-version, assemble]
+    needs: [validate-version, macos, assemble]
     runs-on: ubuntu-24.04
     steps:
+      - name: Refuse publishing an ad-hoc macOS artifact
+        if: ${{ needs.macos.outputs.release_signed != 'true' }}
+        run: |
+          echo "The GitHub macOS runner only produced an ad-hoc test DMG." >&2
+          echo "Run this workflow with publish=false, replace the test DMG with a stable Apple-signed local build, regenerate SHA256SUMS, validate the final asset set, and create the Release from the signed assets." >&2
+          exit 1
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v5
         with:
