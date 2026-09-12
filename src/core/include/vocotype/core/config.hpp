@@ -100,6 +100,14 @@ struct AppConfig {
 Json default_config_json();
 Json deep_merge(Json base, const Json &overrides);
 std::filesystem::path expand_user_path(const std::filesystem::path &path);
+#ifdef _WIN32
+inline std::filesystem::path expand_user_path(const std::string &path) {
+  return expand_user_path(std::filesystem::u8path(path));
+}
+inline std::filesystem::path expand_user_path(const char *path) {
+  return expand_user_path(std::filesystem::u8path(path));
+}
+#endif
 AppConfig parse_config(const Json &value);
 AppConfig load_config(const std::filesystem::path &path,
                       bool missing_ok = true);

@@ -5,7 +5,11 @@
 #include <cstdlib>
 #include <fstream>
 #include <stdexcept>
+#ifdef _WIN32
+#include "win_support.hpp"
+#else
 #include <unistd.h>
+#endif
 
 namespace vocotype::core {
 namespace {
@@ -73,7 +77,9 @@ std::string default_server_socket_path() {
   if (const char *value = std::getenv("VOCOTYPE_SOCKET"); value && *value) {
     return value;
   }
-#if defined(__APPLE__)
+#if defined(_WIN32)
+  return "\\\\.\\pipe\\VocoType-core";
+#elif defined(__APPLE__)
   return "/tmp/vocotype-" + std::to_string(::getuid()) + ".sock";
 #else
   if (const char *runtime = std::getenv("XDG_RUNTIME_DIR");
@@ -179,16 +185,23 @@ Json deep_merge(Json base, const Json &overrides) {
 }
 
 std::filesystem::path expand_user_path(const std::filesystem::path &path) {
+#ifdef _WIN32
+  const std::string text = vocotype::windows::path_utf8(path);
+#else
   const std::string text = path.string();
+#endif
   if (text == "~" || text.starts_with("~/")) {
     const char *home = std::getenv("HOME");
+#ifdef _WIN32
+    if (!home || !*home) home = std::getenv("USERPROFILE");
+#endif
     if (home == nullptr || *home == '\0') {
       throw std::runtime_error("HOME is not set; cannot expand config path");
     }
     if (text == "~") {
-      return std::filesystem::path(home);
+      return std::filesystem::u8path(home);
     }
-    return std::filesystem::path(home) / text.substr(2);
+    return std::filesystem::u8path(home) / text.substr(2);
   }
   return path;
 }

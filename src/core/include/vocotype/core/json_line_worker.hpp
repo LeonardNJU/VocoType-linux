@@ -5,7 +5,12 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+#include <memory>
+namespace vocotype::windows { class ChildProcess; }
+#else
 #include <sys/types.h>
+#endif
 
 #include "vocotype/core/config.hpp"
 
@@ -33,9 +38,13 @@ private:
   void reset_locked() noexcept;
 
   std::mutex mutex_;
+#ifdef _WIN32
+  std::unique_ptr<vocotype::windows::ChildProcess> child_;
+#else
   pid_t pid_ = -1;
   int input_fd_ = -1;
   int output_fd_ = -1;
+#endif
   bool ready_ = false;
   std::string read_buffer_;
   Json ready_response_ = Json::object();
