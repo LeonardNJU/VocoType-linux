@@ -122,6 +122,23 @@ jobs:
           compression-level: 0
 
 
+  windows:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v6
+      - name: Configure Windows native integration
+        shell: pwsh
+        run: cmake -S src/integrations/windows -B build/windows -DBUILD_TESTING=ON
+      - name: Build Windows native integration
+        shell: pwsh
+        run: cmake --build build/windows --config Release --parallel
+      - name: Run Windows self-test
+        shell: pwsh
+        run: ctest --test-dir build/windows -C Release --output-on-failure
+      - name: Probe executable metadata
+        shell: pwsh
+        run: build/windows/Release/vocotype-windows.exe --help
+
   macos:
     runs-on: macos-15
     timeout-minutes: 180

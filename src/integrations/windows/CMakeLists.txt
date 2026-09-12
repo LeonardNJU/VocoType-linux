@@ -1,0 +1,21 @@
+cmake_minimum_required(VERSION 3.20)
+project(vocotype_windows LANGUAGES CXX)
+
+if(NOT WIN32)
+  message(FATAL_ERROR "The Windows integration can only be built on Windows")
+endif()
+
+include(CTest)
+add_executable(vocotype-windows windows_main.cpp)
+target_compile_features(vocotype-windows PRIVATE cxx_std_20)
+target_compile_definitions(vocotype-windows PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_link_libraries(vocotype-windows PRIVATE user32 winmm)
+if(MSVC)
+  target_compile_options(vocotype-windows PRIVATE /W4 /permissive- /EHsc)
+else()
+  target_compile_options(vocotype-windows PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+if(BUILD_TESTING)
+  add_test(NAME vocotype-windows-self-test COMMAND vocotype-windows --self-test)
+endif()
