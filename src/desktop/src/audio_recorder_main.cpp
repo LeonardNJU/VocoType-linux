@@ -423,7 +423,8 @@ int main(int argc, char **argv) {
       preview_done = true;
     }
     queue_cv.notify_all();
-    preview_thread.join();
+    if (preview_thread.joinable())
+      preview_thread.join();
     return 0;
   } catch (const std::exception &error) {
     emit({{"type", "error"}, {"error", error.what()}});
