@@ -1,6 +1,7 @@
 #include "pipeline.hpp"
 #include <shellapi.h>
 #include <fstream>
+#include <array>
 #include <iostream>
 #include <thread>
 using namespace vocotype::windows;
@@ -16,6 +17,7 @@ std::thread work;
 std::filesystem::path config_path;
 bool ready=false,preview_ready=false,active=false,loading=false,exiting=false,key_held=false,escape_held=false;
 bool control_down=false,alt_down=false,win_down=false,shift_down=false;
+std::array<bool,256> modifier_keys{};
 std::uint64_t generation=0;
 struct Target { HWND root=nullptr,focus=nullptr;DWORD thread=0,pid=0; } target;
 Target focused_target() {
@@ -64,7 +66,7 @@ void boot() {
   });
 }
 void begin(bool polish) {
-  if(active)return;
+  if(active||exiting)return;
   if(!ready){status(L"后端尚未就绪。请查看配置；托盘菜单可重新加载。");return;}
   if(work.joinable())work.join();target=focused_target();
   control.stop.store(false);control.cancel.store(false);active=true;const auto token=++generation;
@@ -103,12 +105,12 @@ LRESULT CALLBACK window_proc(HWND window,UINT message,WPARAM wp,LPARAM lp) {
       else if(type=="boot_error"){loading=false;ready=false;status(L"后端启动失败。托盘中查看详情、重新加载。");last_text=wide(data->value("error",""));show_result();}
       else if(type=="starting")status(L"正在启动麦克风…");
       else if(type=="recording")status(L"正在听… 松开 F9 结束，Esc 取消。");
-      else if(type=="partial")status(preview_tail(wide(data->value("text",""))));
+      else if(type=="partial"&&active)status(preview_tail(wide(data->value("text",""))));
       else if(type=="finalizing")status(L"录音已停止，正在完成识别…");
       else if(type=="preview_unavailable"){if(active)status(L"实时预览暂不可用；完整录音仍用于最终识别。");}
       else if(type=="done") {
-        active=false;
-        if(control.cancel.load()){status(L"已取消");SetTimer(window,1,1500,nullptr);return 0;}
+        active=false;ready=final_core.healthy();
+        if(control.cancel.load()){if(!ready){boot();return 0;}status(L"已取消");SetTimer(window,1,1500,nullptr);return 0;}
         if(!data->value("success",false)){status(L"录音或识别失败。可重试；托盘中查看错误。");last_text=wide(data->value("error",""));show_result();return 0;}
         last_text=wide(data->value("text",""));SetWindowTextW(result_edit,last_text.c_str());
         if(last_text.empty()){status(L"没有识别到文字");SetTimer(window,1,2000,nullptr);return 0;}
@@ -137,10 +139,16 @@ LRESULT CALLBACK keyboard_proc(int code,WPARAM message,LPARAM data) {
     if(!(event->flags&LLKHF_INJECTED)) {
       const bool down=message==WM_KEYDOWN||message==WM_SYSKEYDOWN;
       // Only shortcut/modifier state; never log other keys or do I/O here.
-      if(event->vkCode==VK_LCONTROL||event->vkCode==VK_RCONTROL)control_down=down;
-      if(event->vkCode==VK_LMENU||event->vkCode==VK_RMENU)alt_down=down;
-      if(event->vkCode==VK_LWIN||event->vkCode==VK_RWIN)win_down=down;
-      if(event->vkCode==VK_LSHIFT||event->vkCode==VK_RSHIFT)shift_down=down;
+      if(event->vkCode==VK_LCONTROL||event->vkCode==VK_RCONTROL||
+         event->vkCode==VK_LMENU||event->vkCode==VK_RMENU||
+         event->vkCode==VK_LWIN||event->vkCode==VK_RWIN||
+         event->vkCode==VK_LSHIFT||event->vkCode==VK_RSHIFT) {
+        modifier_keys[event->vkCode]=down;
+        control_down=modifier_keys[VK_LCONTROL]||modifier_keys[VK_RCONTROL];
+        alt_down=modifier_keys[VK_LMENU]||modifier_keys[VK_RMENU];
+        win_down=modifier_keys[VK_LWIN]||modifier_keys[VK_RWIN];
+        shift_down=modifier_keys[VK_LSHIFT]||modifier_keys[VK_RSHIFT];
+      }
       if(event->vkCode==VK_F9) {
         if(down && !key_held && !control_down&&!alt_down&&!win_down){key_held=true;PostMessageW(main_window,down_message,shift_down?1:0,0);return 1;}
         if(key_held){if(!down){key_held=false;PostMessageW(main_window,up_message,0,0);}return 1;}
@@ -162,6 +170,7 @@ int gui() {
   pane=CreateWindowExW(WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW|WS_EX_TOPMOST,cls.lpszClassName,L"",WS_POPUP|WS_BORDER,0,0,440,100,nullptr,nullptr,module,nullptr);check(pane!=nullptr,"create preview");
   NOTIFYICONDATAW icon{};icon.cbSize=sizeof(icon);icon.hWnd=main_window;icon.uID=1;icon.uFlags=NIF_MESSAGE|NIF_ICON|NIF_TIP;icon.uCallbackMessage=tray_message;icon.hIcon=LoadIconW(nullptr,IDI_APPLICATION);wcscpy_s(icon.szTip,L"VocoType Windows Preview — F9");check(Shell_NotifyIconW(NIM_ADD,&icon),"create tray icon");
   control_down=(GetAsyncKeyState(VK_CONTROL)&0x8000)!=0;alt_down=(GetAsyncKeyState(VK_MENU)&0x8000)!=0;shift_down=(GetAsyncKeyState(VK_SHIFT)&0x8000)!=0;win_down=((GetAsyncKeyState(VK_LWIN)|GetAsyncKeyState(VK_RWIN))&0x8000)!=0;
+  for(int key:{VK_LCONTROL,VK_RCONTROL,VK_LMENU,VK_RMENU,VK_LWIN,VK_RWIN,VK_LSHIFT,VK_RSHIFT})modifier_keys[key]=(GetAsyncKeyState(key)&0x8000)!=0;
   hook=SetWindowsHookExW(WH_KEYBOARD_LL,keyboard_proc,module,0);check(hook!=nullptr,"install F9 hook");boot();
   MSG message{};int result;while((result=GetMessageW(&message,nullptr,0,0))>0){TranslateMessage(&message);DispatchMessageW(&message);}
   UnhookWindowsHookEx(hook);control.cancel.store(true);final_core.cancel();preview_core.cancel();if(work.joinable())work.join();DestroyWindow(pane);DeleteObject(font);return result<0?1:0;

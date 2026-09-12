@@ -118,6 +118,7 @@ Pipe create_pipe(bool parent_writes) {
   return {std::move(parent),std::move(child)};
 }
 DWORD transfer(HANDLE pipe,void* data,DWORD bytes,bool write,int timeout,HANDLE cancelled) {
+  if(WaitForSingleObject(cancelled,0)==WAIT_OBJECT_0)throw std::runtime_error("worker_cancelled");
   OVERLAPPED ov{}; Handle event(CreateEventW(nullptr,TRUE,FALSE,nullptr)); check(static_cast<bool>(event),"I/O event"); ov.hEvent=event.get();
   DWORD count=0; BOOL ok=write?WriteFile(pipe,data,bytes,&count,&ov):ReadFile(pipe,data,bytes,&count,&ov);
   if(!ok) {

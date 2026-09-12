@@ -68,19 +68,24 @@ int record(int duration_ms,const std::wstring& endpoint) {
     if(GetTickCount64()-last_block>(first?5000:3000)) throw std::runtime_error(first?"microphone_start_timeout":"microphone_audio_stalled");
     UINT32 available=0; hrcheck(capture->GetNextPacketSize(&available),"next audio packet");
     while(available>0 && frames<limit) {
-      BYTE* raw=nullptr; UINT32 count=0; DWORD status=0;
-      hrcheck(capture->GetBuffer(&raw,&count,&status,nullptr,nullptr),"read microphone");
-      struct Release { IAudioCaptureClient* capture; UINT32 count; ~Release(){capture->ReleaseBuffer(count);} } release{capture.Get(),count};
-      const auto taken=static_cast<std::size_t>(std::min<std::uint64_t>(count,limit-frames));
-      std::vector<std::int16_t> samples(taken,0);
-      if(!(status&AUDCLNT_BUFFERFLAGS_SILENT) && raw && taken) std::memcpy(samples.data(),raw,taken*2);
-      if(taken) {
-        if(first) { emit({{"type","recording"},{"sample_rate",16000},{"channels",1},{"startup_ms",GetTickCount64()-started}}); first=false; }
-        emit({{"type","pcm"},{"sample_rate",16000},{"offset",frames},{"frames",taken},{"pcm16",base64(samples.data(),taken*2)},{"discontinuity",(status&AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY)!=0}});
-        frames+=taken; last_block=GetTickCount64();
+      std::vector<std::int16_t> samples;
+      DWORD packet_status=0;
+      {
+        BYTE* raw=nullptr; UINT32 count=0;
+        hrcheck(capture->GetBuffer(&raw,&count,&packet_status,nullptr,nullptr),"read microphone");
+        struct Release { IAudioCaptureClient* capture; UINT32 count; ~Release(){capture->ReleaseBuffer(count);} } release{capture.Get(),count};
+        const auto taken=static_cast<std::size_t>(std::min<std::uint64_t>(count,limit-frames));
+        samples.resize(taken,0);
+        if(!(packet_status&AUDCLNT_BUFFERFLAGS_SILENT) && raw && taken) std::memcpy(samples.data(),raw,taken*2);
       }
-      // Release this packet before draining queued data on the next event.
-      break;
+      // Never hold the driver buffer while serializing or writing IPC. Drain
+      // every available packet; a delayed event must not cause dropped audio.
+      if(!samples.empty()) {
+        if(first) { emit({{"type","recording"},{"sample_rate",16000},{"channels",1},{"startup_ms",GetTickCount64()-started}}); first=false; }
+        emit({{"type","pcm"},{"sample_rate",16000},{"offset",frames},{"frames",samples.size()},{"pcm16",base64(samples.data(),samples.size()*2)},{"discontinuity",(packet_status&AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY)!=0}});
+        frames+=samples.size(); last_block=GetTickCount64();
+      }
+      hrcheck(capture->GetNextPacketSize(&available),"next queued packet");
     }
   }
   hrcheck(client->Stop(),"stop microphone");

@@ -31,16 +31,21 @@ struct TemporaryWav {
 };
 }
 void CoreClient::start(const std::filesystem::path& exe,const std::filesystem::path& config,const std::wstring& role) {
-  std::lock_guard lock(mutex_); child_.start(exe,{L"--config",config.native(),L"--role",role});
+  std::lock_guard lock(mutex_);
+  if(shutdown_.load())throw std::runtime_error("core_shutdown");
+  healthy_.store(false); child_.start(exe,{L"--config",config.native(),L"--role",role});
+  if(shutdown_.load()){child_.stop();throw std::runtime_error("core_shutdown");}
   auto ready=require_success(Json::parse(child_.read_line(210000)));
   if(ready.value("type","")!="ready")throw std::runtime_error("core handshake invalid");
   child_.write_line(Json({{"type",role==L"final"?"asr_prepare":"capabilities"}}).dump(),1000);
   require_success(Json::parse(child_.read_line(role==L"final"?120000:1000)));
+  healthy_.store(true);
 }
+void CoreClient::terminate() { std::lock_guard lock(mutex_);child_.stop();healthy_.store(false); }
 Json CoreClient::request(const Json& request,int timeout) {
   std::lock_guard lock(mutex_);
   try {child_.write_line(request.dump(),std::min(1000,timeout));return Json::parse(child_.read_line(timeout));}
-  catch(...){child_.stop();throw;}
+  catch(...){child_.stop();healthy_.store(false);throw;}
 }
 Json transcribe_file(CoreClient& core,const std::filesystem::path& path,CaptureControl& control,bool polish,const EventCallback& event) {
   if(control.cancel.load())return {{"success",false},{"error","cancelled"}};
@@ -49,7 +54,9 @@ Json transcribe_file(CoreClient& core,const std::filesystem::path& path,CaptureC
   auto id=task.at("task_id").get<std::string>(); const auto deadline=GetTickCount64()+150000;
   for(;;) {
     if(control.cancel.load() || GetTickCount64()>deadline) {
-      try{core.request({{"type","polish_cancel"},{"task_id",id}},1000);}catch(...){}
+      // Abort the contained decoder before releasing the temporary WAV. A
+      // cancellation cannot leave an ASR process reading a deleted recording.
+      core.terminate();
       return {{"success",false},{"error",control.cancel.load()?"cancelled":"transcription_timeout"}};
     }
     auto result=require_success(core.request({{"type","polish_poll"},{"task_id",id}},2000));
