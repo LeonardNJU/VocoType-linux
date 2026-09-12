@@ -1,0 +1,25 @@
+name: Windows native dictation
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/windows-native-dictation]
+    paths:
+      - 'packaging/windows/build-funasr.ps1'
+      - 'src/workers/funasr/**'
+      - '.github/workflows/windows-native.yml'
+permissions:
+  contents: read
+jobs:
+  funasr:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build pinned native FunASR workers
+        shell: pwsh
+        run: ./packaging/windows/build-funasr.ps1
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-funasr-native
+          path: build/windows-runtime/bundle/*
+          if-no-files-found: error
