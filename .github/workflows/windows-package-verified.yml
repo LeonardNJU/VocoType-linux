@@ -42,7 +42,7 @@ jobs:
       - name: Add notices without changing tested binaries
         shell: pwsh
         run: |
-          $archive = @(Get-ChildItem verified-input -Filter '*.zip')
+          $archive = @(Get-ChildItem verified-input -Recurse -File -Filter '*.zip')
           if ($archive.Count -ne 1) { throw 'Expected exactly one tested portable archive' }
           Expand-Archive $archive[0].FullName -DestinationPath stage
           $root = (Resolve-Path stage).Path
@@ -71,7 +71,9 @@ jobs:
           Get-ChildItem stage -Recurse -File | Where-Object Name -ne 'SHA256SUMS' | Sort-Object FullName | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $([IO.Path]::GetRelativePath($root, $_.FullName))" } | Set-Content stage/SHA256SUMS -Encoding utf8NoBOM
           New-Item -ItemType Directory -Force dist | Out-Null
           Compress-Archive stage/* "dist/VocoType-Windows-x64-preview-$($env:GITHUB_SHA.Substring(0,7)).zip"
-          Copy-Item verified-input/real-asr-report.json dist/
+          $reports = @(Get-ChildItem verified-input -Recurse -File -Filter 'real-asr-report.json')
+          if ($reports.Count -ne 1) { throw 'Expected one verified real-ASR report' }
+          Copy-Item $reports[0].FullName dist/
           Get-FileHash dist/*.zip -Algorithm SHA256 | Format-List
       - uses: actions/upload-artifact@v7
         with:
