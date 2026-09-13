@@ -239,6 +239,15 @@ rg -Fq 'prewarm_offline_asr(socket, config, asr_lease)' src/integrations/macos/V
   fail "macOS does not prewarm final ASR at recording start"
 rg -Fq 'wait_for_asr_prepare(asr_lease' src/integrations/macos/VocoTypeInputController.mm || \
   fail "macOS final ASR does not wait for recording-time preparation"
+for token in \
+  'kMicrophoneStartupNoticeDelayMs = 1200' \
+  'recording_status_for_mode(VoiceMode mode)' \
+  'microphone_startup_notice_due' \
+  '[self showStatus:recording_status_for_mode(mode)]' \
+  '[strong_self showStatus:microphone_starting_status_for_mode(mode)]'; do
+  rg -Fq "$token" src/integrations/macos/VocoTypeInputController.mm || \
+    fail "macOS microphone startup UI can flash before a real slow-start condition: $token"
+done
 rg -Fq 'kMicrophoneStartupTimeout = std::chrono::seconds(8)' src/desktop/src/audio_recorder_main.cpp || \
   fail "macOS microphone startup watchdog must allow the observed >5s deep-idle wakeup"
 if rg -Fq 'kMicrophoneStartupTimeout = std::chrono::seconds(5)' src/desktop/src/audio_recorder_main.cpp; then

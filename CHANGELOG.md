@@ -7,10 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [5.0.8] - 2026-09-12
+## [5.0.8] - 2026-09-13
 
 ### Fixed
 
+- macOS F9 now shows the normal recording state immediately and only switches to “正在启动麦克风…” if the first PCM block is still missing after 1.2 seconds. Normal ~150 ms microphone starts therefore have no startup-state flash or redundant recording→ready transition; a genuinely slow start remains visible and returns to the recording state once CoreAudio becomes ready.
 - macOS local packaging now auto-discovers an available Developer ID Application or Apple Development signing identity before allowing ad-hoc fallback. Reinstalling same-bundle-ID ad-hoc builds changes the TCC code requirement and can leave the microphone toggle visually enabled while the new InputMethod/Settings binary no longer matches the stored grant.
 - The release workflow now marks its CI-built ad-hoc macOS DMG as test-only and hard-blocks `publish=true` while that is the only macOS artifact. Formal releases must replace it with a stable Apple-signed DMG before publication.
 - macOS microphone startup watchdog now allows 8 seconds instead of 5 seconds as a defensive fallback. Subsequent diagnosis showed that the long `AudioDeviceStart` stalls observed during development correlated with TCC code-requirement mismatches from ad-hoc/hot-re-signed local builds; stable Apple signing is the primary fix rather than treating multi-second startup as normal hardware wake latency.

@@ -34,6 +34,22 @@ namespace {
 
 enum class VoiceMode { none, transcribe, polish, edit };
 
+constexpr int kMicrophoneStartupNoticeDelayMs = 1200;
+
+NSString *recording_status_for_mode(VoiceMode mode) {
+  if (mode == VoiceMode::edit)
+    return @"🎤 录音中：编辑指令…";
+  if (mode == VoiceMode::polish)
+    return @"✨ 录音中，将自动润色…";
+  return @"🎤 录音中";
+}
+
+NSString *microphone_starting_status_for_mode(VoiceMode mode) {
+  if (mode == VoiceMode::polish)
+    return @"✨ 正在启动麦克风…";
+  return @"🎤 正在启动麦克风…";
+}
+
 constexpr UInt32 kTranscribeHotKeyId = 1;
 constexpr UInt32 kPolishHotKeyId = 2;
 constexpr UInt32 kEditHotKeyId = 3;
@@ -114,6 +130,14 @@ bool begin_recording_state(ControllerState &state) {
   bool expected = false;
   return state.recording.compare_exchange_strong(
       expected, true, std::memory_order_acq_rel, std::memory_order_acquire);
+}
+
+bool microphone_startup_notice_due(const ControllerState &state,
+                                   std::uint64_t generation) {
+  return state.generation.load(std::memory_order_acquire) == generation &&
+         state.recording.load(std::memory_order_acquire) &&
+         !state.busy.load(std::memory_order_acquire) &&
+         state.microphone_started_ns.load(std::memory_order_acquire) <= 0;
 }
 
 NSString *to_ns(const std::string &text);
@@ -1251,6 +1275,29 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
       !leaseToken->active.load(std::memory_order_acquire) &&
       !leaseState.asr_lease;
 
+  ControllerState startupNoticeState;
+  startupNoticeState.generation.store(77);
+  startupNoticeState.recording.store(true);
+  const BOOL startupNoticeDueBeforeReady =
+      microphone_startup_notice_due(startupNoticeState, 77);
+  startupNoticeState.microphone_started_ns.store(steady_now_ns());
+  const BOOL startupNoticeSuppressedAfterReady =
+      !microphone_startup_notice_due(startupNoticeState, 77);
+  startupNoticeState.microphone_started_ns.store(0);
+  const BOOL staleStartupNoticeSuppressed =
+      !microphone_startup_notice_due(startupNoticeState, 76);
+  startupNoticeState.recording.store(false);
+  const BOOL stoppedStartupNoticeSuppressed =
+      !microphone_startup_notice_due(startupNoticeState, 77);
+  const BOOL startupNoticeDelayIsDeferred =
+      kMicrophoneStartupNoticeDelayMs >= 1000;
+  const BOOL recordingStatusIsImmediate =
+      [recording_status_for_mode(VoiceMode::transcribe)
+          isEqualToString:@"🎤 录音中"];
+  const BOOL startupStatusIsExplicit =
+      [microphone_starting_status_for_mode(VoiceMode::transcribe)
+          isEqualToString:@"🎤 正在启动麦克风…"];
+
   ControllerState timingState;
   timingState.min_recording_ms = 500;
   const std::int64_t timingNow = steady_now_ns();
@@ -1303,6 +1350,12 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
                        readyMarkedRecording && clickable && clickHidden &&
                        cancelCount == 1 && terminalAutoHidden && staleTimerSafe &&
                        hotkeyReloadDeferred && asrLeaseCancelled &&
+                       startupNoticeDueBeforeReady &&
+                       startupNoticeSuppressedAfterReady &&
+                       staleStartupNoticeSuppressed &&
+                       stoppedStartupNoticeSuppressed &&
+                       startupNoticeDelayIsDeferred &&
+                       recordingStatusIsImmediate && startupStatusIsExplicit &&
                        unstartedIsTooShort && actualShortIsTooShort &&
                        actualLongIsAccepted;
   return @{
@@ -1318,6 +1371,13 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
     @"stale_timer_safe" : @(staleTimerSafe),
     @"hotkey_reload_deferred" : @(hotkeyReloadDeferred),
     @"asr_lease_cancelled" : @(asrLeaseCancelled),
+    @"startup_notice_due_before_ready" : @(startupNoticeDueBeforeReady),
+    @"startup_notice_suppressed_after_ready" : @(startupNoticeSuppressedAfterReady),
+    @"stale_startup_notice_suppressed" : @(staleStartupNoticeSuppressed),
+    @"stopped_startup_notice_suppressed" : @(stoppedStartupNoticeSuppressed),
+    @"startup_notice_delay_ms" : @(kMicrophoneStartupNoticeDelayMs),
+    @"recording_status_is_immediate" : @(recordingStatusIsImmediate),
+    @"startup_status_is_explicit" : @(startupStatusIsExplicit),
     @"unstarted_is_too_short" : @(unstartedIsTooShort),
     @"actual_short_is_too_short" : @(actualShortIsTooShort),
     @"actual_long_is_accepted" : @(actualLongIsAccepted),
@@ -1447,13 +1507,23 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
   _state->microphone_started_ns.store(0, std::memory_order_release);
   _state->recording_started = std::chrono::steady_clock::now();
   _state->last_partial.clear();
-  NSLog(@"VoCoType-linux: hotkey accepted; showing pane immediately");
-  if (mode == VoiceMode::edit)
-    [self showStatus:@"🎤 正在听编辑指令…"];
-  else if (mode == VoiceMode::polish)
-    [self showStatus:@"✨ 正在听，将自动润色…"];
-  else
-    [self showStatus:@"🎤 正在听…"];
+  NSLog(@"VoCoType-linux: hotkey accepted; showing recording pane immediately");
+  [self showStatus:recording_status_for_mode(mode)];
+
+  __weak VocoTypeInputController *weak_self = self;
+  dispatch_after(
+      dispatch_time(DISPATCH_TIME_NOW,
+                    static_cast<int64_t>(kMicrophoneStartupNoticeDelayMs) *
+                        NSEC_PER_MSEC),
+      dispatch_get_main_queue(), ^{
+        VocoTypeInputController *strong_self = weak_self;
+        if (!strong_self || !strong_self->_state ||
+            !microphone_startup_notice_due(*strong_self->_state, generation))
+          return;
+        NSLog(@"VoCoType-linux: microphone still starting after %d ms; showing delayed startup status",
+              kMicrophoneStartupNoticeDelayMs);
+        [strong_self showStatus:microphone_starting_status_for_mode(mode)];
+      });
 
   const std::string socket = _state->socket;
   const auto config = vocotype::desktop::runtime_config_path();
@@ -1464,13 +1534,12 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
     prewarm_offline_asr(socket, config, asr_lease);
   }).detach();
 
-  __weak VocoTypeInputController *weak_self = self;
   try {
     std::lock_guard lock(_state->recorder_mutex);
     _state->recorder = std::make_unique<vocotype::desktop::RecorderProcess>();
     _state->recorder->start(
         _state->recorder_path,
-        [weak_self, generation](const std::string &type, const std::string &value) {
+        [weak_self, generation, mode](const std::string &type, const std::string &value) {
           if (type != "partial" && type != "error" && type != "recording" &&
               type != "preview_recovering" && type != "preview_recovered" &&
               type != "preview_unavailable")
@@ -1538,6 +1607,8 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
                   strong_self->_state->recording_started).count();
               NSLog(@"VoCoType-linux: microphone recording at %lld ms via %@",
                     static_cast<long long>(latency), to_ns(event_value));
+              if (latency >= kMicrophoneStartupNoticeDelayMs)
+                [strong_self showStatus:recording_status_for_mode(mode)];
             } else {
               strong_self->_state->recording.store(false);
               strong_self->_state->busy.store(false);
