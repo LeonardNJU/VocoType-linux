@@ -1,3 +1,7 @@
+#include "vocotype/desktop/audio_startup_diagnostics.hpp"
+#ifdef __APPLE__
+#include <libproc.h>
+#endif
 #include "vocotype/desktop/audio.hpp"
 #include "vocotype/desktop/config.hpp"
 #include "vocotype/desktop/ipc.hpp"
@@ -69,6 +73,32 @@ Options parse(int argc, char **argv) {
   return options;
 }
 } // namespace
+#ifdef __APPLE__
+namespace {
+bool known_system_audio_capture_helper_present() noexcept {
+  try {
+    constexpr int kMaxProcessBytes = 1024 * 1024;
+    const int bytes = proc_listpids(PROC_ALL_PIDS, 0, nullptr, 0);
+    if (bytes <= 0 || bytes > kMaxProcessBytes) return false;
+    std::vector<pid_t> pids(static_cast<std::size_t>(bytes) / sizeof(pid_t) + 64);
+    const int received = proc_listpids(PROC_ALL_PIDS, 0, pids.data(),
+                                     static_cast<int>(pids.size() * sizeof(pid_t)));
+    if (received <= 0) return false;
+    const auto count = std::min(pids.size(), static_cast<std::size_t>(received) / sizeof(pid_t));
+    for (std::size_t index = 0; index < count; ++index) {
+      if (pids[index] <= 0) continue;
+      char path[PROC_PIDPATHINFO_MAXSIZE]{};
+      if (proc_pidpath(pids[index], path, sizeof(path)) > 0 &&
+          vocotype::desktop::is_known_system_audio_capture_helper(path)) return true;
+    }
+  } catch (...) {
+    // Diagnostics must never prevent the bounded recorder exit.
+  }
+  return false;
+}
+} // namespace
+#endif
+
 int main(int argc, char **argv) {
   try {
     const Options options = parse(argc, argv);
@@ -292,16 +322,18 @@ int main(int argc, char **argv) {
     // not sufficient here: a timed recording may request stop while the
     // capture thread is still blocked inside AudioDeviceStart.
     std::thread([&first_audio_block, &capture_finished] {
-      // A built-in microphone that has been idle for a long time can take just
-      // over five seconds to leave its deep CoreAudio power state on macOS 26.
-      // Keep enough margin to avoid killing the recorder exactly as the HAL
-      // reports the device Running, while still bounding genuine startup hangs.
+      // Bound a missing first PCM block. A later HAL "Running" log during
+      // process cancellation is not evidence that audio capture succeeded,
+      // nor proof of normal device wake-up latency.
       constexpr auto kMicrophoneStartupTimeout = std::chrono::seconds(8);
       std::this_thread::sleep_for(kMicrophoneStartupTimeout);
       if (!first_audio_block.load(std::memory_order_acquire) &&
           !capture_finished.load(std::memory_order_acquire)) {
+        const bool helper_detected = known_system_audio_capture_helper_present();
         emit({{"type", "error"},
-              {"error", "麦克风启动超过 8 秒（CoreAudio 未返回音频）；请重试，必要时重启系统音频服务"}});
+              {"error_code", "microphone_start_timeout"},
+              {"system_audio_capture_hint", helper_detected},
+              {"error", vocotype::desktop::microphone_startup_error(helper_detected)}});
         std::_Exit(2);
       }
     }).detach();

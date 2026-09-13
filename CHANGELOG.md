@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Restore the macOS cancelled-recorder cleanup protections alongside the delayed startup-status UI, so an update built from the current mainline includes both fixes.
+- Distinguish microphone startup failure from a genuinely short recording. On startup timeout, report a possible system-audio capture conflict only when the specifically observed helper is present; this advisory never terminates other applications.
+
 ## [5.0.8] - 2026-09-13
 
 ### Fixed

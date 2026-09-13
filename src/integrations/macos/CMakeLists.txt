@@ -272,3 +272,24 @@ set_target_properties(VocoTypeSettings PROPERTIES
   MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_BINARY_DIR}/SettingsInfo.plist
   XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED NO
 )
+
+if(BUILD_TESTING)
+  add_executable(vocotype-fake-startup-cleanup-recorder
+    ../../desktop/tests/fake_startup_cleanup_recorder.cpp)
+  target_compile_features(vocotype-fake-startup-cleanup-recorder PRIVATE cxx_std_20)
+  add_executable(vocotype-recorder-cancel-cleanup-tests
+    ../../desktop/tests/recorder_cancel_cleanup_tests.cpp)
+  target_link_libraries(vocotype-recorder-cancel-cleanup-tests PRIVATE vocotype_macos_base)
+  add_test(NAME vocotype-macos-recorder-cancel-cleanup
+    COMMAND vocotype-recorder-cancel-cleanup-tests
+      $<TARGET_FILE:vocotype-fake-startup-cleanup-recorder>)
+  set_tests_properties(vocotype-macos-recorder-cancel-cleanup PROPERTIES TIMEOUT 15)
+endif()
+
+if(BUILD_TESTING)
+  add_executable(vocotype-audio-startup-diagnostics-tests
+    ../../desktop/tests/audio_startup_diagnostics_tests.cpp)
+  target_include_directories(vocotype-audio-startup-diagnostics-tests PRIVATE ../../desktop/include)
+  target_compile_features(vocotype-audio-startup-diagnostics-tests PRIVATE cxx_std_20)
+  add_test(NAME vocotype-macos-audio-startup-diagnostics COMMAND vocotype-audio-startup-diagnostics-tests)
+endif()

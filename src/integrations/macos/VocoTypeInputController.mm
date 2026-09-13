@@ -142,6 +142,11 @@ bool microphone_startup_notice_due(const ControllerState &state,
 
 NSString *to_ns(const std::string &text);
 
+NSString *stopped_recording_status(bool microphone_started) {
+  return microphone_started ? @"⚠️ 录音过短"
+      : @"❌ 麦克风尚未启动，未采集到声音；请检查其他音频应用后重试";
+}
+
 bool recording_is_too_short(const ControllerState &state,
                             std::int64_t now_ns) {
   const std::int64_t started_ns =
@@ -1302,6 +1307,9 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
   timingState.min_recording_ms = 500;
   const std::int64_t timingNow = steady_now_ns();
   const BOOL unstartedIsTooShort = recording_is_too_short(timingState, timingNow);
+  const BOOL startupFailureDistinguished =
+      [stopped_recording_status(false) containsString:@"麦克风尚未启动"] &&
+      [stopped_recording_status(true) isEqualToString:@"⚠️ 录音过短"];
   timingState.microphone_started_ns.store(timingNow - 100000000);
   const BOOL actualShortIsTooShort = recording_is_too_short(timingState, timingNow);
   timingState.microphone_started_ns.store(timingNow - 700000000);
@@ -1356,7 +1364,7 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
                        stoppedStartupNoticeSuppressed &&
                        startupNoticeDelayIsDeferred &&
                        recordingStatusIsImmediate && startupStatusIsExplicit &&
-                       unstartedIsTooShort && actualShortIsTooShort &&
+                       unstartedIsTooShort && startupFailureDistinguished && actualShortIsTooShort &&
                        actualLongIsAccepted;
   return @{
     @"success" : @(success),
@@ -1379,6 +1387,7 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
     @"recording_status_is_immediate" : @(recordingStatusIsImmediate),
     @"startup_status_is_explicit" : @(startupStatusIsExplicit),
     @"unstarted_is_too_short" : @(unstartedIsTooShort),
+    @"startup_failure_distinguished" : @(startupFailureDistinguished),
     @"actual_short_is_too_short" : @(actualShortIsTooShort),
     @"actual_long_is_accepted" : @(actualLongIsAccepted),
   };
@@ -1653,7 +1662,7 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
   id<IMKTextInput, NSObject> target_client = self.client;
   const std::string client_context = context_id(target_client);
   if (too_short) {
-    [self showStatus:@"⚠️ 录音过短"];
+    [self showStatus:stopped_recording_status(microphone_started_ns > 0)];
   } else if (!_state->last_partial.empty()) {
     NSString *partial = to_ns(_state->last_partial);
     NSString *confirming = [[@"🎤 " stringByAppendingString:partial]
@@ -1664,7 +1673,7 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
   }
 
   VocoTypeInputController *controller = self;
-  std::thread([controller, generation, too_short, mode, snapshot,
+  std::thread([controller, generation, too_short, microphone_started_ns, mode, snapshot,
                client_context, target_client, release_started, asr_lease] {
     ControllerState *state = controller->_state;
     if (!state)
@@ -1804,7 +1813,7 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
       controller->_state->microphone_started_ns.store(0, std::memory_order_release);
       controller->_state->last_partial.clear();
       if (too_short) {
-        [controller showStatus:@"⚠️ 录音过短"];
+        [controller showStatus:stopped_recording_status(microphone_started_ns > 0)];
         release_voice_operation(controller);
         return;
       }
