@@ -657,6 +657,13 @@ void AudioCapture::run(std::atomic_bool &stop, const BlockCallback &callback) {
         "cannot open microphone");
   stream_ = stream;
   try {
+    // A key release may have arrived while device setup was in progress.
+    // Do not start new microphone I/O after cancellation.
+    if (stop.load(std::memory_order_acquire)) {
+      check(Pa_CloseStream(stream), "cannot close cancelled microphone");
+      stream_ = nullptr;
+      return;
+    }
     check(Pa_StartStream(stream), "cannot start microphone");
     std::vector<std::int16_t> interleaved(
         static_cast<std::size_t>(frames) *

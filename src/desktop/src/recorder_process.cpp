@@ -54,6 +54,18 @@ void RecorderProcess::start(const std::string &executable,
                             EventCallback callback) {
   if (running())
     throw std::runtime_error("recorder is already running");
+#ifdef __APPLE__
+  // Do not overlap another HAL start with a cancelled operation still unwinding.
+  // This gate never records while idle and clears when the old child is reaped.
+  static std::mutex launch_mutex;
+  static std::weak_ptr<State> previous_capture;
+  std::lock_guard launch_lock(launch_mutex);
+  if (const auto previous = previous_capture.lock()) {
+    std::lock_guard previous_lock(previous->mutex);
+    if (previous->cancel_requested && !previous->finished)
+      throw std::runtime_error("麦克风仍在清理上一段录音，请稍后重试");
+  }
+#endif
 
   int input_pipe[2]{};
   int output_pipe[2]{};
@@ -91,6 +103,9 @@ void RecorderProcess::start(const std::string &executable,
   state->stdin_fd = input_pipe[1];
   state->stdout_fd = output_pipe[0];
   state_ = state;
+#ifdef __APPLE__
+  previous_capture = state;
+#endif
 
   std::thread([state, callback = std::move(callback)] {
     int output_fd = -1;
@@ -201,9 +216,19 @@ void RecorderProcess::cancel_async() {
     std::remove(audio_path.c_str());
   if (child_pid > 0) {
     std::thread([state, child_pid] {
-      std::this_thread::sleep_for(std::chrono::milliseconds(250));
-      std::lock_guard lock(state->mutex);
-      if (!state->finished && state->pid == child_pid)
+      // Return to the UI immediately, but let a cancelled CoreAudio start
+      // finish its own shutdown. Killing it after 250 ms cuts through HAL
+      // initialization. The recorder's 8-second startup watchdog remains the
+      // primary bound; this is a final fallback, not extra recording time.
+#ifdef __APPLE__
+      constexpr auto grace = std::chrono::seconds(9);
+#else
+      constexpr auto grace = std::chrono::milliseconds(250);
+#endif
+      std::unique_lock lock(state->mutex);
+      if (!state->changed.wait_for(lock, grace, [&] {
+            return state->finished || state->pid != child_pid;
+          }))
         kill(child_pid, SIGKILL);
     }).detach();
   }

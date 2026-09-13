@@ -292,10 +292,9 @@ int main(int argc, char **argv) {
     // not sufficient here: a timed recording may request stop while the
     // capture thread is still blocked inside AudioDeviceStart.
     std::thread([&first_audio_block, &capture_finished] {
-      // A built-in microphone that has been idle for a long time can take just
-      // over five seconds to leave its deep CoreAudio power state on macOS 26.
-      // Keep enough margin to avoid killing the recorder exactly as the HAL
-      // reports the device Running, while still bounding genuine startup hangs.
+      // Bound a missing first PCM block. A later HAL "Running" log during
+      // process cancellation is not evidence that audio capture succeeded,
+      // nor proof of normal device wake-up latency.
       constexpr auto kMicrophoneStartupTimeout = std::chrono::seconds(8);
       std::this_thread::sleep_for(kMicrophoneStartupTimeout);
       if (!first_audio_block.load(std::memory_order_acquire) &&

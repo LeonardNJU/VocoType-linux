@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- macOS now distinguishes microphone startup from actual recording, and does not mislabel a release before the first PCM block as merely a short recording.
+- Cancelled macOS recorder processes get a bounded cleanup interval instead of being forcibly killed after 250 ms while CoreAudio may still be initializing. New recorder starts are rejected during that cancelled-process cleanup, preventing overlapping retries.
+- A cancelled capture no longer starts microphone I/O after finishing device setup. These changes reduce application-side lifecycle hazards; they do not claim to repair an already stalled system audio service.
+
 ## [5.0.8] - 2026-09-12
 
 ### Fixed
