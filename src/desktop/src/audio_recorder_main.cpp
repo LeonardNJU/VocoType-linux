@@ -41,6 +41,7 @@ struct Options {
   bool emit_levels = false;
   bool preview = true;
   int duration_ms = 0;
+  int startup_timeout_ms = 8000;
   std::filesystem::path config;
   std::string socket = backend_socket_path();
 };
@@ -58,6 +59,8 @@ Options parse(int argc, char **argv) {
       options.preview = false;
     else if (arg == "--duration-ms" && i + 1 < argc)
       options.duration_ms = std::stoi(argv[++i]);
+    else if (arg == "--startup-timeout-ms" && i + 1 < argc)
+      options.startup_timeout_ms = std::max(250, std::stoi(argv[++i]));
     else if (arg == "--config" && i + 1 < argc)
       options.config = argv[++i];
     else if (arg == "--socket" && i + 1 < argc)
@@ -65,7 +68,7 @@ Options parse(int argc, char **argv) {
     else if (arg == "--help") {
       std::cout << "Usage: vocotype-audio-recorder [--list-devices|--probe] "
                    "[--emit-levels] [--no-preview] [--duration-ms N] "
-                   "[--config PATH] [--socket PATH]\n";
+                   "[--startup-timeout-ms N] [--config PATH] [--socket PATH]\n";
       std::exit(0);
     } else
       throw std::runtime_error("unknown argument: " + arg);
@@ -321,19 +324,21 @@ int main(int argc, char **argv) {
     // "recording" state when no PCM callback ever arrives. The stop flag is
     // not sufficient here: a timed recording may request stop while the
     // capture thread is still blocked inside AudioDeviceStart.
-    std::thread([&first_audio_block, &capture_finished] {
+    const int startup_timeout_ms = options.startup_timeout_ms;
+    std::thread([&first_audio_block, &capture_finished, startup_timeout_ms] {
       // Bound a missing first PCM block. A later HAL "Running" log during
-      // process cancellation is not evidence that audio capture succeeded,
-      // nor proof of normal device wake-up latency.
-      constexpr auto kMicrophoneStartupTimeout = std::chrono::seconds(8);
-      std::this_thread::sleep_for(kMicrophoneStartupTimeout);
+      // process cancellation is not evidence that audio capture succeeded.
+      std::this_thread::sleep_for(std::chrono::milliseconds(startup_timeout_ms));
       if (!first_audio_block.load(std::memory_order_acquire) &&
           !capture_finished.load(std::memory_order_acquire)) {
         const bool helper_detected = known_system_audio_capture_helper_present();
         emit({{"type", "error"},
+              {"code", "microphone_start_timeout"},
               {"error_code", "microphone_start_timeout"},
+              {"startup_timeout_ms", startup_timeout_ms},
               {"system_audio_capture_hint", helper_detected},
-              {"error", vocotype::desktop::microphone_startup_error(helper_detected)}});
+              {"error", vocotype::desktop::microphone_startup_error(
+                            helper_detected, startup_timeout_ms)}});
         std::_Exit(2);
       }
     }).detach();

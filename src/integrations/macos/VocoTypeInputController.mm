@@ -35,6 +35,7 @@ namespace {
 enum class VoiceMode { none, transcribe, polish, edit };
 
 constexpr int kMicrophoneStartupNoticeDelayMs = 1200;
+constexpr int kMicrophoneStartupRetryTimeoutMs = 1800;
 
 NSString *recording_status_for_mode(VoiceMode mode) {
   if (mode == VoiceMode::edit)
@@ -100,6 +101,7 @@ struct ControllerState {
   // Nanoseconds on steady_clock. Zero means the recorder child has not yet
   // confirmed that the CoreAudio stream is actually recording.
   std::atomic_int64_t microphone_started_ns{0};
+  std::atomic_int microphone_start_retries{0};
   std::chrono::steady_clock::time_point recording_started;
   VoiceMode mode = VoiceMode::none;
   Hotkey active_hotkey;
@@ -1395,6 +1397,7 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
 
 @interface VocoTypeInputController ()
 - (void)showStatus:(NSString *)text;
+- (BOOL)launchRecorderForGeneration:(std::uint64_t)generation mode:(VoiceMode)mode;
 - (BOOL)startVoiceMode:(VoiceMode)mode hotkey:(Hotkey)hotkey;
 - (void)stopVoiceOperation;
 - (void)cancelVoiceOperation;
@@ -1486,63 +1489,9 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
   [_status showText:text client:self.client autoHideAfter:autoHide];
 }
 
-- (BOOL)startVoiceMode:(VoiceMode)mode hotkey:(Hotkey)hotkey {
-  if (!_state ||
-      (g_voice_operation_controller &&
-       g_voice_operation_controller != self) ||
-      !begin_recording_state(*_state))
-    return NO;
-  g_voice_operation_controller = self;
-  _state->recorder_path = resolve_recorder();
-  if (_state->recorder_path.empty()) {
-    _state->recording.store(false);
-    release_voice_operation(self);
-    [self showStatus:@"❌ 找不到原生录音器"];
-    return NO;
-  }
-  _state->mode = mode;
-  _state->active_hotkey = hotkey;
-  _state->snapshot = mode == VoiceMode::edit
-                         ? capture_snapshot(self.client)
-                         : Snapshot{};
-  if (mode == VoiceMode::edit && !_state->snapshot.valid) {
-    _state->recording.store(false);
-    release_voice_operation(self);
-    [self showStatus:@"❌ 当前输入框不支持语音编辑"];
-    return NO;
-  }
-
-  const std::uint64_t generation = ++_state->generation;
-  _state->microphone_started_ns.store(0, std::memory_order_release);
-  _state->recording_started = std::chrono::steady_clock::now();
-  _state->last_partial.clear();
-  NSLog(@"VoCoType-linux: hotkey accepted; showing recording pane immediately");
-  [self showStatus:recording_status_for_mode(mode)];
-
+- (BOOL)launchRecorderForGeneration:(std::uint64_t)generation
+                              mode:(VoiceMode)mode {
   __weak VocoTypeInputController *weak_self = self;
-  dispatch_after(
-      dispatch_time(DISPATCH_TIME_NOW,
-                    static_cast<int64_t>(kMicrophoneStartupNoticeDelayMs) *
-                        NSEC_PER_MSEC),
-      dispatch_get_main_queue(), ^{
-        VocoTypeInputController *strong_self = weak_self;
-        if (!strong_self || !strong_self->_state ||
-            !microphone_startup_notice_due(*strong_self->_state, generation))
-          return;
-        NSLog(@"VoCoType-linux: microphone still starting after %d ms; showing delayed startup status",
-              kMicrophoneStartupNoticeDelayMs);
-        [strong_self showStatus:microphone_starting_status_for_mode(mode)];
-      });
-
-  const std::string socket = _state->socket;
-  const auto config = vocotype::desktop::runtime_config_path();
-  stop_asr_lease(*_state);
-  _state->asr_lease = std::make_shared<AsrPrewarmState>();
-  const auto asr_lease = _state->asr_lease;
-  std::thread([socket, config, asr_lease] {
-    prewarm_offline_asr(socket, config, asr_lease);
-  }).detach();
-
   try {
     std::lock_guard lock(_state->recorder_mutex);
     _state->recorder = std::make_unique<vocotype::desktop::RecorderProcess>();
@@ -1639,6 +1588,133 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
     [self showStatus:[@"❌ 启动录音失败：" stringByAppendingString:to_ns(error.what())]];
     return NO;
   }
+  return YES;
+
+}
+
+- (BOOL)startVoiceMode:(VoiceMode)mode hotkey:(Hotkey)hotkey {
+  if (!_state ||
+      (g_voice_operation_controller &&
+       g_voice_operation_controller != self) ||
+      !begin_recording_state(*_state))
+    return NO;
+  g_voice_operation_controller = self;
+  _state->recorder_path = resolve_recorder();
+  if (_state->recorder_path.empty()) {
+    _state->recording.store(false);
+    release_voice_operation(self);
+    [self showStatus:@"❌ 找不到原生录音器"];
+    return NO;
+  }
+  _state->mode = mode;
+  _state->active_hotkey = hotkey;
+  _state->snapshot = mode == VoiceMode::edit
+                         ? capture_snapshot(self.client)
+                         : Snapshot{};
+  if (mode == VoiceMode::edit && !_state->snapshot.valid) {
+    _state->recording.store(false);
+    release_voice_operation(self);
+    [self showStatus:@"❌ 当前输入框不支持语音编辑"];
+    return NO;
+  }
+
+  const std::uint64_t generation = ++_state->generation;
+  _state->microphone_started_ns.store(0, std::memory_order_release);
+  _state->microphone_start_retries.store(0, std::memory_order_release);
+  _state->recording_started = std::chrono::steady_clock::now();
+  _state->last_partial.clear();
+  NSLog(@"VoCoType-linux: hotkey accepted; showing recording pane immediately");
+  [self showStatus:recording_status_for_mode(mode)];
+
+  __weak VocoTypeInputController *weak_self = self;
+  dispatch_after(
+      dispatch_time(DISPATCH_TIME_NOW,
+                    static_cast<int64_t>(kMicrophoneStartupNoticeDelayMs) *
+                        NSEC_PER_MSEC),
+      dispatch_get_main_queue(), ^{
+        VocoTypeInputController *strong_self = weak_self;
+        if (!strong_self || !strong_self->_state ||
+            !microphone_startup_notice_due(*strong_self->_state, generation))
+          return;
+        NSLog(@"VoCoType-linux: microphone still starting after %d ms; showing delayed startup status",
+              kMicrophoneStartupNoticeDelayMs);
+        [strong_self showStatus:microphone_starting_status_for_mode(mode)];
+
+        int expectedRetries = 0;
+        if (!strong_self->_state->microphone_start_retries.compare_exchange_strong(
+                expectedRetries, 1, std::memory_order_acq_rel,
+                std::memory_order_acquire))
+          return;
+
+        NSLog(@"VoCoType-linux: CoreAudio startup appears wedged; recycling recorder once");
+        std::unique_ptr<vocotype::desktop::RecorderProcess> stalled_recorder;
+        {
+          std::lock_guard lock(strong_self->_state->recorder_mutex);
+          stalled_recorder = std::move(strong_self->_state->recorder);
+        }
+
+        __weak VocoTypeInputController *retry_weak_self = strong_self;
+        std::thread([retry_weak_self, generation, mode,
+                     stalled = std::move(stalled_recorder)]() mutable {
+          const auto cleanup_started = std::chrono::steady_clock::now();
+          if (stalled)
+            stalled->cancel();
+          const auto cleanup_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+              std::chrono::steady_clock::now() - cleanup_started).count();
+          dispatch_async(dispatch_get_main_queue(), ^{
+            VocoTypeInputController *retry_self = retry_weak_self;
+            if (!retry_self || !retry_self->_state ||
+                !microphone_startup_notice_due(*retry_self->_state, generation))
+              return;
+            NSLog(@"VoCoType-linux: cancelled recorder cleanup finished after %lld ms; retrying microphone recorder",
+                  static_cast<long long>(cleanup_ms));
+            if (![retry_self launchRecorderForGeneration:generation mode:mode])
+              return;
+
+            __weak VocoTypeInputController *final_weak_self = retry_self;
+            dispatch_after(
+                dispatch_time(DISPATCH_TIME_NOW,
+                              static_cast<int64_t>(kMicrophoneStartupRetryTimeoutMs) *
+                                  NSEC_PER_MSEC),
+                dispatch_get_main_queue(), ^{
+                  VocoTypeInputController *final_self = final_weak_self;
+                  if (!final_self || !final_self->_state ||
+                      !microphone_startup_notice_due(*final_self->_state, generation) ||
+                      final_self->_state->microphone_start_retries.load(
+                          std::memory_order_acquire) != 1)
+                    return;
+                  NSLog(@"VoCoType-linux: microphone retry still has no PCM after %d ms; failing fast",
+                        kMicrophoneStartupRetryTimeoutMs);
+                  {
+                    std::lock_guard lock(final_self->_state->recorder_mutex);
+                    if (final_self->_state->recorder) {
+                      final_self->_state->recorder->cancel_async();
+                      final_self->_state->recorder.reset();
+                    }
+                  }
+                  final_self->_state->recording.store(false,
+                                                      std::memory_order_release);
+                  final_self->_state->busy.store(false, std::memory_order_release);
+                  stop_asr_lease(*final_self->_state);
+                  release_voice_operation(final_self);
+                  [final_self showStatus:
+                      @"❌ 麦克风仍无法启动；请打开 VoCoType → 概览 → 重置麦克风"];
+                });
+          });
+        }).detach();
+      });
+
+  const std::string socket = _state->socket;
+  const auto config = vocotype::desktop::runtime_config_path();
+  stop_asr_lease(*_state);
+  _state->asr_lease = std::make_shared<AsrPrewarmState>();
+  const auto asr_lease = _state->asr_lease;
+  std::thread([socket, config, asr_lease] {
+    prewarm_offline_asr(socket, config, asr_lease);
+  }).detach();
+
+  if (![self launchRecorderForGeneration:generation mode:mode])
+    return NO;
   return YES;
 }
 

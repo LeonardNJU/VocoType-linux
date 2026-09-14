@@ -7,10 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.9] - 2026-09-14
+
 ### Fixed
 
-- Restore the macOS cancelled-recorder cleanup protections alongside the delayed startup-status UI, so an update built from the current mainline includes both fixes.
+- Restore the macOS cancelled-recorder cleanup protections alongside the delayed startup-status UI, so the current mainline retains the safer CoreAudio teardown behavior while adding automatic recovery.
 - Distinguish microphone startup failure from a genuinely short recording. On startup timeout, report a possible system-audio capture conflict only when the specifically observed helper is present; this advisory never terminates other applications.
+- macOS Dashboard and Doctor now distinguish “input device exists / permission granted” from **real microphone capture health**. When permission is available they launch a short isolated recorder probe and require an actual PCM block; a wedged CoreAudio input path is reported as a failure instead of looking healthy just because devices enumerate successfully.
+- Added **Detect Microphone** and **Reset Microphone** controls to the macOS Dashboard, with the reset action also available from Doctor. The normal reset terminates stale VoCoType recorder children, restarts the InputMethod process boundary, reactivates the Palette input source, and immediately verifies real PCM capture.
+- If the VoCoType-scoped reset still cannot obtain PCM, Settings now offers an explicit **Deep Restart CoreAudio** action. It uses the normal macOS administrator authorization dialog, restarts `coreaudiod`, then reactivates VoCoType and re-runs the capture probe instead of silently claiming the microphone was reset.
+- F9 now automatically recycles one recorder process when the first PCM block has still not arrived after the delayed startup state. It waits for the cancelled child to finish unwinding before retrying, so a new HAL stream is never overlapped with the old one; if the retry also fails, the UI fails fast and points to Dashboard → Reset Microphone.
+- The macOS recorder startup watchdog is now configurable internally. Dashboard/Doctor use a short probe timeout and receive a structured `microphone_start_timeout` result, while ordinary recording keeps the longer safety watchdog.
+
 
 ## [5.0.8] - 2026-09-13
 

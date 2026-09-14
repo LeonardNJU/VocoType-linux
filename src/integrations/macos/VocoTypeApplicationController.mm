@@ -849,6 +849,9 @@ NSString *percent_encode(NSString *text) {
 - (BOOL)persistSettings;
 - (void)reloadFields;
 - (void)refreshOverview:(id)sender;
+- (void)probeMicrophone:(id)sender;
+- (void)resetMicrophone:(id)sender;
+- (void)restartSystemAudioAndProbe;
 - (void)activatePalette:(id)sender;
 - (void)restartCore:(id)sender;
 - (void)downloadModels:(id)sender;
@@ -898,6 +901,7 @@ NSString *percent_encode(NSString *text) {
   NSProgressIndicator *_globalProgress;
 
   NSTextField *_overviewStatus;
+  NSTextField *_overviewMicrophoneStatus;
   NSTextField *_overviewPaletteStatus;
   NSTextField *_overviewModelStatus;
   NSTextField *_overviewDoctorStatus;
@@ -1502,6 +1506,17 @@ NSString *percent_encode(NSString *text) {
   [page addArrangedSubview:card_with_stack(&card)];
   _overviewStatus = status_label(@"尚未检查");
   [card addArrangedSubview:settings_row(@"安装环境", @"显示版本、资源、Core 与音频设备状态。", _overviewStatus)];
+  NSStackView *microphoneActions = horizontal_stack(8.0);
+  [microphoneActions addArrangedSubview:action_button(@"检测麦克风", self,
+                                                      @selector(probeMicrophone:))];
+  [microphoneActions addArrangedSubview:action_button(@"重置麦克风", self,
+                                                      @selector(resetMicrophone:))];
+  _overviewMicrophoneStatus = status_label(@"尚未执行真实采集检查");
+  [microphoneActions addArrangedSubview:_overviewMicrophoneStatus];
+  [card addArrangedSubview:settings_row(
+      @"麦克风实际采集",
+      @"不是只看设备和权限；会短暂打开当前输入设备并确认真的收到 PCM。重置只先清理 VoCoType 录音链，若系统 CoreAudio 仍卡住会再询问是否深度重启。",
+      microphoneActions)];
   NSStackView *paletteActions = horizontal_stack(8.0);
   NSButton *activate = action_button(@"重新激活", self, @selector(activatePalette:));
   [paletteActions addArrangedSubview:activate];
@@ -2011,6 +2026,8 @@ NSString *percent_encode(NSString *text) {
                          accessibilityDescription:@"运行 Doctor"];
   run.imagePosition = NSImageLeading;
   [statusHeader addArrangedSubview:run];
+  [statusHeader addArrangedSubview:action_button(@"重置麦克风", self,
+                                                 @selector(resetMicrophone:))];
   [statusCard addArrangedSubview:statusHeader];
   [statusCard addArrangedSubview:separator_line()];
   NSStackView *versionRow = horizontal_stack(8.0);
@@ -2714,10 +2731,21 @@ NSString *percent_encode(NSString *text) {
   if (!_overviewStatus)
     return;
   set_status(_overviewStatus, @"正在检查…");
+  if (_overviewMicrophoneStatus)
+    set_status(_overviewMicrophoneStatus, @"正在验证真实 PCM 采集…");
   const std::string version = to_utf8(app_version());
+  const AVAudioApplicationRecordPermission permission =
+      AVAudioApplication.sharedInstance.recordPermission;
+  const bool microphoneGranted =
+      permission == AVAudioApplicationRecordPermissionGranted;
+  const std::string microphonePermission =
+      permission == AVAudioApplicationRecordPermissionGranted ? "granted"
+      : permission == AVAudioApplicationRecordPermissionDenied ? "denied"
+                                                               : "undetermined";
   __weak VocoTypeApplicationController *weakSelf = self;
-  run_async([version] {
-    Json result = settings::overview_status(version);
+  run_async([version, microphoneGranted, microphonePermission] {
+    Json result = settings::overview_status(version, microphoneGranted);
+    result["microphone_permission"] = microphonePermission;
     const auto app = vocotype::desktop::runtime_root().parent_path().parent_path();
     const auto tool = vocotype::desktop::runtime_root() /
                       "bin/vocotype-input-source-tool";
@@ -2731,14 +2759,43 @@ NSString *percent_encode(NSString *text) {
     VocoTypeApplicationController *self = weakSelf;
     if (!self)
       return;
+    const std::string permission =
+        result.value("microphone_permission", "undetermined");
+    const Json microphone = result.value("microphone_probe", Json::object());
+    const bool microphoneReady =
+        permission == "granted" && microphone.value("success", false);
+    const bool microphoneFailed = permission == "granted" && !microphoneReady;
+    NSString *microphoneSummary = nil;
+    if (permission == "denied") {
+      microphoneSummary = @"麦克风权限已拒绝";
+    } else if (permission != "granted") {
+      microphoneSummary = @"麦克风权限尚未授予";
+    } else if (microphoneReady) {
+      microphoneSummary = [NSString stringWithFormat:
+          @"实际采集正常：%@ · %d Hz · %lld ms",
+          to_ns(microphone.value("device", "unknown")),
+          microphone.value("sample_rate", 0),
+          static_cast<long long>(microphone.value("elapsed_ms", 0LL))];
+    } else {
+      const std::string code = microphone.value("code", "");
+      const std::string error = microphone.value("error", "真实采集失败");
+      microphoneSummary = [@"设备可枚举，但真实采集失败："
+          stringByAppendingString:to_ns(code.empty() ? error : code + " — " + error)];
+    }
+    if (self->_overviewMicrophoneStatus)
+      set_status(self->_overviewMicrophoneStatus, microphoneSummary,
+                 permission != "granted" || microphoneFailed);
+
     NSString *summary = [NSString stringWithFormat:
-        @"版本 %@；Core %@；输入设备 %lld；输出设备 %lld\n资源：%@",
+        @"版本 %@；Core %@；输入设备 %lld；输出设备 %lld\n麦克风：%@\n资源：%@",
         app_version(), result.value("core_ready", false) ? @"运行中" : @"按需启动",
         static_cast<long long>(result.value("input_devices", 0U)),
         static_cast<long long>(result.value("output_devices", 0U)),
+        microphoneSummary,
         to_ns(result.value("runtime_root", std::string()))];
     set_status(self->_overviewStatus, summary,
-               !result.value("success", false));
+               !result.value("success", false) ||
+                   permission != "granted" || microphoneFailed);
 
     const Json palette = result.value("palette_state", Json::object());
     const std::string output = palette.value("output", "");
@@ -2758,6 +2815,135 @@ NSString *percent_encode(NSString *text) {
                    : [@"模型需要处理：" stringByAppendingString:
                           to_ns(models.value("error", models.value("output", "unknown")))],
                !models.value("success", false));
+  });
+}
+
+- (void)probeMicrophone:(id)sender {
+  (void)sender;
+  if (_overviewMicrophoneStatus)
+    set_status(_overviewMicrophoneStatus,
+               @"正在打开当前输入设备并等待第一块 PCM…");
+  [self ensureMicrophoneAccess:^(BOOL granted) {
+    if (!granted) {
+      set_status(self->_overviewMicrophoneStatus,
+                 @"麦克风权限未开启；无法执行真实采集检查。", true);
+      return;
+    }
+    __weak VocoTypeApplicationController *weakSelf = self;
+    run_async([] { return settings::probe_microphone(1500); },
+              [weakSelf](Json result) {
+      VocoTypeApplicationController *self = weakSelf;
+      if (!self)
+        return;
+      if (result.value("success", false)) {
+        set_status(self->_overviewMicrophoneStatus,
+                   [NSString stringWithFormat:@"实际采集正常：%@ · %d Hz · %lld ms",
+                        to_ns(result.value("device", "unknown")),
+                        result.value("sample_rate", 0),
+                        static_cast<long long>(result.value("elapsed_ms", 0LL))]);
+      } else {
+        const std::string code = result.value("code", "");
+        const std::string error = result.value("error", "真实采集失败");
+        set_status(self->_overviewMicrophoneStatus,
+                   [@"真实采集失败：" stringByAppendingString:
+                        to_ns(code.empty() ? error : code + " — " + error)], true);
+      }
+    });
+  }];
+}
+
+- (void)resetMicrophone:(id)sender {
+  (void)sender;
+  if (_overviewMicrophoneStatus)
+    set_status(_overviewMicrophoneStatus,
+               @"正在清理 VoCoType recorder、重启 InputMethod 并重新采集…");
+  if (_doctorSummary)
+    set_status(_doctorSummary, @"正在重置麦克风并验证真实采集…");
+  [self ensureMicrophoneAccess:^(BOOL granted) {
+    if (!granted) {
+      set_status(self->_overviewMicrophoneStatus,
+                 @"麦克风权限未开启；请先授权再重置。", true);
+      if (self->_doctorSummary)
+        set_status(self->_doctorSummary, @"麦克风权限未开启；无法重置。", true);
+      return;
+    }
+    __weak VocoTypeApplicationController *weakSelf = self;
+    run_async([] { return settings::reset_microphone(1500); },
+              [weakSelf](Json result) {
+      VocoTypeApplicationController *self = weakSelf;
+      if (!self)
+        return;
+      if (result.value("success", false)) {
+        NSString *recovered = [NSString stringWithFormat:
+            @"麦克风已恢复：%@ · %lld ms 内取得 PCM",
+            to_ns(result.value("device", "unknown")),
+            static_cast<long long>(result.value("elapsed_ms", 0LL))];
+        set_status(self->_overviewMicrophoneStatus, recovered);
+        if (self->_doctorSummary)
+          set_status(self->_doctorSummary, recovered);
+        [self refreshOverview:nil];
+        return;
+      }
+
+      NSString *failed = [@"VoCoType 重置后仍失败：" stringByAppendingString:
+          to_ns(result.value("error", "真实采集仍失败"))];
+      set_status(self->_overviewMicrophoneStatus, failed, true);
+      if (self->_doctorSummary)
+        set_status(self->_doctorSummary, failed, true);
+      NSAlert *alert = [[NSAlert alloc] init];
+      alert.messageText = @"CoreAudio 仍未返回麦克风音频";
+      alert.informativeText =
+          @"VoCoType 已清理 recorder 并重启 InputMethod，但真实 PCM 检查仍失败。可以继续重启 macOS 系统音频服务；此操作需要管理员授权，并会短暂中断其他应用的音频。";
+      [alert addButtonWithTitle:@"深度重启 CoreAudio"];
+      [alert addButtonWithTitle:@"取消"];
+      [alert beginSheetModalForWindow:self->_settingsWindow
+                    completionHandler:^(NSModalResponse response) {
+        if (response == NSAlertFirstButtonReturn)
+          [self restartSystemAudioAndProbe];
+      }];
+    });
+  }];
+}
+
+- (void)restartSystemAudioAndProbe {
+  if (_overviewMicrophoneStatus)
+    set_status(_overviewMicrophoneStatus,
+               @"正在请求管理员授权并重启 macOS CoreAudio…");
+  if (_doctorSummary)
+    set_status(_doctorSummary, @"正在请求管理员授权并重启 macOS CoreAudio…");
+  __weak VocoTypeApplicationController *weakSelf = self;
+  run_async([] {
+    Json restarted = settings::run_process(
+        {"/usr/bin/osascript", "-e",
+         "do shell script \"/usr/bin/killall coreaudiod\" with administrator privileges"});
+    if (!restarted.value("success", false))
+      return Json{{"success", false},
+                  {"error", restarted.value("error", restarted.value("output", "管理员授权失败"))},
+                  {"stage", "coreaudio_restart"}};
+    std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+    Json probe = settings::reset_microphone(2000);
+    probe["stage"] = "post_coreaudio_restart_probe";
+    return probe;
+  }, [weakSelf](Json result) {
+    VocoTypeApplicationController *self = weakSelf;
+    if (!self)
+      return;
+    if (result.value("success", false)) {
+      NSString *recovered = [NSString stringWithFormat:
+          @"CoreAudio 已重启，麦克风恢复：%@ · %lld ms",
+          to_ns(result.value("device", "unknown")),
+          static_cast<long long>(result.value("elapsed_ms", 0LL))];
+      set_status(self->_overviewMicrophoneStatus, recovered);
+      if (self->_doctorSummary)
+        set_status(self->_doctorSummary, recovered);
+      [self refreshOverview:nil];
+    } else {
+      NSString *failed = [@"深度重置后仍失败：" stringByAppendingString:
+          to_ns(result.value("error", "unknown"))];
+      set_status(self->_overviewMicrophoneStatus, failed, true);
+      if (self->_doctorSummary)
+        set_status(self->_doctorSummary, failed, true);
+    }
   });
 }
 
@@ -3440,8 +3626,13 @@ NSString *percent_encode(NSString *text) {
   (void)sender;
   set_status(_doctorSummary, @"正在运行 Doctor…");
   const std::string version = to_utf8(app_version());
+  const bool microphoneGranted =
+      AVAudioApplication.sharedInstance.recordPermission ==
+      AVAudioApplicationRecordPermissionGranted;
   __weak VocoTypeApplicationController *weakSelf = self;
-  run_async([version] { return settings::run_doctor(version); },
+  run_async([version, microphoneGranted] {
+    return settings::run_doctor(version, microphoneGranted);
+  },
             [weakSelf](Json result) {
     VocoTypeApplicationController *self = weakSelf;
     if (!self)
@@ -3498,7 +3689,10 @@ NSString *percent_encode(NSString *text) {
 - (void)exportSupportBundle:(id)sender {
   (void)sender;
   if (_lastDoctorReport.empty()) {
-    Json doctor = settings::run_doctor(to_utf8(app_version()));
+    const bool microphoneGranted =
+        AVAudioApplication.sharedInstance.recordPermission ==
+        AVAudioApplicationRecordPermissionGranted;
+    Json doctor = settings::run_doctor(to_utf8(app_version()), microphoneGranted);
     _lastDoctorReport = doctor.value("report", "");
     set_text(_doctorOutput, _lastDoctorReport);
   }
@@ -3537,8 +3731,10 @@ NSString *percent_encode(NSString *text) {
            text_view_text(_feedbackMessage);
     if (_feedbackIncludeDoctor.state == NSControlStateValueOn) {
       if (_lastDoctorReport.empty())
-        _lastDoctorReport =
-            settings::run_doctor(to_utf8(app_version())).value("report", "");
+        _lastDoctorReport = settings::run_doctor(
+            to_utf8(app_version()),
+            AVAudioApplication.sharedInstance.recordPermission ==
+                AVAudioApplicationRecordPermissionGranted).value("report", "");
       body += "\n\n<details><summary>VoCoType Doctor</summary>\n\n```text\n" +
               _lastDoctorReport + "\n```\n</details>";
     }
@@ -3574,11 +3770,14 @@ NSString *percent_encode(NSString *text) {
   const std::string version = to_utf8(app_version());
   set_status(_feedbackStatus, @"正在发送反馈…");
   __weak VocoTypeApplicationController *weakSelf = self;
+  const bool microphoneGranted =
+      AVAudioApplication.sharedInstance.recordPermission ==
+      AVAudioApplicationRecordPermissionGranted;
   run_async([=] {
     std::string doctor;
     std::filesystem::path bundle;
     if (includeDoctor || includeBundle)
-      doctor = settings::run_doctor(version).value("report", "");
+      doctor = settings::run_doctor(version, microphoneGranted).value("report", "");
     if (includeBundle) {
       Json generated = settings::create_support_bundle(doctor, version);
       if (!generated.value("success", false))

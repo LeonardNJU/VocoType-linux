@@ -248,11 +248,13 @@ for token in \
   rg -Fq "$token" src/integrations/macos/VocoTypeInputController.mm || \
     fail "macOS microphone startup UI can flash before a real slow-start condition: $token"
 done
-rg -Fq 'kMicrophoneStartupTimeout = std::chrono::seconds(8)' src/desktop/src/audio_recorder_main.cpp || \
-  fail "macOS microphone startup watchdog must allow the observed >5s deep-idle wakeup"
-if rg -Fq 'kMicrophoneStartupTimeout = std::chrono::seconds(5)' src/desktop/src/audio_recorder_main.cpp; then
-  fail "macOS microphone startup watchdog regressed to the post-idle 5s race"
-fi
+for token in \
+  'startup_timeout_ms = 8000' \
+  '"--startup-timeout-ms"' \
+  '"microphone_start_timeout"'; do
+  rg -Fq -- "$token" src/desktop/src/audio_recorder_main.cpp || \
+    fail "macOS recorder no longer exposes a bounded configurable microphone startup watchdog: $token"
+done
 for token in 'first_audio_started_ns' '--emit-levels' '--no-preview'; do
   rg -Fq -- "$token" src/desktop/src/audio_recorder_main.cpp || \
     fail "macOS timed recorder no longer measures from real PCM or exposes isolated Playground capture: $token"
@@ -260,6 +262,29 @@ done
 for token in 'capture_recording_via_helper' '"--emit-levels"' '"--no-preview"'; do
   rg -Fq -- "$token" src/desktop/src/settings_backend.cpp || \
     fail "macOS Playground capture no longer uses the watchdog-protected recorder helper: $token"
+done
+for token in \
+  'Json probe_microphone(int startup_timeout_ms)' \
+  'Json reset_microphone(int startup_timeout_ms)' \
+  '"microphone_capture"' \
+  'settings::overview_status(version, microphoneGranted)' \
+  '@"麦克风实际采集"' \
+  '@"检测麦克风"' \
+  '@"重置麦克风"' \
+  '深度重启 CoreAudio'; do
+  rg -Fq -- "$token" src/desktop/src/settings_backend.cpp \
+    src/integrations/macos/VocoTypeApplicationController.mm || \
+    fail "macOS Dashboard/Doctor can no longer detect or reset a real microphone capture failure: $token"
+done
+for token in \
+  'kMicrophoneStartupRetryTimeoutMs = 1800' \
+  'microphone_start_retries' \
+  'CoreAudio startup appears wedged; recycling recorder once' \
+  'stalled->cancel()' \
+  'cancelled recorder cleanup finished after' \
+  'retrying microphone recorder'; do
+  rg -Fq -- "$token" src/integrations/macos/VocoTypeInputController.mm || \
+    fail "macOS F9 no longer automatically retries one wedged microphone startup: $token"
 done
 mac_install=packaging/macos/install.command
 mac_dmg=packaging/macos/build-dmg.sh

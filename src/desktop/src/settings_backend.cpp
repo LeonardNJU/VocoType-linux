@@ -353,7 +353,8 @@ Json run_process(const std::vector<std::string> &arguments) {
 
 #ifdef __APPLE__
 Json capture_recording_via_helper(int duration_ms,
-                                  const WaveformCallback &callback) {
+                                  const WaveformCallback &callback,
+                                  int startup_timeout_ms = 8000) {
   const auto recorder = runtime_root() / "bin/vocotype-audio-recorder";
   if (!std::filesystem::is_regular_file(recorder))
     return {{"success", false}, {"error", "找不到原生录音器"}};
@@ -373,15 +374,19 @@ Json capture_recording_via_helper(int duration_ms,
     ::close(output_pipe[0]);
     ::close(output_pipe[1]);
     const std::string duration = std::to_string(std::max(1, duration_ms));
+    const std::string startup_timeout =
+        std::to_string(std::max(250, startup_timeout_ms));
     const std::string config = runtime_config_path().string();
     ::execl(recorder.c_str(), recorder.c_str(), "--duration-ms",
-            duration.c_str(), "--config", config.c_str(), "--emit-levels",
-            "--no-preview", static_cast<char *>(nullptr));
+            duration.c_str(), "--startup-timeout-ms", startup_timeout.c_str(),
+            "--config", config.c_str(), "--emit-levels", "--no-preview",
+            static_cast<char *>(nullptr));
     ::_exit(127);
   }
 
   ::close(output_pipe[1]);
   std::string error;
+  std::string error_code;
   Json audio = Json::object();
   FILE *file = ::fdopen(output_pipe[0], "r");
   if (file) {
@@ -404,6 +409,7 @@ Json capture_recording_via_helper(int duration_ms,
                    {"device", event.value("device_name", "")}};
         } else if (type == "error") {
           error = event.value("error", "录音失败");
+          error_code = event.value("code", "");
         }
       } catch (const std::exception &) {
       }
@@ -425,7 +431,11 @@ Json capture_recording_via_helper(int duration_ms,
     else
       error = "原生录音器异常退出";
   }
-  return {{"success", false}, {"error", error}};
+  Json failed{{"success", false}, {"error", error}};
+  if (!error_code.empty())
+    failed["code"] = error_code;
+  failed["startup_timeout_ms"] = std::max(250, startup_timeout_ms);
+  return failed;
 }
 #endif
 
@@ -481,6 +491,61 @@ Json capture_recording(int duration_ms, const WaveformCallback &callback) {
   } catch (const std::exception &error) {
     return {{"success", false}, {"error", error.what()}};
   }
+#endif
+}
+
+Json probe_microphone(int startup_timeout_ms) {
+  const auto started = std::chrono::steady_clock::now();
+#ifdef __APPLE__
+  Json result = capture_recording_via_helper(
+      120, {}, std::max(250, startup_timeout_ms));
+#else
+  (void)startup_timeout_ms;
+  Json result = capture_recording(120);
+#endif
+  const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - started).count();
+  result["elapsed_ms"] = elapsed_ms;
+  if (result.value("success", false)) {
+    const std::filesystem::path path = result.value("path", "");
+    if (!path.empty())
+      std::filesystem::remove(path);
+    result.erase("path");
+    result["capture_ready"] = true;
+  } else {
+    result["capture_ready"] = false;
+  }
+  return result;
+}
+
+Json reset_microphone(int startup_timeout_ms) {
+#ifdef __APPLE__
+  // This is deliberately a VoCoType-scoped reset. Kill only our disposable
+  // recorder children and the resident InputMethod process, then reactivate the
+  // installed input source. If CoreAudio itself is still wedged the follow-up
+  // real-PCM probe will fail and the UI can offer an explicit privileged system
+  // audio restart instead of silently doing it.
+  (void)run_process({"/usr/bin/pkill", "-x", "vocotype-audio-recorder"});
+  (void)run_process({"/usr/bin/pkill", "-x", "VoCoTypeLinuxInputMethod"});
+  std::this_thread::sleep_for(std::chrono::milliseconds(350));
+
+  const auto input_tool = runtime_root() / "bin/vocotype-input-source-tool";
+  Json activation = Json::object();
+  if (std::filesystem::is_regular_file(input_tool)) {
+    activation = run_process(
+        {input_tool.string(), "--activate",
+         "io.github.LeonardNJU.VoCoTypeLinux.InputMethod"});
+  } else {
+    activation = {{"success", false}, {"error", "找不到输入源激活工具"}};
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(350));
+  Json probe = probe_microphone(startup_timeout_ms);
+  probe["input_method_reactivated"] = activation.value("success", false);
+  probe["activation_output"] = activation.value("output", "");
+  probe["reset_scope"] = "vocotype";
+  return probe;
+#else
+  return probe_microphone(startup_timeout_ms);
 #endif
 }
 
@@ -691,7 +756,8 @@ Json download_models() {
   return run_process({manager.string(), "--download", "--all"});
 }
 
-Json overview_status(const std::string &version) {
+Json overview_status(const std::string &version,
+                     bool probe_microphone_capture) {
   const auto resources = runtime_root();
   const bool core = std::filesystem::is_regular_file(resources / "bin/vocotype-core");
   const bool recorder =
@@ -717,10 +783,13 @@ Json overview_status(const std::string &version) {
   } catch (const std::exception &error) {
     result["audio_error"] = error.what();
   }
+  if (probe_microphone_capture)
+    result["microphone_probe"] = probe_microphone();
   return result;
 }
 
-Json run_doctor(const std::string &version) {
+Json run_doctor(const std::string &version,
+                bool probe_microphone_capture) {
   Json checks = Json::array();
   const auto resources = runtime_root();
   const auto check_file = [&](const std::string &id, const std::string &title,
@@ -747,6 +816,22 @@ Json run_doctor(const std::string &version) {
               std::to_string(devices.size()) + " 个输入设备");
   } catch (const std::exception &error) {
     add_check(checks, "audio_devices", "音频设备", false, error.what());
+  }
+  if (probe_microphone_capture) {
+    const Json microphone = probe_microphone();
+    const bool ready = microphone.value("success", false);
+    const std::string details = ready
+        ? microphone.value("device", "unknown") + "；" +
+              std::to_string(microphone.value("sample_rate", 0)) + " Hz；" +
+              std::to_string(microphone.value("elapsed_ms", 0LL)) + " ms 内取得 PCM"
+        : microphone.value("code", "").empty()
+            ? microphone.value("error", "真实采集失败")
+            : microphone.value("code", "") + " — " +
+                  microphone.value("error", "真实采集失败");
+    add_check(checks, "microphone_capture", "麦克风真实采集", ready, details);
+  } else {
+    add_check(checks, "microphone_capture", "麦克风真实采集", false,
+              "未获得麦克风权限，无法执行真实 PCM 检查");
   }
   try {
     const auto legacy_path = audio_config_path();

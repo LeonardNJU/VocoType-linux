@@ -25,6 +25,8 @@ struct FeedbackRequest {
 [[nodiscard]] Json run_process(const std::vector<std::string> &arguments);
 [[nodiscard]] Json capture_recording(int duration_ms,
                                      const WaveformCallback &callback = {});
+[[nodiscard]] Json probe_microphone(int startup_timeout_ms = 1500);
+[[nodiscard]] Json reset_microphone(int startup_timeout_ms = 1500);
 [[nodiscard]] Json play_recording(const std::filesystem::path &path,
                                   int output_device_id = -1);
 [[nodiscard]] Json transcribe_recording(const std::filesystem::path &path,
@@ -49,8 +51,10 @@ struct FeedbackRequest {
 [[nodiscard]] Json query_latest_release(const std::string &version);
 [[nodiscard]] Json model_status();
 [[nodiscard]] Json download_models();
-[[nodiscard]] Json overview_status(const std::string &version);
-[[nodiscard]] Json run_doctor(const std::string &version);
+[[nodiscard]] Json overview_status(const std::string &version,
+                                  bool probe_microphone_capture = false);
+[[nodiscard]] Json run_doctor(const std::string &version,
+                              bool probe_microphone_capture = true);
 
 [[nodiscard]] std::filesystem::path support_directory();
 [[nodiscard]] Json create_support_bundle(const std::string &doctor,

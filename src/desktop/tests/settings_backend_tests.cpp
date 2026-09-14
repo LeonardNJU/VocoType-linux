@@ -28,8 +28,10 @@ int main() {
 
   const char *old_xdg_raw = std::getenv("XDG_CONFIG_HOME");
   const char *old_config_raw = std::getenv("VOCOTYPE_CONFIG");
+  const char *old_runtime_raw = std::getenv("VOCOTYPE_RUNTIME_DIR");
   const std::string old_xdg = old_xdg_raw ? old_xdg_raw : "";
   const std::string old_config = old_config_raw ? old_config_raw : "";
+  const std::string old_runtime = old_runtime_raw ? old_runtime_raw : "";
   setenv("XDG_CONFIG_HOME", root.c_str(), 1);
   unsetenv("VOCOTYPE_CONFIG");
 
@@ -148,6 +150,49 @@ protect:
   require(!missing_recording.value("success", true),
           "missing recording produces structured failure");
 
+#if defined(__APPLE__)
+  const auto fake_runtime = root / "fake-runtime";
+  const auto fake_bin = fake_runtime / "bin";
+  const auto fake_recorder = fake_bin / "vocotype-audio-recorder";
+  std::filesystem::create_directories(fake_bin);
+  {
+    std::ofstream output(fake_recorder);
+    output << "#!/bin/sh\n"
+              "printf '%s\\n' '{\"type\":\"error\",\"code\":\"microphone_start_timeout\",\"error\":\"CoreAudio probe timeout\"}'\n"
+              "exit 2\n";
+  }
+  ::chmod(fake_recorder.c_str(), 0755);
+  setenv("VOCOTYPE_RUNTIME_DIR", fake_runtime.c_str(), 1);
+  const auto failed_probe = settings::probe_microphone(350);
+  require(!failed_probe.value("success", true),
+          "real microphone probe propagates helper startup failure");
+  require(failed_probe.value("code", "") == "microphone_start_timeout",
+          "real microphone probe preserves structured startup failure code");
+
+  const auto fake_audio = root / "fake-probe.wav";
+  {
+    std::ofstream output(fake_recorder);
+    output << "#!/bin/sh\n"
+              "touch '" << fake_audio.string() << "'\n"
+              "printf '%s\\n' '{\"type\":\"audio\",\"path\":\""
+           << fake_audio.string()
+           << "\",\"sample_rate\":48000,\"frames\":480,\"device_id\":7,\"device_name\":\"Fake Mic\"}'\n"
+              "exit 0\n";
+  }
+  ::chmod(fake_recorder.c_str(), 0755);
+  const auto successful_probe = settings::probe_microphone(350);
+  require(successful_probe.value("success", false),
+          "real microphone probe accepts actual audio event");
+  require(successful_probe.value("capture_ready", false),
+          "real microphone probe marks PCM capture ready");
+  require(successful_probe.value("device", "") == "Fake Mic",
+          "real microphone probe reports capture device");
+  require(successful_probe.value("sample_rate", 0) == 48000,
+          "real microphone probe reports capture sample rate");
+  require(!std::filesystem::exists(fake_audio),
+          "real microphone probe removes temporary recording");
+#endif
+
   if (old_xdg_raw)
     setenv("XDG_CONFIG_HOME", old_xdg.c_str(), 1);
   else
@@ -156,6 +201,10 @@ protect:
     setenv("VOCOTYPE_CONFIG", old_config.c_str(), 1);
   else
     unsetenv("VOCOTYPE_CONFIG");
+  if (old_runtime_raw)
+    setenv("VOCOTYPE_RUNTIME_DIR", old_runtime.c_str(), 1);
+  else
+    unsetenv("VOCOTYPE_RUNTIME_DIR");
   std::filesystem::remove_all(root);
   std::cout << "settings backend tests passed\n";
 }
