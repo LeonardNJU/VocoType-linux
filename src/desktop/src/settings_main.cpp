@@ -1,3 +1,4 @@
+#include "vocotype/common/slm_profiles.hpp"
 #include "vocotype/common/terms_yaml.hpp"
 #include "vocotype/desktop/audio.hpp"
 #include "vocotype/desktop/config.hpp"
@@ -20,6 +21,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cctype>
 #include <cerrno>
 #include <chrono>
 #include <csignal>
@@ -140,6 +142,23 @@ struct SettingsWindow {
   GtkSwitch *slm_thinking = nullptr;
   GtkSwitch *edit_enabled = nullptr;
   GtkLabel *slm_status = nullptr;
+
+  GtkComboBoxText *slm_profile_combo = nullptr;
+  GtkEntry *slm_profile_name = nullptr;
+  GtkTextView *slm_profile_prompt = nullptr;
+  GtkListBox *slm_vocabulary_list = nullptr;
+  GtkEntry *slm_vocab_canonical = nullptr;
+  GtkEntry *slm_vocab_aliases = nullptr;
+  GtkEntry *slm_vocab_context = nullptr;
+  GtkButton *slm_profile_save = nullptr;
+  GtkButton *slm_profile_reload = nullptr;
+  GtkLabel *slm_profiles_status = nullptr;
+  Json slm_profiles_document = Json::object();
+  std::string slm_profile_active;
+  int slm_vocabulary_selected = -1;
+  bool slm_profiles_ready = false;
+  bool slm_profiles_loading = false;
+  bool slm_profiles_dirty = false;
 
   GtkComboBoxText *playground_audio_device = nullptr;
   GtkSpinButton *playground_audio_rate = nullptr;
@@ -2031,6 +2050,362 @@ void write_text_atomic(const std::filesystem::path &path,
   std::filesystem::rename(temporary, path);
 }
 
+std::string trim_profile_text(std::string value) {
+  const auto first = value.find_first_not_of(" \t\r\n");
+  if (first == std::string::npos)
+    return {};
+  const auto last = value.find_last_not_of(" \t\r\n");
+  return value.substr(first, last - first + 1);
+}
+
+Json *active_slm_profile(SettingsWindow &window) {
+  if (!window.slm_profiles_document.is_object())
+    return nullptr;
+  auto profiles = window.slm_profiles_document.find("profiles");
+  if (profiles == window.slm_profiles_document.end() ||
+      !profiles->is_object())
+    return nullptr;
+  const auto profile = profiles->find(window.slm_profile_active);
+  return profile == profiles->end() ? nullptr : &profile.value();
+}
+
+const Json *active_slm_profile(const SettingsWindow &window) {
+  if (!window.slm_profiles_document.is_object())
+    return nullptr;
+  const auto profiles = window.slm_profiles_document.find("profiles");
+  if (profiles == window.slm_profiles_document.end() ||
+      !profiles->is_object())
+    return nullptr;
+  const auto profile = profiles->find(window.slm_profile_active);
+  return profile == profiles->end() ? nullptr : &profile.value();
+}
+
+std::string slm_profile_display_name(const Json &profile,
+                                     const std::string &id) {
+  if (profile.is_object()) {
+    const auto name = profile.find("name");
+    if (name != profile.end() && name->is_string()) {
+      const std::string value = trim_profile_text(name->get<std::string>());
+      if (!value.empty())
+        return value;
+    }
+  }
+  return id;
+}
+
+void set_profiles_status(SettingsWindow &window, const std::string &text) {
+  if (window.slm_profiles_status)
+    set_label(window.slm_profiles_status, text);
+}
+
+std::vector<std::string> split_profile_aliases(const std::string &text) {
+  std::vector<std::string> aliases;
+  std::string current;
+  const auto append = [&aliases, &current] {
+    const std::string value = trim_profile_text(current);
+    if (!value.empty() &&
+        std::find(aliases.begin(), aliases.end(), value) == aliases.end())
+      aliases.push_back(value);
+    current.clear();
+  };
+  std::string normalized;
+  for (std::size_t offset = 0; offset < text.size();) {
+    if (text.compare(offset, 3, "，") == 0 ||
+        text.compare(offset, 3, "；") == 0 ||
+        text.compare(offset, 3, "、") == 0) {
+      normalized.push_back(',');
+      offset += 3;
+    } else {
+      normalized.push_back(text[offset]);
+      ++offset;
+    }
+  }
+  for (const char character : normalized) {
+    if (character == ',' || character == ';' || character == '\n' ||
+        character == '\r')
+      append();
+    else
+      current.push_back(character);
+  }
+  append();
+  return aliases;
+}
+
+std::string join_profile_aliases(const Json &aliases) {
+  if (!aliases.is_array())
+    return {};
+  std::string result;
+  for (const auto &alias : aliases) {
+    if (!alias.is_string())
+      continue;
+    if (!result.empty())
+      result += ", ";
+    result += alias.get<std::string>();
+  }
+  return result;
+}
+
+void sync_profile_form(SettingsWindow &window) {
+  if (window.slm_profiles_loading || !window.slm_profiles_ready)
+    return;
+  Json *profile = active_slm_profile(window);
+  if (!profile || !profile->is_object())
+    return;
+  profile->at("name") = gtk_entry_get_text(window.slm_profile_name);
+  profile->at("system_prompt") = text_view_text(window.slm_profile_prompt);
+  window.slm_profiles_dirty = true;
+}
+
+void sync_vocabulary_form(SettingsWindow &window) {
+  if (window.slm_profiles_loading || !window.slm_profiles_ready ||
+      window.slm_vocabulary_selected < 0)
+    return;
+  if (!window.slm_profiles_document.is_object())
+    return;
+  auto vocabulary = window.slm_profiles_document.find("vocabulary");
+  if (vocabulary == window.slm_profiles_document.end() ||
+      !vocabulary->is_array() ||
+      static_cast<std::size_t>(window.slm_vocabulary_selected) >=
+          vocabulary->size())
+    return;
+  Json &entry = (*vocabulary)[static_cast<std::size_t>(
+      window.slm_vocabulary_selected)];
+  if (!entry.is_object())
+    entry = Json::object();
+  entry["canonical"] = gtk_entry_get_text(window.slm_vocab_canonical);
+  entry["aliases"] = split_profile_aliases(
+      gtk_entry_get_text(window.slm_vocab_aliases));
+  entry["context"] = gtk_entry_get_text(window.slm_vocab_context);
+  window.slm_profiles_dirty = true;
+}
+
+void refresh_profile_form(SettingsWindow &window) {
+  window.slm_profiles_loading = true;
+  const Json *profile = active_slm_profile(window);
+  if (profile && profile->is_object()) {
+    gtk_entry_set_text(
+        window.slm_profile_name,
+        profile->value("name", window.slm_profile_active).c_str());
+    set_text(window.slm_profile_prompt,
+             profile->value("system_prompt", std::string()));
+  } else {
+    gtk_entry_set_text(window.slm_profile_name, "");
+    set_text(window.slm_profile_prompt, "");
+  }
+  window.slm_profiles_loading = false;
+}
+
+void refresh_vocabulary_form(SettingsWindow &window) {
+  window.slm_profiles_loading = true;
+  const Json *entry = nullptr;
+  if (window.slm_profiles_document.is_object() &&
+      window.slm_vocabulary_selected >= 0) {
+    const auto vocabulary = window.slm_profiles_document.find("vocabulary");
+    if (vocabulary != window.slm_profiles_document.end() &&
+        vocabulary->is_array() &&
+        static_cast<std::size_t>(window.slm_vocabulary_selected) <
+            vocabulary->size()) {
+      entry = &(*vocabulary)[static_cast<std::size_t>(
+          window.slm_vocabulary_selected)];
+    }
+  }
+  if (entry && entry->is_object()) {
+    gtk_entry_set_text(window.slm_vocab_canonical,
+                       entry->value("canonical", std::string()).c_str());
+    gtk_entry_set_text(window.slm_vocab_aliases,
+                       join_profile_aliases(
+                           entry->value("aliases", Json::array()))
+                           .c_str());
+    gtk_entry_set_text(window.slm_vocab_context,
+                       entry->value("context", std::string()).c_str());
+  } else {
+    gtk_entry_set_text(window.slm_vocab_canonical, "");
+    gtk_entry_set_text(window.slm_vocab_aliases, "");
+    gtk_entry_set_text(window.slm_vocab_context, "");
+  }
+  window.slm_profiles_loading = false;
+}
+
+void refresh_vocabulary_list(SettingsWindow &window) {
+  if (!window.slm_vocabulary_list)
+    return;
+  window.slm_profiles_loading = true;
+  GList *children = gtk_container_get_children(
+      GTK_CONTAINER(window.slm_vocabulary_list));
+  for (GList *item = children; item; item = item->next)
+    gtk_widget_destroy(GTK_WIDGET(item->data));
+  g_list_free(children);
+
+  const Json *vocabulary = nullptr;
+  if (window.slm_profiles_document.is_object()) {
+    const auto found = window.slm_profiles_document.find("vocabulary");
+    if (found != window.slm_profiles_document.end() && found->is_array())
+      vocabulary = &found.value();
+  }
+  if (vocabulary) {
+    int index = 0;
+    for (const auto &entry : *vocabulary) {
+      const std::string canonical =
+          entry.is_object() ? entry.value("canonical", std::string()) : "";
+      const std::string context =
+          entry.is_object() ? entry.value("context", std::string()) : "";
+      std::string summary = canonical.empty() ? "未命名词汇" : canonical;
+      if (entry.is_object()) {
+        const Json aliases = entry.value("aliases", Json::array());
+        if (aliases.is_array() && !aliases.empty())
+          summary += "（别名 " + std::to_string(aliases.size()) + " 个）";
+      }
+      if (!context.empty())
+        summary += " · " + context;
+      GtkWidget *row = gtk_list_box_row_new();
+      GtkWidget *label = gtk_label_new(summary.c_str());
+      gtk_label_set_xalign(GTK_LABEL(label), 0.0F);
+      gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+      gtk_widget_set_margin_start(label, 10);
+      gtk_widget_set_margin_end(label, 10);
+      gtk_widget_set_margin_top(label, 8);
+      gtk_widget_set_margin_bottom(label, 8);
+      gtk_container_add(GTK_CONTAINER(row), label);
+      gtk_list_box_insert(window.slm_vocabulary_list, row, -1);
+      ++index;
+    }
+  }
+  const int count = vocabulary ? static_cast<int>(vocabulary->size()) : 0;
+  if (window.slm_vocabulary_selected >= 0 &&
+      window.slm_vocabulary_selected < count) {
+    gtk_list_box_select_row(
+        window.slm_vocabulary_list,
+        gtk_list_box_get_row_at_index(window.slm_vocabulary_list,
+                                      window.slm_vocabulary_selected));
+  } else {
+    window.slm_vocabulary_selected = -1;
+    gtk_list_box_unselect_all(window.slm_vocabulary_list);
+  }
+  gtk_widget_show_all(GTK_WIDGET(window.slm_vocabulary_list));
+  window.slm_profiles_loading = false;
+  refresh_vocabulary_form(window);
+}
+
+void refresh_profile_combo(SettingsWindow &window) {
+  if (!window.slm_profile_combo)
+    return;
+  window.slm_profiles_loading = true;
+  gtk_combo_box_text_remove_all(window.slm_profile_combo);
+  std::string active = window.slm_profile_active;
+  bool found = false;
+  if (window.slm_profiles_document.is_object()) {
+    const auto profiles = window.slm_profiles_document.find("profiles");
+    if (profiles != window.slm_profiles_document.end() &&
+        profiles->is_object()) {
+      for (const auto &[id, profile] : profiles->items()) {
+        gtk_combo_box_text_append(window.slm_profile_combo, id.c_str(),
+                                  slm_profile_display_name(profile, id).c_str());
+        if (active == id)
+          found = true;
+      }
+      if (!found && !profiles->empty()) {
+        active = profiles->begin().key();
+        window.slm_profiles_document["active"] = active;
+      }
+    }
+  }
+  window.slm_profile_active = active;
+  if (!active.empty() &&
+      !gtk_combo_box_set_active_id(GTK_COMBO_BOX(window.slm_profile_combo),
+                                   active.c_str()))
+    gtk_combo_box_set_active(GTK_COMBO_BOX(window.slm_profile_combo), 0);
+  window.slm_profiles_loading = false;
+  refresh_profile_form(window);
+}
+
+void refresh_slm_profiles_ui(SettingsWindow &window) {
+  refresh_profile_combo(window);
+  refresh_vocabulary_list(window);
+}
+
+void load_slm_profiles(SettingsWindow &window) {
+  try {
+    Json loaded = vocotype::common::load_profile_document_strict();
+    vocotype::common::validate_profile_document(loaded);
+    window.slm_profiles_document = std::move(loaded);
+    window.slm_profile_active =
+        window.slm_profiles_document.value("active", std::string());
+    window.slm_vocabulary_selected = -1;
+    window.slm_profiles_ready = true;
+    window.slm_profiles_dirty = false;
+    refresh_slm_profiles_ui(window);
+    const Json *profile = active_slm_profile(window);
+    set_profiles_status(
+        window,
+        "当前模板“" +
+            (profile ? slm_profile_display_name(*profile,
+                                                window.slm_profile_active)
+                    : window.slm_profile_active) +
+            "”；修改后点击“保存并应用”生效。");
+  } catch (const std::exception &error) {
+    window.slm_profiles_ready = false;
+    window.slm_profiles_dirty = false;
+    window.slm_profiles_document = Json::object();
+    window.slm_profile_active.clear();
+    window.slm_vocabulary_selected = -1;
+    refresh_slm_profiles_ui(window);
+    set_profiles_status(
+        window, "无法载入 " + vocotype::common::slm_profiles_path().string() +
+                    "：" + error.what() + "。保存已禁用，请修复文件后重新载入。");
+  }
+}
+
+std::string next_slm_profile_id(const Json &document) {
+  const auto profiles = document.find("profiles");
+  for (int index = 1; index > 0; ++index) {
+    const std::string candidate = "profile-" + std::to_string(index);
+    if (profiles == document.end() || !profiles->is_object() ||
+        profiles->find(candidate) == profiles->end())
+      return candidate;
+  }
+  return "profile-new";
+}
+
+std::string default_slm_system_prompt() {
+  const Json defaults = vocotype::common::default_profile_document();
+  const auto profiles = defaults.find("profiles");
+  if (profiles != defaults.end() && profiles->is_object()) {
+    const auto profile = profiles->find("default");
+    if (profile != profiles->end() && profile->is_object())
+      return profile->value("system_prompt", std::string());
+  }
+  return {};
+}
+
+void save_slm_profiles(SettingsWindow &window) {
+  if (!window.slm_profiles_ready) {
+    set_profiles_status(window, "当前模板文件无法载入，已停止保存以避免覆盖原文件。");
+    return;
+  }
+  try {
+    sync_profile_form(window);
+    sync_vocabulary_form(window);
+    if (!window.slm_profile_active.empty())
+      window.slm_profiles_document["active"] = window.slm_profile_active;
+    vocotype::common::validate_profile_document(window.slm_profiles_document);
+    vocotype::common::save_profile_document(window.slm_profiles_document);
+    window.slm_profiles_dirty = false;
+    const Json *profile = active_slm_profile(window);
+    set_profiles_status(
+        window,
+        "✓ 已保存；模板“" +
+            (profile ? slm_profile_display_name(*profile,
+                                                window.slm_profile_active)
+                    : window.slm_profile_active) +
+            "”将在下一次 AI 后处理生效，无需重启。");
+    refresh_profile_combo(window);
+    refresh_vocabulary_list(window);
+  } catch (const std::exception &error) {
+    set_profiles_status(window, std::string("保存失败，文件未更新：") +
+                                  error.what());
+  }
+}
+
 void populate_from_config(SettingsWindow &window) {
   window.config = load_config();
   const auto &audio = window.config["audio"];
@@ -2196,6 +2571,7 @@ void populate_from_config(SettingsWindow &window) {
         "aliases: [鬼斯提, 格斯提]\n    hotword: true\n    protect: true\n\n"
         "protect:\n  - 三体问题\n  - 一加手机\n";
   set_text(window.terms, terms);
+  load_slm_profiles(window);
   refresh_overview(window);
 }
 
@@ -3050,6 +3426,388 @@ GtkWidget *build_slm(SettingsWindow &window) {
             });
       }),
       &window);
+  return page.scroller;
+}
+
+GtkWidget *build_slm_profiles(SettingsWindow &window) {
+  const auto page = sui::make_page(
+      "后处理模板",
+      "维护多个后处理提示词和全局语义纠错词汇；保存并应用后，下次 AI 后处理生效。");
+
+  gtk_box_pack_start(
+      GTK_BOX(page.content),
+      sui::make_section_heading("提示词模板", "选择一个模板编辑，或创建模板副本。"),
+      FALSE, FALSE, 0);
+  GtkWidget *profile_card = sui::make_card();
+  window.slm_profile_combo =
+      GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
+  gtk_widget_set_size_request(GTK_WIDGET(window.slm_profile_combo), 280, -1);
+  GtkWidget *profile_actions = sui::make_button_row();
+  GtkWidget *new_profile = gtk_button_new_with_label("新建");
+  GtkWidget *copy_profile = gtk_button_new_with_label("复制");
+  GtkWidget *rename_profile = gtk_button_new_with_label("应用改名");
+  GtkWidget *delete_profile = gtk_button_new_with_label("删除");
+  gtk_box_pack_start(GTK_BOX(profile_actions), new_profile, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(profile_actions), copy_profile, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(profile_actions), delete_profile, FALSE, FALSE, 0);
+  gtk_box_pack_start(
+      GTK_BOX(profile_card),
+      sui::make_row("当前模板", "选择后，保存并应用时使用此模板。",
+                    GTK_WIDGET(window.slm_profile_combo)),
+      FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(profile_card), profile_actions, FALSE, FALSE, 0);
+
+  window.slm_profile_name = GTK_ENTRY(sui::make_entry(28));
+  GtkWidget *name_actions = sui::make_button_row();
+  gtk_widget_set_hexpand(GTK_WIDGET(window.slm_profile_name), TRUE);
+  gtk_widget_set_halign(GTK_WIDGET(window.slm_profile_name), GTK_ALIGN_FILL);
+  gtk_box_pack_start(GTK_BOX(name_actions), GTK_WIDGET(window.slm_profile_name),
+                     TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(name_actions), rename_profile, FALSE, FALSE, 0);
+  gtk_box_pack_start(
+      GTK_BOX(profile_card),
+      sui::make_row("模板名称", "显示名称。", name_actions),
+      FALSE, FALSE, 0);
+  gtk_box_pack_start(
+      GTK_BOX(profile_card),
+      sui::make_section_heading("后处理提示词", "会完整发送给润色模型。"),
+      FALSE, FALSE, 0);
+  GtkWidget *prompt_editor =
+      sui::make_scrolled_text(&window.slm_profile_prompt, 280, false,
+                              GTK_WRAP_WORD_CHAR);
+  gtk_widget_set_vexpand(prompt_editor, TRUE);
+  gtk_box_pack_start(GTK_BOX(profile_card), prompt_editor, TRUE, TRUE, 0);
+
+  GtkWidget *profile_toolbar = sui::make_button_row();
+  window.slm_profile_save =
+      GTK_BUTTON(gtk_button_new_with_label("保存并应用"));
+  window.slm_profile_reload =
+      GTK_BUTTON(gtk_button_new_with_label("重新载入"));
+  sui::set_button_suggested(GTK_WIDGET(window.slm_profile_save));
+  gtk_box_pack_start(GTK_BOX(profile_toolbar),
+                     GTK_WIDGET(window.slm_profile_save), FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(profile_toolbar),
+                     GTK_WIDGET(window.slm_profile_reload), FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(page.content), profile_card, FALSE, TRUE, 0);
+
+  gtk_box_pack_start(
+      GTK_BOX(page.content),
+      sui::make_section_heading("全局语义纠错词汇",
+                                "例如把“质谱”纠正为“智谱”；语境用于帮助模型判断。"),
+      FALSE, FALSE, 0);
+  GtkWidget *vocabulary_card = sui::make_card();
+  GtkWidget *vocabulary_body =
+      gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 14);
+  gtk_widget_set_vexpand(vocabulary_body, TRUE);
+  GtkWidget *list_scroll = gtk_scrolled_window_new(nullptr, nullptr);
+  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(list_scroll),
+                                 GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+  gtk_widget_set_size_request(list_scroll, 320, 230);
+  window.slm_vocabulary_list = GTK_LIST_BOX(gtk_list_box_new());
+  gtk_list_box_set_selection_mode(window.slm_vocabulary_list,
+                                  GTK_SELECTION_SINGLE);
+  gtk_container_add(GTK_CONTAINER(list_scroll),
+                    GTK_WIDGET(window.slm_vocabulary_list));
+  gtk_box_pack_start(GTK_BOX(vocabulary_body), list_scroll, FALSE, TRUE, 0);
+
+  GtkWidget *vocabulary_form = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+  gtk_widget_set_hexpand(vocabulary_form, TRUE);
+  gtk_widget_set_valign(vocabulary_form, GTK_ALIGN_START);
+  const auto form_field = [](const char *title, GtkEntry **slot,
+                             const char *placeholder) {
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 3);
+    GtkWidget *caption = gtk_label_new(title);
+    gtk_label_set_xalign(GTK_LABEL(caption), 0.0F);
+    sui::add_class(caption, "row-title");
+    GtkWidget *entry = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(entry), placeholder);
+    gtk_widget_set_hexpand(entry, TRUE);
+    gtk_widget_set_halign(entry, GTK_ALIGN_FILL);
+    *slot = GTK_ENTRY(entry);
+    gtk_box_pack_start(GTK_BOX(box), caption, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), entry, FALSE, FALSE, 0);
+    return box;
+  };
+  gtk_box_pack_start(GTK_BOX(vocabulary_form),
+                     form_field("正确术语", &window.slm_vocab_canonical,
+                                "例如：智谱"),
+                     FALSE, FALSE, 0);
+  gtk_box_pack_start(
+      GTK_BOX(vocabulary_form),
+      form_field("常见误识别", &window.slm_vocab_aliases,
+                  "多个词用逗号、中文逗号或分号分隔"),
+      FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(vocabulary_form),
+                     form_field("适用语境", &window.slm_vocab_context,
+                                "例如：谈论 AI 公司"),
+                     FALSE, FALSE, 0);
+  GtkWidget *vocabulary_actions = sui::make_button_row();
+  GtkWidget *add_vocabulary = gtk_button_new_with_label("添加词汇");
+  GtkWidget *remove_vocabulary = gtk_button_new_with_label("删除选中");
+  gtk_box_pack_start(GTK_BOX(vocabulary_actions), add_vocabulary, FALSE, FALSE,
+                     0);
+  gtk_box_pack_start(GTK_BOX(vocabulary_actions), remove_vocabulary, FALSE,
+                     FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(vocabulary_form), vocabulary_actions, FALSE, FALSE,
+                     0);
+  gtk_box_pack_start(GTK_BOX(vocabulary_body), vocabulary_form, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(vocabulary_card), vocabulary_body, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(page.content), vocabulary_card, FALSE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(page.content), profile_toolbar, FALSE, FALSE, 0);
+
+  window.slm_profiles_status = GTK_LABEL(sui::make_status_label(""));
+  gtk_box_pack_start(GTK_BOX(page.content), GTK_WIDGET(window.slm_profiles_status),
+                     FALSE, FALSE, 0);
+
+  g_signal_connect_swapped(
+      window.slm_profile_combo, "changed",
+      G_CALLBACK(+[](SettingsWindow *self) {
+        if (self->slm_profiles_loading || !self->slm_profiles_ready)
+          return;
+        try {
+          sync_profile_form(*self);
+          const char *id = gtk_combo_box_get_active_id(
+              GTK_COMBO_BOX(self->slm_profile_combo));
+          if (!id || !*id)
+            return;
+          const auto profiles = self->slm_profiles_document.find("profiles");
+          if (profiles == self->slm_profiles_document.end() ||
+              !profiles->is_object() || profiles->find(id) == profiles->end())
+            return;
+          self->slm_profile_active = id;
+          self->slm_profiles_document["active"] = self->slm_profile_active;
+          self->slm_profiles_dirty = true;
+          refresh_profile_form(*self);
+          const Json *profile = active_slm_profile(*self);
+          set_profiles_status(
+              *self,
+              "正在编辑并选择模板“" +
+                  (profile ? slm_profile_display_name(
+                                *profile, self->slm_profile_active)
+                          : self->slm_profile_active) +
+                  "”；保存后下一次 AI 后处理生效。");
+        } catch (const std::exception &error) {
+          set_profiles_status(*self, std::string("切换模板失败：") + error.what());
+        }
+      }),
+      &window);
+  g_signal_connect_swapped(
+      window.slm_profile_name, "changed",
+      G_CALLBACK(+[](SettingsWindow *self) { sync_profile_form(*self); }),
+      &window);
+  g_signal_connect_swapped(
+      gtk_text_view_get_buffer(window.slm_profile_prompt), "changed",
+      G_CALLBACK(+[](SettingsWindow *self) { sync_profile_form(*self); }),
+      &window);
+
+  g_signal_connect_swapped(
+      new_profile, "clicked", G_CALLBACK((+[](SettingsWindow *self) {
+        if (!self->slm_profiles_ready) {
+          set_profiles_status(*self, "当前模板文件无法载入，不能新建模板。");
+          return;
+        }
+        try {
+          sync_profile_form(*self);
+          auto profiles = self->slm_profiles_document.find("profiles");
+          if (profiles == self->slm_profiles_document.end() ||
+              !profiles->is_object())
+            throw std::runtime_error("profiles 结构无效");
+          const std::string id = next_slm_profile_id(self->slm_profiles_document);
+          std::string prompt = default_slm_system_prompt();
+          if (const Json *current = active_slm_profile(*self))
+            prompt = current->value("system_prompt", prompt);
+          (*profiles)[id] =
+              Json{{"name", "新模板"}, {"system_prompt", prompt}};
+          self->slm_profile_active = id;
+          self->slm_profiles_document["active"] = id;
+          self->slm_profiles_dirty = true;
+          refresh_profile_combo(*self);
+          set_profiles_status(*self, "已新建模板“新模板”；修改后点击“保存并应用”。");
+        } catch (const std::exception &error) {
+          set_profiles_status(*self, std::string("新建模板失败：") + error.what());
+        }
+      })),
+      &window);
+  g_signal_connect_swapped(
+      copy_profile, "clicked", G_CALLBACK(+[](SettingsWindow *self) {
+        if (!self->slm_profiles_ready) {
+          set_profiles_status(*self, "当前模板文件无法载入，不能复制模板。");
+          return;
+        }
+        try {
+          sync_profile_form(*self);
+          const Json *current = active_slm_profile(*self);
+          if (!current)
+            throw std::runtime_error("当前模板不存在");
+          auto profiles = self->slm_profiles_document.find("profiles");
+          const std::string id = next_slm_profile_id(self->slm_profiles_document);
+          Json copy = *current;
+          copy["name"] = slm_profile_display_name(*current,
+                                                   self->slm_profile_active) +
+                          " 副本";
+          (*profiles)[id] = std::move(copy);
+          self->slm_profile_active = id;
+          self->slm_profiles_document["active"] = id;
+          self->slm_profiles_dirty = true;
+          refresh_profile_combo(*self);
+          set_profiles_status(*self, "已复制模板；修改后点击“保存并应用”。");
+        } catch (const std::exception &error) {
+          set_profiles_status(*self, std::string("复制模板失败：") + error.what());
+        }
+      }),
+      &window);
+  g_signal_connect_swapped(
+      rename_profile, "clicked", G_CALLBACK(+[](SettingsWindow *self) {
+        if (!self->slm_profiles_ready) {
+          set_profiles_status(*self, "当前模板文件无法载入，不能改名。");
+          return;
+        }
+        try {
+          sync_profile_form(*self);
+          Json *current = active_slm_profile(*self);
+          if (!current)
+            throw std::runtime_error("当前模板不存在");
+          const std::string name = trim_profile_text(
+              gtk_entry_get_text(self->slm_profile_name));
+          if (name.empty())
+            throw std::runtime_error("模板名称不能为空");
+          current->at("name") = name;
+          self->slm_profiles_dirty = true;
+          refresh_profile_combo(*self);
+          set_profiles_status(*self, "模板名称已更新；点击“保存并应用”写入文件。");
+        } catch (const std::exception &error) {
+          set_profiles_status(*self, std::string("改名失败：") + error.what());
+        }
+      }),
+      &window);
+  g_signal_connect_swapped(
+      delete_profile, "clicked", G_CALLBACK(+[](SettingsWindow *self) {
+        if (!self->slm_profiles_ready) {
+          set_profiles_status(*self, "当前模板文件无法载入，不能删除模板。");
+          return;
+        }
+        try {
+          sync_profile_form(*self);
+          auto profiles = self->slm_profiles_document.find("profiles");
+          if (profiles == self->slm_profiles_document.end() ||
+              !profiles->is_object())
+            throw std::runtime_error("profiles 结构无效");
+          if (profiles->size() <= 1) {
+            set_profiles_status(*self, "至少保留一个模板，未删除。");
+            return;
+          }
+          const auto selected = profiles->find(self->slm_profile_active);
+          if (selected == profiles->end())
+            throw std::runtime_error("当前模板不存在");
+          const std::string removed = slm_profile_display_name(
+              selected.value(), self->slm_profile_active);
+          profiles->erase(selected);
+          self->slm_profile_active = profiles->begin().key();
+          self->slm_profiles_document["active"] = self->slm_profile_active;
+          self->slm_profiles_dirty = true;
+          refresh_profile_combo(*self);
+          set_profiles_status(*self, "已删除模板“" + removed + "”；点击“保存并应用”写入文件。");
+        } catch (const std::exception &error) {
+          set_profiles_status(*self, std::string("删除模板失败：") + error.what());
+        }
+      }),
+      &window);
+  g_signal_connect_swapped(
+      window.slm_profile_save, "clicked",
+      G_CALLBACK(+[](SettingsWindow *self) { save_slm_profiles(*self); }),
+      &window);
+  g_signal_connect_swapped(
+      window.slm_profile_reload, "clicked",
+      G_CALLBACK(+[](SettingsWindow *self) {
+        load_slm_profiles(*self);
+        if (self->slm_profiles_ready)
+          set_profiles_status(*self, "已重新载入模板文件。");
+      }),
+      &window);
+
+  g_signal_connect(
+      window.slm_vocabulary_list, "row-selected",
+      G_CALLBACK(+[](GtkListBox *, GtkListBoxRow *row, gpointer data) {
+        auto *self = static_cast<SettingsWindow *>(data);
+        if (self->slm_profiles_loading || !self->slm_profiles_ready)
+          return;
+        sync_vocabulary_form(*self);
+        self->slm_vocabulary_selected =
+            row ? gtk_list_box_row_get_index(row) : -1;
+        refresh_vocabulary_form(*self);
+      }),
+      &window);
+  for (GtkEntry *entry : {window.slm_vocab_canonical, window.slm_vocab_aliases,
+                          window.slm_vocab_context}) {
+    g_signal_connect_swapped(
+        entry, "changed",
+        G_CALLBACK(+[](SettingsWindow *self) { sync_vocabulary_form(*self); }),
+        &window);
+  }
+  g_signal_connect_swapped(
+      add_vocabulary, "clicked", G_CALLBACK((+[](SettingsWindow *self) {
+        if (!self->slm_profiles_ready) {
+          set_profiles_status(*self, "当前模板文件无法载入，不能添加词汇。");
+          return;
+        }
+        try {
+          sync_vocabulary_form(*self);
+          const std::string canonical = trim_profile_text(
+              gtk_entry_get_text(self->slm_vocab_canonical));
+          if (canonical.empty())
+            throw std::runtime_error("正确术语不能为空");
+          auto vocabulary = self->slm_profiles_document.find("vocabulary");
+          if (vocabulary == self->slm_profiles_document.end() ||
+              !vocabulary->is_array())
+            throw std::runtime_error("vocabulary 结构无效");
+          vocabulary->push_back(
+              Json{{"canonical", canonical},
+                   {"aliases", split_profile_aliases(
+                                    gtk_entry_get_text(self->slm_vocab_aliases))},
+                   {"context", gtk_entry_get_text(self->slm_vocab_context)}});
+          self->slm_vocabulary_selected =
+              static_cast<int>(vocabulary->size() - 1);
+          self->slm_profiles_dirty = true;
+          refresh_vocabulary_list(*self);
+          set_profiles_status(*self, "已添加词汇；点击“保存并应用”写入文件。");
+        } catch (const std::exception &error) {
+          set_profiles_status(*self, std::string("添加词汇失败：") + error.what());
+        }
+      })),
+      &window);
+  g_signal_connect_swapped(
+      remove_vocabulary, "clicked", G_CALLBACK(+[](SettingsWindow *self) {
+        if (!self->slm_profiles_ready) {
+          set_profiles_status(*self, "当前模板文件无法载入，不能删除词汇。");
+          return;
+        }
+        try {
+          sync_vocabulary_form(*self);
+          auto vocabulary = self->slm_profiles_document.find("vocabulary");
+          if (vocabulary == self->slm_profiles_document.end() ||
+              !vocabulary->is_array() || self->slm_vocabulary_selected < 0 ||
+              static_cast<std::size_t>(self->slm_vocabulary_selected) >=
+                  vocabulary->size()) {
+            set_profiles_status(*self, "请先选择要删除的词汇。");
+            return;
+          }
+          vocabulary->erase(vocabulary->begin() +
+                            self->slm_vocabulary_selected);
+          if (vocabulary->empty())
+            self->slm_vocabulary_selected = -1;
+          else if (static_cast<std::size_t>(self->slm_vocabulary_selected) >=
+                   vocabulary->size())
+            self->slm_vocabulary_selected =
+                static_cast<int>(vocabulary->size() - 1);
+          self->slm_profiles_dirty = true;
+          refresh_vocabulary_list(*self);
+          set_profiles_status(*self, "已删除词汇；点击“保存并应用”写入文件。");
+        } catch (const std::exception &error) {
+          set_profiles_status(*self, std::string("删除词汇失败：") + error.what());
+        }
+      }),
+      &window);
+
   return page.scroller;
 }
 
@@ -4119,6 +4877,7 @@ void activate(GtkApplication *application, gpointer user_data) {
   GtkWidget *general = build_recognition(*window);
   GtkWidget *terms = build_terms(*window);
   GtkWidget *slm = build_slm(*window);
+  GtkWidget *slm_profiles = build_slm_profiles(*window);
   GtkWidget *playground = build_playground(*window);
   GtkWidget *doctor = build_doctor(*window);
   GtkWidget *tutorial = build_tutorial(*window);
@@ -4129,6 +4888,7 @@ void activate(GtkApplication *application, gpointer user_data) {
   gtk_stack_add_titled(window->stack, playground, "playground", "Playground");
   gtk_stack_add_titled(window->stack, terms, "terms", "用户词典");
   gtk_stack_add_titled(window->stack, slm, "slm", "AI 功能");
+  gtk_stack_add_titled(window->stack, slm_profiles, "slm-profiles", "后处理模板");
   gtk_stack_add_titled(window->stack, doctor, "doctor", "诊断");
   gtk_stack_add_titled(window->stack, tutorial, "tutorial", "教程");
   gtk_stack_add_titled(window->stack, feedback, "feedback", "反馈");
@@ -4188,6 +4948,17 @@ void activate(GtkApplication *application, gpointer user_data) {
     const int schema_count =
         schema_model ? gtk_tree_model_iter_n_children(schema_model, nullptr)
                      : 0;
+    GtkTreeModel *profile_model =
+        gtk_combo_box_get_model(GTK_COMBO_BOX(window->slm_profile_combo));
+    const int profile_count =
+        profile_model ? gtk_tree_model_iter_n_children(profile_model, nullptr)
+                      : 0;
+    const int vocabulary_count =
+        window->slm_profiles_document.is_object() &&
+                window->slm_profiles_document.contains("vocabulary") &&
+                window->slm_profiles_document["vocabulary"].is_array()
+            ? static_cast<int>(window->slm_profiles_document["vocabulary"].size())
+            : 0;
     const auto visible = [](GtkWidget *widget) {
       return widget && gtk_widget_get_visible(widget);
     };
@@ -4203,6 +4974,10 @@ void activate(GtkApplication *application, gpointer user_data) {
         {"fcitx_composing_visible", visible(window->fcitx_advanced_card) &&
                                         visible(window->fcitx_composing_row)},
         {"rime_schema_count", schema_count},
+        {"slm_profiles_ready", window->slm_profiles_ready},
+        {"slm_profile_count", profile_count},
+        {"slm_vocabulary_count", vocabulary_count},
+        {"slm_profiles_page_built", slm_profiles != nullptr},
     };
     std::cout << result.dump() << std::endl;
     g_application_quit(G_APPLICATION(application));
