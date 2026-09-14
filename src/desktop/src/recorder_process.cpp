@@ -248,4 +248,40 @@ void RecorderProcess::cancel() {
     std::remove(audio_path.c_str());
 }
 
+void RecorderProcess::abort_startup() {
+  const auto state = state_;
+  if (!state)
+    return;
+
+  std::string audio_path;
+  pid_t child_pid = -1;
+  {
+    std::lock_guard lock(state->mutex);
+    state->stop_requested = true;
+    state->cancel_requested = true;
+    audio_path = std::move(state->audio_path);
+    if (state->stdin_fd >= 0) {
+      close(state->stdin_fd);
+      state->stdin_fd = -1;
+    }
+    child_pid = state->pid;
+    // This path is intentionally stronger than normal cancellation. It is
+    // used only after the caller has observed that no first PCM block arrived
+    // and the CoreAudio start is considered wedged. Terminating the disposable
+    // recorder process forces macOS to tear down that HAL client so a fresh
+    // attempt can be made without overlapping the old stream.
+    if (child_pid > 0)
+      kill(child_pid, SIGKILL);
+  }
+  if (!audio_path.empty())
+    std::remove(audio_path.c_str());
+
+  std::unique_lock lock(state->mutex);
+  state->changed.wait(lock, [&] { return state->finished; });
+  audio_path = std::move(state->audio_path);
+  lock.unlock();
+  if (!audio_path.empty())
+    std::remove(audio_path.c_str());
+}
+
 } // namespace vocotype::desktop

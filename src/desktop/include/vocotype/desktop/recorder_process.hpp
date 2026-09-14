@@ -20,6 +20,7 @@ public:
   std::string stop();
   void cancel_async();
   void cancel();
+  void abort_startup();
   [[nodiscard]] bool running() const;
 
 private:

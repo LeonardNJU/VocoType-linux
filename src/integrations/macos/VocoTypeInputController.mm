@@ -1658,7 +1658,7 @@ NSDictionary<NSString *, id> *VocoTypeVoiceLifecycleSmokeMetrics(void) {
                      stalled = std::move(stalled_recorder)]() mutable {
           const auto cleanup_started = std::chrono::steady_clock::now();
           if (stalled)
-            stalled->cancel();
+            stalled->abort_startup();
           const auto cleanup_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
               std::chrono::steady_clock::now() - cleanup_started).count();
           dispatch_async(dispatch_get_main_queue(), ^{

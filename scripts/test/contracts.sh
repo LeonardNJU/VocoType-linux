@@ -280,7 +280,7 @@ for token in \
   'kMicrophoneStartupRetryTimeoutMs = 1800' \
   'microphone_start_retries' \
   'CoreAudio startup appears wedged; recycling recorder once' \
-  'stalled->cancel()' \
+  'stalled->abort_startup()' \
   'cancelled recorder cleanup finished after' \
   'retrying microphone recorder'; do
   rg -Fq -- "$token" src/integrations/macos/VocoTypeInputController.mm || \

@@ -41,7 +41,31 @@ int main(int argc, char **argv) {
     if (recorder.running()) throw std::runtime_error("cancelled recorder was not reaped");
     std::ifstream marker(pattern); std::string text; std::getline(marker, text);
     if (text != "cleaned") throw std::runtime_error("startup cleanup was interrupted by early SIGKILL");
-    std::cout << "PASS cancellation returns immediately and allows startup cleanup\n";
+
+    {
+      std::ofstream reset_marker(pattern, std::ios::trunc);
+    }
+    std::atomic_bool abort_ready{false};
+    vocotype::desktop::RecorderProcess wedged;
+    wedged.start(argv[1], [&](const std::string &type, const std::string &) {
+      if (type == "test_ready") abort_ready.store(true);
+    });
+    const auto abort_deadline = std::chrono::steady_clock::now() + 2s;
+    while (!abort_ready.load() && std::chrono::steady_clock::now() < abort_deadline)
+      std::this_thread::sleep_for(5ms);
+    if (!abort_ready.load()) throw std::runtime_error("fake startup-abort recorder never became ready");
+    const auto abort_started = std::chrono::steady_clock::now();
+    wedged.abort_startup();
+    const auto abort_elapsed = std::chrono::steady_clock::now() - abort_started;
+    if (abort_elapsed > 500ms)
+      throw std::runtime_error("startup abort did not release the wedged child promptly");
+    if (wedged.running())
+      throw std::runtime_error("startup-aborted recorder was not reaped");
+    std::ifstream aborted_marker(pattern); text.clear(); std::getline(aborted_marker, text);
+    if (text == "cleaned")
+      throw std::runtime_error("startup abort unexpectedly used graceful cleanup path");
+
+    std::cout << "PASS normal cancellation preserves cleanup and startup abort force-reaps\n";
   } catch (const std::exception &e) {
     std::cerr << "FAIL " << e.what() << '\n'; return 1;
   }

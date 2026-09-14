@@ -525,7 +525,7 @@ Json reset_microphone(int startup_timeout_ms) {
   // installed input source. If CoreAudio itself is still wedged the follow-up
   // real-PCM probe will fail and the UI can offer an explicit privileged system
   // audio restart instead of silently doing it.
-  (void)run_process({"/usr/bin/pkill", "-x", "vocotype-audio-recorder"});
+  (void)run_process({"/usr/bin/pkill", "-9", "-x", "vocotype-audio-recorder"});
   (void)run_process({"/usr/bin/pkill", "-x", "VoCoTypeLinuxInputMethod"});
   std::this_thread::sleep_for(std::chrono::milliseconds(350));
 
