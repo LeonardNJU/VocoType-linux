@@ -216,6 +216,11 @@ if(BUILD_TESTING)
                    VOCOTYPE_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/terms-page-smoke-cache
                    $<TARGET_FILE:VocoTypeSettings> --terms-page-smoke
                    ${CMAKE_CURRENT_BINARY_DIR}/terms-page-smoke.json)
+  add_test(NAME vocotype-macos-no-orphan-recorder
+           COMMAND ${CMAKE_COMMAND}
+                   -DSETTINGS_APP=$<TARGET_FILE:VocoTypeSettings>
+                   -DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/orphan-recorder-smoke
+                   -P ${CMAKE_CURRENT_SOURCE_DIR}/../../desktop/tests/macos_no_orphan_recorder.cmake)
 endif()
 
 add_executable(VocoTypeSettings MACOSX_BUNDLE

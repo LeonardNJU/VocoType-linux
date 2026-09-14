@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- macOS recorder helpers now monitor their launching parent and hard-exit if InputMethod/Settings disappears, preventing launchd-adopted orphan recorders from remaining attached to CoreAudio. A real failure captured during development left a recorder alive for over an hour, blocked in `AudioOutputUnitStop → AudioDeviceStop → HAL mutex`.
+- macOS recording shutdown now has a bounded CoreAudio StopIO grace period. If all useful PCM was already captured but HAL teardown wedges, the recorder first salvages the WAV and emits the normal audio result, then exits without running the stuck HAL destructor path. This prevents a completed recording from poisoning later microphone starts while preserving the user's speech.
 - Restore the macOS cancelled-recorder cleanup protections alongside the delayed startup-status UI, so the current mainline retains the safer CoreAudio teardown behavior while adding automatic recovery.
 - Distinguish microphone startup failure from a genuinely short recording. On startup timeout, report a possible system-audio capture conflict only when the specifically observed helper is present; this advisory never terminates other applications.
 - macOS Dashboard and Doctor now distinguish “input device exists / permission granted” from **real microphone capture health**. When permission is available they launch a short isolated recorder probe and require an actual PCM block; a wedged CoreAudio input path is reported as a failure instead of looking healthy just because devices enumerate successfully.

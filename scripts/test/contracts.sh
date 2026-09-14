@@ -259,6 +259,12 @@ for token in 'first_audio_started_ns' '--emit-levels' '--no-preview'; do
   rg -Fq -- "$token" src/desktop/src/audio_recorder_main.cpp || \
     fail "macOS timed recorder no longer measures from real PCM or exposes isolated Playground capture: $token"
 done
+for token in 'recorder_parent_pid' 'kCaptureStopGrace' 'cleanup_forced' 'coreaudio_stop_timeout'; do
+  rg -Fq -- "$token" src/desktop/src/audio_recorder_main.cpp || \
+    fail "macOS recorder can outlive its parent or wedge forever during CoreAudio StopIO: $token"
+done
+rg -Fq 'vocotype-macos-no-orphan-recorder' src/integrations/macos/CMakeLists.txt || \
+  fail "macOS test suite no longer checks that Settings exit cannot orphan a recorder"
 for token in 'capture_recording_via_helper' '"--emit-levels"' '"--no-preview"'; do
   rg -Fq -- "$token" src/desktop/src/settings_backend.cpp || \
     fail "macOS Playground capture no longer uses the watchdog-protected recorder helper: $token"

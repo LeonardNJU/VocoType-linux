@@ -127,6 +127,24 @@ int main(int argc, char **argv) {
     global_stop = &stop;
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
+#ifdef __APPLE__
+    // A recorder is a disposable child of InputMethod/Settings. It must never
+    // survive the parent and become a launchd-adopted CoreAudio client: an
+    // orphan stuck in AudioDeviceStop can poison later microphone starts for
+    // hours. Monitor the original parent and hard-exit if that relationship is
+    // lost. _Exit is intentional: destructors may themselves block in HAL.
+    const pid_t recorder_parent_pid = ::getppid();
+    std::thread([recorder_parent_pid] {
+      if (recorder_parent_pid <= 1)
+        return;
+      while (true) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        if (::getppid() != recorder_parent_pid ||
+            (::kill(recorder_parent_pid, 0) != 0 && errno == ESRCH))
+          std::_Exit(4);
+      }
+    }).detach();
+#endif
 
     std::mutex samples_mutex;
     std::vector<std::int16_t> samples;
@@ -412,6 +430,43 @@ int main(int argc, char **argv) {
       }
     }
     stop.store(true);
+#ifdef __APPLE__
+    // PortAudio/CoreAudio can deliver every requested PCM block and then hang
+    // forever while stopping the AudioUnit. Do not let that teardown wedge
+    // strand a recorder process. Give normal shutdown a short grace period;
+    // if it expires, preserve the already captured audio, emit the normal
+    // final audio event, and terminate without running HAL destructors.
+    constexpr auto kCaptureStopGrace = std::chrono::milliseconds(900);
+    const auto stop_deadline = std::chrono::steady_clock::now() + kCaptureStopGrace;
+    while (!capture_finished.load(std::memory_order_acquire) &&
+           std::chrono::steady_clock::now() < stop_deadline)
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    if (!capture_finished.load(std::memory_order_acquire)) {
+      std::vector<std::int16_t> salvaged;
+      {
+        std::lock_guard lock(samples_mutex);
+        salvaged = samples;
+      }
+      if (!salvaged.empty()) {
+        const auto path = create_secure_wav_path();
+        write_pcm16_wav(path, salvaged, sample_rate);
+        emit({{"type", "cleanup_forced"},
+              {"reason", "coreaudio_stop_timeout"},
+              {"grace_ms", 900}});
+        emit({{"type", "audio"},
+              {"path", path.string()},
+              {"sample_rate", sample_rate},
+              {"frames", salvaged.size()},
+              {"device_id", device.id},
+              {"device_name", device.name}});
+        std::_Exit(0);
+      }
+      emit({{"type", "error"},
+            {"code", "microphone_stop_timeout"},
+            {"error", "CoreAudio 停止录音时卡住，且没有可保存的音频"}});
+      std::_Exit(3);
+    }
+#endif
     capture_thread.join();
     if (!capture_error.empty()) {
       preview_accepting.store(false);
