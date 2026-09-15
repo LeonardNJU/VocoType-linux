@@ -79,6 +79,8 @@ FCITX_CONFIGURATION(
         this, "BlockWhenComposing", "存在未提交预编辑时禁止开始录音", true};
     fcitx::Option<bool> stripTrailingPeriodOnCommit{
         this, "StripTrailingPeriodOnCommit", "提交时移除尾部句号", false};
+    fcitx::Option<bool> spaceBetweenCjkAndAscii{
+        this, "SpaceBetweenCjkAndAscii", "中文与英文/数字之间加空格", false};
     fcitx::Option<std::string> panelStyle{
         this, "PanelStyle", "状态提示样式（minimal 或 animated）", "minimal"};);
 
