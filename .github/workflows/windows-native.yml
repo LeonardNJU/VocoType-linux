@@ -1,0 +1,95 @@
+name: Windows native dictation
+on:
+  workflow_dispatch:
+    inputs:
+      native_run_id:
+        description: Optional successful native runtime run to reuse after source-identity verification
+        required: false
+        default: ''
+        type: string
+  push:
+    branches: [feat/windows-native-dictation]
+    paths:
+      - 'packaging/windows/**'
+      - 'src/integrations/windows/**'
+      - 'src/core/**'
+      - 'src/workers/funasr/**'
+      - '.github/workflows/windows-native.yml'
+permissions:
+  contents: read
+jobs:
+  funasr:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Verify reusable runtime provenance
+        if: inputs.native_run_id != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NATIVE_RUN_ID: ${{ inputs.native_run_id }}
+        run: |
+          if ($env:NATIVE_RUN_ID -notmatch '^\d+$') { throw 'Invalid run ID' }
+          $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:NATIVE_RUN_ID" | ConvertFrom-Json
+          if ($run.conclusion -ne 'success' -or $run.head_repository.full_name -ne $env:GITHUB_REPOSITORY) { throw 'Untrusted or unsuccessful runtime build' }
+          foreach ($file in @('packaging/windows/build-funasr.ps1', 'src/workers/funasr/offline_worker.cpp', 'src/workers/funasr/worker.cpp', 'src/workers/funasr/windows_stdin.hpp', 'src/integrations/windows/utf8.manifest')) {
+            $previous = git rev-parse "$($run.head_sha):$file"
+            $current = git rev-parse "HEAD:$file"
+            if ($LASTEXITCODE -ne 0 -or $previous -ne $current) { throw "Runtime source differs: $file" }
+          }
+      - uses: actions/download-artifact@v5
+        if: inputs.native_run_id != ''
+        with:
+          name: windows-funasr-native
+          path: build/windows-runtime/bundle
+          run-id: ${{ inputs.native_run_id }}
+          github-token: ${{ github.token }}
+      - name: Build pinned native FunASR workers
+        if: inputs.native_run_id == ''
+
+        shell: pwsh
+        run: ./packaging/windows/build-funasr.ps1
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-funasr-native
+          path: build/windows-runtime/bundle/*
+          if-no-files-found: error
+
+  portable-preview:
+    needs: funasr
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - name: Configure native application
+        shell: pwsh
+        run: ./packaging/windows/configure.ps1
+      - name: Build application and tests
+        shell: pwsh
+        run: cmake --build build/windows --config Release --parallel
+      - name: Run native process and pipeline tests
+        shell: pwsh
+        run: ctest --test-dir build/windows -C Release --output-on-failure
+      - uses: actions/download-artifact@v5
+        with:
+          name: windows-funasr-native
+          path: build/windows-runtime/bundle
+      - name: Assemble isolated portable preview
+        shell: pwsh
+        run: ./packaging/windows/package-preview.ps1 -NativeBundle build/windows-runtime/bundle
+      - name: Install pinned models into a test-only path
+        shell: pwsh
+        run: ./packaging/windows/setup-models.ps1 -InstallDir dist/windows-preview -ModelRoot "$env:RUNNER_TEMP/vocotype-models" -ConfigPath "$env:RUNNER_TEMP/vocotype-asr-test/配置.json" -SkipPunctuation
+      - name: Test real offline and streaming inference on recorded public speech
+        shell: pwsh
+        run: ./packaging/windows/smoke-real-asr.ps1 -Bundle "$PWD/dist/windows-preview" -Config "$env:RUNNER_TEMP/vocotype-asr-test/配置.json"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: VocoType-Windows-x64-preview
+          path: |
+            dist/VocoType-Windows-x64-preview-*.zip
+            ${{ runner.temp }}/vocotype-asr-test/real-asr-report.json
+          if-no-files-found: error
