@@ -3542,9 +3542,9 @@ GtkWidget *build_slm_profiles(SettingsWindow &window) {
                                 "例如：谈论 AI 公司"),
                      FALSE, FALSE, 0);
   GtkWidget *vocabulary_actions = sui::make_button_row();
-  GtkWidget *add_vocabulary = gtk_button_new_with_label("添加词汇");
+  GtkWidget *new_vocabulary = gtk_button_new_with_label("新建词汇");
   GtkWidget *remove_vocabulary = gtk_button_new_with_label("删除选中");
-  gtk_box_pack_start(GTK_BOX(vocabulary_actions), add_vocabulary, FALSE, FALSE,
+  gtk_box_pack_start(GTK_BOX(vocabulary_actions), new_vocabulary, FALSE, FALSE,
                      0);
   gtk_box_pack_start(GTK_BOX(vocabulary_actions), remove_vocabulary, FALSE,
                      FALSE, 0);
@@ -3745,33 +3745,25 @@ GtkWidget *build_slm_profiles(SettingsWindow &window) {
         &window);
   }
   g_signal_connect_swapped(
-      add_vocabulary, "clicked", G_CALLBACK((+[](SettingsWindow *self) {
+      new_vocabulary, "clicked", G_CALLBACK((+[](SettingsWindow *self) {
         if (!self->slm_profiles_ready) {
-          set_profiles_status(*self, "当前模板文件无法载入，不能添加词汇。");
+          set_profiles_status(*self, "当前模板文件无法载入，不能新建词汇。");
           return;
         }
         try {
           sync_vocabulary_form(*self);
-          const std::string canonical = trim_profile_text(
-              gtk_entry_get_text(self->slm_vocab_canonical));
-          if (canonical.empty())
-            throw std::runtime_error("正确术语不能为空");
-          auto vocabulary = self->slm_profiles_document.find("vocabulary");
-          if (vocabulary == self->slm_profiles_document.end() ||
-              !vocabulary->is_array())
-            throw std::runtime_error("vocabulary 结构无效");
-          vocabulary->push_back(
-              Json{{"canonical", canonical},
-                   {"aliases", split_profile_aliases(
-                                    gtk_entry_get_text(self->slm_vocab_aliases))},
-                   {"context", gtk_entry_get_text(self->slm_vocab_context)}});
+          vocotype::common::append_vocabulary_draft(
+              self->slm_profiles_document);
+          const Json &vocabulary = self->slm_profiles_document.at("vocabulary");
           self->slm_vocabulary_selected =
-              static_cast<int>(vocabulary->size() - 1);
+              static_cast<int>(vocabulary.size() - 1);
           self->slm_profiles_dirty = true;
           refresh_vocabulary_list(*self);
-          set_profiles_status(*self, "已添加词汇；点击“保存并应用”写入文件。");
+          gtk_widget_grab_focus(GTK_WIDGET(self->slm_vocab_canonical));
+          set_profiles_status(*self,
+                              "已新建空白词汇；填写后点击“保存并应用”写入文件。");
         } catch (const std::exception &error) {
-          set_profiles_status(*self, std::string("添加词汇失败：") + error.what());
+          set_profiles_status(*self, std::string("新建词汇失败：") + error.what());
         }
       })),
       &window);

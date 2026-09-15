@@ -51,6 +51,8 @@ ITN页直接调用 C++ Core预览数字、日期、时间、距离和金额格�
 
 AI 页配置 OpenAI-compatible endpoint、model、API key、超时、最短字符数、SSE、thinking 与语音编辑开关。默认编辑快捷键是 `Ctrl+F9`，但可在通用设置中重新录制。测试请求由 C++ libcurl/SSE 客户端执行，不启动或管理模型进程。
 
+“后处理模板”页单独保存命名的系统提示词和全局语义词汇。可在不重启服务的情况下创建、复制、重命名、选择或删除模板；词汇的 canonical、aliases 与适用语境会随模板作为模型上下文传递，因此不会用本地精确替换误改同形词。
+
 ## Playground
 
 Playground 使用 native PortAudio/WAV 实现：

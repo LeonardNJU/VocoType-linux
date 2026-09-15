@@ -63,6 +63,17 @@ private:
   std::optional<std::string> previous_;
 };
 
+class UmaskGuard final {
+public:
+  explicit UmaskGuard(mode_t mask) : previous_(::umask(mask)) {}
+  UmaskGuard(const UmaskGuard &) = delete;
+  UmaskGuard &operator=(const UmaskGuard &) = delete;
+  ~UmaskGuard() { (void)::umask(previous_); }
+
+private:
+  mode_t previous_;
+};
+
 class CaptureHttpServer final {
 public:
   explicit CaptureHttpServer(bool stream) : stream_(stream) {
@@ -337,6 +348,41 @@ void test_profile_validation_and_file_lifecycle(
   require(rejected, "空 system_prompt 未被校验拒绝");
 }
 
+void test_vocabulary_draft_preserves_existing_entry(
+    const std::filesystem::path &path) {
+  EnvironmentValue profile_path("VOCOTYPE_PROFILE_CONFIG");
+  profile_path.set(path.string());
+  std::filesystem::remove_all(path.parent_path());
+
+  Json document = vocotype::common::default_profile_document();
+  document["vocabulary"] = Json::array({
+      {{"canonical", "智谱"},
+       {"aliases", Json::array({"质谱"})},
+       {"context", "谈论 AI 公司时"}},
+  });
+  UmaskGuard restrictive_umask(0022);
+  vocotype::common::save_profile_document(document);
+
+  vocotype::common::append_vocabulary_draft(document);
+  require(document["vocabulary"].size() == 2,
+          "新建词汇没有追加空白草稿");
+  require(document["vocabulary"][0].value("canonical", "") == "智谱" &&
+              document["vocabulary"][1].value("canonical", "").empty(),
+          "新建词汇草稿覆盖或复制了原词条");
+  document["vocabulary"][1]["canonical"] = "Claude Code";
+  document["vocabulary"][1]["aliases"] = Json::array({"cloud code"});
+  document["vocabulary"][1]["context"] = "谈论编程代理时";
+  vocotype::common::save_profile_document(document);
+
+  const Json loaded = vocotype::common::load_profile_document_strict();
+  require(loaded["vocabulary"].size() == 2,
+          "保存新词汇后词条数量不正确");
+  require(loaded["vocabulary"][0].value("canonical", "") == "智谱" &&
+              loaded["vocabulary"][1].value("canonical", "") ==
+                  "Claude Code",
+          "保存新词汇后原词条或新词条丢失");
+}
+
 Json vocabulary_profile() {
   Json document = vocotype::common::default_profile_document();
   document["active"] = "writer";
@@ -426,6 +472,7 @@ int main() {
         ("vocotype-slm-profiles-" + std::to_string(::getpid()));
     const std::filesystem::path path = root / "config" / "slm-profiles.json";
     test_profile_validation_and_file_lifecycle(path);
+    test_vocabulary_draft_preserves_existing_entry(path);
     test_profile_prompt_on_sync_stream_and_edit(path);
     std::filesystem::remove_all(root);
     std::cout << "slm profile tests passed\n";
