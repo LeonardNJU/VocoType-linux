@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Make the Fcitx5 VoCoType configuration entry open the existing full Settings center, which owns the three voice-hotkey recorders and conflict validation.
+
+### Fixed
+
+- Preserve existing custom Fcitx5 voice hotkeys when unrelated settings are saved, including `Shift+Space`.
+
 ## [5.0.9] - 2026-09-14
 
 ### Fixed
