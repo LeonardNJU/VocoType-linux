@@ -2655,10 +2655,10 @@ GtkWidget *build_recognition(SettingsWindow &window) {
   GtkWidget *panel_card = sui::make_card();
   window.fcitx_panel_card = panel_card;
   window.fcitx_panel_style = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
-  gtk_combo_box_text_append(window.fcitx_panel_style, "minimal",
-                            "简洁：🎤 录音中 / ⏳ 识别中");
   gtk_combo_box_text_append(window.fcitx_panel_style, "ultra_minimal",
                             "极简：🎤 录音中... / 处理中...（隐藏润色过程）");
+  gtk_combo_box_text_append(window.fcitx_panel_style, "minimal",
+                            "简洁：🎤 录音中 / ⏳ 识别中");
   gtk_combo_box_text_append(window.fcitx_panel_style, "animated",
                             "动画：正在听状态动画");
   gtk_combo_box_set_active_id(GTK_COMBO_BOX(window.fcitx_panel_style),
