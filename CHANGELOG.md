@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add named, hot-reloadable post-processing profiles and a global contextual vocabulary. Settings can edit and apply both without restarting the voice service; vocabulary is supplied to the model as context rather than applied as a local string replacement.
+
 ## [5.0.9] - 2026-09-14
 
 ### Fixed
