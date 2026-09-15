@@ -121,6 +121,7 @@ Json default_config_json() {
            {"compact_times", true},
            {"compact_distances", true},
            {"currency_symbols", true},
+           {"space_between_cjk_and_ascii", false},
        }},
       {"asr_streaming",
        {
@@ -219,6 +220,9 @@ AppConfig parse_config(const Json &value) {
                     config.normalization.compact_distances);
   config.normalization.currency_symbols = bool_value_or(
       normalization, "currency_symbols", config.normalization.currency_symbols);
+  config.normalization.space_between_cjk_and_ascii = bool_value_or(
+      normalization, "space_between_cjk_and_ascii",
+      config.normalization.space_between_cjk_and_ascii);
 
   const Json streaming = merged.value("asr_streaming", Json::object());
   config.streaming_asr.enabled =

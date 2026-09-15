@@ -107,6 +107,7 @@ struct SettingsWindow {
   GtkSwitch *compact_times = nullptr;
   GtkSwitch *compact_distances = nullptr;
   GtkSwitch *currency_symbols = nullptr;
+  GtkSwitch *space_between_cjk_and_ascii = nullptr;
   GtkEntry *itn_preview_input = nullptr;
   GtkLabel *itn_preview_output = nullptr;
   GtkComboBoxText *fcitx_panel_style = nullptr;
@@ -960,6 +961,8 @@ void save_config(SettingsWindow &window) {
       gtk_switch_get_active(window.compact_distances);
   normalization["currency_symbols"] =
       gtk_switch_get_active(window.currency_symbols);
+  normalization["space_between_cjk_and_ascii"] =
+      gtk_switch_get_active(window.space_between_cjk_and_ascii);
 
   auto &slm = window.config["slm"];
   slm["enabled"] = gtk_switch_get_active(window.slm_enabled);
@@ -1008,6 +1011,9 @@ void save_config(SettingsWindow &window) {
        gtk_switch_get_active(window.fcitx_block_composing) ? "True" : "False"},
       {"StripTrailingPeriodOnCommit",
        gtk_switch_get_active(window.fcitx_strip_period) ? "True" : "False"},
+      {"SpaceBetweenCjkAndAscii",
+       gtk_switch_get_active(window.space_between_cjk_and_ascii) ? "True"
+                                                                  : "False"},
   });
   if (selected_framework(window) == "ibus") {
     const char *active =
@@ -2137,6 +2143,11 @@ void populate_from_config(SettingsWindow &window) {
                         json_bool(normalization, "compact_distances", true));
   gtk_switch_set_active(window.currency_symbols,
                         json_bool(normalization, "currency_symbols", true));
+  gtk_switch_set_active(
+      window.space_between_cjk_and_ascii,
+      json_bool(normalization, "space_between_cjk_and_ascii",
+                config_value(fcitx_config_path(), "SpaceBetweenCjkAndAscii",
+                             "False") == "True"));
 
   const auto &slm = window.config["slm"];
   gtk_switch_set_active(window.slm_enabled, json_bool(slm, "enabled", false));
@@ -2716,6 +2727,7 @@ GtkWidget *build_recognition(SettingsWindow &window) {
   window.compact_times = GTK_SWITCH(sui::make_switch());
   window.compact_distances = GTK_SWITCH(sui::make_switch());
   window.currency_symbols = GTK_SWITCH(sui::make_switch());
+  window.space_between_cjk_and_ascii = GTK_SWITCH(sui::make_switch());
   gtk_box_pack_start(GTK_BOX(itn_card),
                      sui::make_row("启用数字与 ITN",
                                    "关闭后保留用户词典替换，但不改写中文数字。",
@@ -2739,6 +2751,12 @@ GtkWidget *build_recognition(SettingsWindow &window) {
                      sui::make_row("金额符号", "例如：一百二十八元 → ¥128",
                                    GTK_WIDGET(window.currency_symbols)),
                      FALSE, FALSE, 0);
+  gtk_box_pack_start(
+      GTK_BOX(itn_card),
+      sui::make_row("中文与英文/数字间空格",
+                    "在相邻中文与英文单词或阿拉伯数字之间加空格，例如“使用 Claude Code 处理 2026 年数据”。",
+                    GTK_WIDGET(window.space_between_cjk_and_ascii)),
+      FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(page.content), itn_card, FALSE, FALSE, 0);
 
   GtkWidget *preview_card = sui::make_card();
@@ -2836,6 +2854,8 @@ GtkWidget *build_recognition(SettingsWindow &window) {
           {"compact_times", gtk_switch_get_active(self->compact_times)},
           {"compact_distances", gtk_switch_get_active(self->compact_distances)},
           {"currency_symbols", gtk_switch_get_active(self->currency_symbols)},
+          {"space_between_cjk_and_ascii",
+           gtk_switch_get_active(self->space_between_cjk_and_ascii)},
       };
       const Json result = vocotype::desktop::unix_json_request(
           vocotype::desktop::backend_socket_path(),

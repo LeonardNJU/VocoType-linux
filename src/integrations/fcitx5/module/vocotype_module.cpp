@@ -1,5 +1,6 @@
 #include "vocotype_module.h"
 #include "vocotype/common/preview_text.hpp"
+#include "vocotype/common/spacing.hpp"
 #include "recorder_shutdown.hpp"
 #include "timer_lifetime.hpp"
 
@@ -2122,10 +2123,14 @@ void VoCoTypeModule::commitText(fcitx::InputContext *ic,
     }
   const std::string commit_text =
       strip_trailing_period ? stripTrailingCommitPeriod(text) : text;
+  const std::string formatted_text = config_.spaceBetweenCjkAndAscii.value()
+                                         ? vocotype::common::space_between_cjk_and_ascii(
+                                               commit_text)
+                                         : commit_text;
     const uint64_t now = fcitx::now(CLOCK_MONOTONIC);
     const std::string program = ic->program();
     const std::string frontend = ic->frontend() ? ic->frontend() : "";
-    if (last_committed_ic_ == ic && last_committed_text_ == commit_text &&
+    if (last_committed_ic_ == ic && last_committed_text_ == formatted_text &&
         last_committed_program_ == program &&
         last_committed_frontend_ == frontend && now >= last_commit_time_us_ &&
         now - last_commit_time_us_ < DUPLICATE_COMMIT_SUPPRESS_US) {
@@ -2133,12 +2138,12 @@ void VoCoTypeModule::commitText(fcitx::InputContext *ic,
     }
 
     clearOwnedUI(ic);
-    ic->commitString(commit_text);
+    ic->commitString(formatted_text);
 
     last_committed_ic_ = ic;
     last_committed_program_ = program;
     last_committed_frontend_ = frontend;
-    last_committed_text_ = commit_text;
+    last_committed_text_ = formatted_text;
     last_commit_time_us_ = now;
 }
 
