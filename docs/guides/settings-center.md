@@ -10,6 +10,11 @@ Linux：
 vocotype-settings
 ```
 
+Fcitx 5 用户也可以从配置工具的附加组件列表选择
+**VoCoType 语音输入 → 配置**。Fcitx 会直接启动同一个 `vocotype-settings`，
+而不是生成另一套只能修改部分选项的表单；运行模块仍通过正式配置接口加载并
+保存 Fcitx 专属字段。
+
 macOS：从 `/Applications`打开 **VoCoType-linux**。首次启动还会安装或升级内置 InputMethodKit组件。
 
 源码树可先运行对应安装器：

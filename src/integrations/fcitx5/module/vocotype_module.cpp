@@ -1251,7 +1251,7 @@ void VoCoTypeModule::startRecording(fcitx::InputContext *ic, bool long_mode,
     }
     if (edit_mode) {
     showVoiceEditStatusBar(ic, "🎤 语音编辑中...",
-                               "松开 Ctrl+F9 后识别编辑指令");
+                               "松开按键后识别编辑指令");
     } else if (animate_panel_) {
     startPanelAnimation(ic, long_mode ? PanelAnimationKind::RecordingLong
                       : PanelAnimationKind::Recording);

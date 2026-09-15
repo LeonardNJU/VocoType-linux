@@ -171,6 +171,10 @@ std::string hotkey_safety_error(const Hotkey &hotkey) {
     return "没有识别到有效按键";
 
   const guint modifiers = static_cast<guint>(hotkey.modifiers);
+  // 与 Fcitx5 模块保持一致：Shift+Space 是用户明确选择的左手语音
+  // 组合，允许它通过设置界面的校验，避免保存其他配置时回退到默认键。
+  if (hotkey.keyval == GDK_KEY_space && modifiers == GDK_SHIFT_MASK)
+    return {};
   const guint strong_modifiers =
       modifiers & (GDK_CONTROL_MASK | GDK_MOD1_MASK | GDK_SUPER_MASK);
   const gunichar unicode = gdk_keyval_to_unicode(hotkey.keyval);

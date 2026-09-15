@@ -68,6 +68,16 @@ if(VOCOTYPE_BUILD_FCITX_TESTS)
     target_link_libraries(vocotype-timer-lifetime-tests Fcitx5::Utils)
     add_test(NAME vocotype-timer-lifetime
              COMMAND vocotype-timer-lifetime-tests)
+
+    add_executable(vocotype-config-entry-tests
+        tests/config_entry_tests.cpp
+    )
+    target_include_directories(vocotype-config-entry-tests PRIVATE
+        ../common
+    )
+    target_link_libraries(vocotype-config-entry-tests Fcitx5::Core)
+    add_test(NAME vocotype-config-entry
+             COMMAND vocotype-config-entry-tests)
 endif()
 
 install(TARGETS vocotype LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}/fcitx5)
