@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Fcitx5 新增 `PanelStyle=ultra_minimal`（极简）：录音时保留实时识别预览，
+  录音和松键后的处理阶段均循环显示省略号，隐藏后处理过程；原有 `minimal`
+  在界面中更名为“简洁”，`animated` 行为不变。
+
 ## [5.0.9] - 2026-09-14
 
 ### Fixed

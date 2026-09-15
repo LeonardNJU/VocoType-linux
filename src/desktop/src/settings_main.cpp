@@ -980,8 +980,9 @@ void save_config(SettingsWindow &window) {
   slm["edit_enabled"] = gtk_switch_get_active(window.edit_enabled);
   slm["edit_max_tokens"] = std::max(1024, slm.value("edit_max_tokens", 1024));
 
-  const int style_index =
-      gtk_combo_box_get_active(GTK_COMBO_BOX(window.fcitx_panel_style));
+  const char *active_style =
+      gtk_combo_box_get_active_id(GTK_COMBO_BOX(window.fcitx_panel_style));
+  const std::string panel_style = active_style ? active_style : "minimal";
   window.config["ui"]["lifecycle_framework"] =
       window.fcitx_framework_radio &&
               gtk_toggle_button_get_active(
@@ -1003,7 +1004,7 @@ void save_config(SettingsWindow &window) {
       {"PTTKey", fcitx_hotkey_string(window.transcribe_hotkey)},
       {"PolishKey", fcitx_hotkey_string(window.polish_hotkey)},
       {"EditKey", fcitx_hotkey_string(window.edit_hotkey)},
-      {"PanelStyle", style_index == 1 ? "animated" : "minimal"},
+      {"PanelStyle", panel_style},
       {"BlockWhenComposing",
        gtk_switch_get_active(window.fcitx_block_composing) ? "True" : "False"},
       {"StripTrailingPeriodOnCommit",
@@ -2161,8 +2162,10 @@ void populate_from_config(SettingsWindow &window) {
 
   const std::string style =
       config_value(fcitx_config_path(), "PanelStyle", "minimal");
-  gtk_combo_box_set_active(GTK_COMBO_BOX(window.fcitx_panel_style),
-                           style == "animated" ? 1 : 0);
+  if (!gtk_combo_box_set_active_id(GTK_COMBO_BOX(window.fcitx_panel_style),
+                                   style.c_str()))
+    gtk_combo_box_set_active_id(GTK_COMBO_BOX(window.fcitx_panel_style),
+                                "minimal");
   gtk_switch_set_active(window.fcitx_block_composing,
                         config_value(fcitx_config_path(), "BlockWhenComposing",
                                      "True") != "False");
@@ -2653,13 +2656,15 @@ GtkWidget *build_recognition(SettingsWindow &window) {
   window.fcitx_panel_card = panel_card;
   window.fcitx_panel_style = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
   gtk_combo_box_text_append(window.fcitx_panel_style, "minimal",
-                            "极简：🎤 录音中 / ⏳ 识别中");
+                            "简洁：🎤 录音中 / ⏳ 识别中");
+  gtk_combo_box_text_append(window.fcitx_panel_style, "ultra_minimal",
+                            "极简：🎤 录音中... / 处理中...（隐藏润色过程）");
   gtk_combo_box_text_append(window.fcitx_panel_style, "animated",
                             "动画：正在听状态动画");
   gtk_combo_box_set_active_id(GTK_COMBO_BOX(window.fcitx_panel_style),
                               "minimal");
   window.panel_style_status =
-      GTK_LABEL(sui::make_status_label("极简模式：第一行保持简洁状态"));
+      GTK_LABEL(sui::make_status_label("简洁模式：沿用原有状态展示"));
   GtkWidget *panel_control = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
   gtk_box_pack_start(GTK_BOX(panel_control),
                      GTK_WIDGET(window.fcitx_panel_style), FALSE, FALSE, 0);
@@ -2667,8 +2672,9 @@ GtkWidget *build_recognition(SettingsWindow &window) {
                      GTK_WIDGET(window.panel_style_status), FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(panel_card),
                      sui::make_row("状态样式",
-                                   "极简模式保持“录音中”；动画模式保持“正在听”"
-                                   "动画。流式 partial 始终显示在第二行。",
+                                   "简洁模式沿用原有展示；极简模式用省略号提示录音和处理"
+                                   "并隐藏润色过程；动画模式保持“正在听”动画。"
+                                   "流式 partial 始终显示在第二行。",
                                    panel_control),
                      FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(page.content), panel_card, FALSE, FALSE, 0);
@@ -2820,10 +2826,13 @@ GtkWidget *build_recognition(SettingsWindow &window) {
                    G_CALLBACK(+[](GtkComboBox *box, gpointer data) {
                      auto *self = static_cast<SettingsWindow *>(data);
                      const char *active = gtk_combo_box_get_active_id(box);
+                     const std::string style = active ? active : "minimal";
                      set_label(self->panel_style_status,
-                               active && std::string(active) == "animated"
+                               style == "animated"
                                    ? "动画模式：第一行显示正在听状态动画"
-                                   : "极简模式：第一行保持简洁状态");
+                                   : style == "ultra_minimal"
+                                       ? "极简模式：录音和处理阶段循环省略号，隐藏润色过程"
+                                       : "简洁模式：沿用原有状态展示");
                    }),
                    &window);
   auto preview = +[](SettingsWindow *self) {
