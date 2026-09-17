@@ -515,6 +515,10 @@ bool VoCoTypeModule::hotkeyIsUnsafe(const fcitx::Key &configured) {
       fcitx::KeyState::Ctrl, fcitx::KeyState::Alt, fcitx::KeyState::Super,
       fcitx::KeyState::Hyper, fcitx::KeyState::Meta});
   const auto sym = key.sym();
+  if (sym == FcitxKey_space &&
+      states == fcitx::KeyStates{fcitx::KeyState::Shift}) {
+    return false;
+  }
   if (!strong_modifier && sym >= FcitxKey_space && sym <= FcitxKey_asciitilde) {
     return true;
   }

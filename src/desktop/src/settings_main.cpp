@@ -1004,6 +1004,8 @@ void save_config(SettingsWindow &window) {
     vocotype::desktop::write_ibus_hotkeys(runtime_hotkeys);
 
   std::vector<std::pair<std::string, std::string>> fcitx_values{
+      {"MinRecordingMs",
+       std::to_string(gtk_spin_button_get_value_as_int(window.minimum_recording))},
       {"PanelStyle", style_index == 1 ? "animated" : "minimal"},
       {"BlockWhenComposing",
        gtk_switch_get_active(window.fcitx_block_composing) ? "True" : "False"},
