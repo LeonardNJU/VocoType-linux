@@ -1734,6 +1734,7 @@ void VoCoTypeModule::schedulePolishPoll(
             if (watchdog_expired) {
                 const bool was_polish = active_polish_enabled_;
                 cancelActivePolishTask();
+                stopPanelAnimation();
                 if (ic_ptr && ic_ptr->hasFocus()) {
                     showTemporaryMessage(
                         ic_ptr, was_polish ? "❌ 润色任务超时，已取消"
