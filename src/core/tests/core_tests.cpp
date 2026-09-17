@@ -21,6 +21,7 @@
 #include "vocotype/common/posix.hpp"
 #include "vocotype/core/config.hpp"
 #include "vocotype/core/dispatcher.hpp"
+#include "vocotype/core/offline_asr.hpp"
 #include "vocotype/core/server.hpp"
 #include "vocotype/core/text_normalizer.hpp"
 #include "vocotype/core/voice_edit.hpp"
@@ -397,6 +398,12 @@ void test_text_normalizer() {
     require(spaced_style.normalize("使用Claude Code处理2026年数据") ==
                 "使用 Claude Code 处理 2026 年数据",
             "CJK and ASCII spacing style was not applied");
+    require(spaced_style.normalize("𠮷A") == "𠮷 A",
+            "supplementary-plane Han spacing was not applied");
+
+    vocotype::core::OfflineAsrProcess final_formatter({}, spaced);
+    require(final_formatter.format_final_text("使用Claude") == "使用 Claude",
+            "post-polish final spacing was not applied");
 
     {
       std::ofstream output(terms);

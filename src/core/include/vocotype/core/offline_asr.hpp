@@ -24,6 +24,7 @@ public:
   [[nodiscard]] Json prepare(const Json &request = Json::object());
   [[nodiscard]] Json transcribe(const Json &request);
   [[nodiscard]] std::string normalize_text(const std::string &text);
+  [[nodiscard]] std::string format_final_text(std::string text) const;
   [[nodiscard]] std::string
   build_native_hotwords(const std::string &extra = "");
 
@@ -36,6 +37,7 @@ private:
   [[nodiscard]] std::vector<std::string> worker_arguments() const;
 
   OfflineAsrConfig config_;
+  NormalizationConfig normalization_;
   std::mutex request_mutex_;
   TextNormalizer normalizer_;
   JsonLineWorker worker_;
