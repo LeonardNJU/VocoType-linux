@@ -77,4 +77,13 @@ if(BUILD_TESTING)
             $<TARGET_FILE:vocotype-fake-streaming-worker>
             $<TARGET_FILE:vocotype-fake-offline-worker>
     )
+
+    add_executable(vocotype-slm-profiles-tests
+        tests/slm_profiles_tests.cpp
+    )
+    target_link_libraries(vocotype-slm-profiles-tests PRIVATE vocotype_core_lib)
+    add_test(
+        NAME vocotype-slm-profiles-tests
+        COMMAND vocotype-slm-profiles-tests
+    )
 endif()
