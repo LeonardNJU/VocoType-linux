@@ -25,6 +25,7 @@ struct NormalizationConfig {
   bool compact_times = true;
   bool compact_distances = true;
   bool currency_symbols = true;
+  bool space_between_cjk_and_ascii = false;
 };
 
 struct OfflineAsrConfig {

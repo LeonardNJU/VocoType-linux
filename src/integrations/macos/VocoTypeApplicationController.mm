@@ -918,6 +918,7 @@ NSString *percent_encode(NSString *text) {
   NSButton *_compactTimes;
   NSButton *_compactDistances;
   NSButton *_currencySymbols;
+  NSButton *_spaceBetweenCjkAndAscii;
   NSTextField *_normalizationInput;
   NSTextField *_normalizationOutput;
   std::vector<vocotype::desktop::AudioDevice> _inputDevices;
@@ -1623,11 +1624,15 @@ NSString *percent_encode(NSString *text) {
   _compactTimes = switch_button();
   _compactDistances = switch_button();
   _currencySymbols = switch_button();
+  _spaceBetweenCjkAndAscii = switch_button();
   [normalizationCard addArrangedSubview:settings_row(@"启用文本规范化", @"识别后执行术语替换和中文数字 ITN。", _normalizationEnabled)];
   [normalizationCard addArrangedSubview:settings_row(@"紧凑日期", @"例如 2026/07/27。", _compactDates)];
   [normalizationCard addArrangedSubview:settings_row(@"紧凑时间", @"例如 15:20。", _compactTimes)];
   [normalizationCard addArrangedSubview:settings_row(@"紧凑距离", @"例如 320m。", _compactDistances)];
   [normalizationCard addArrangedSubview:settings_row(@"货币符号", @"例如 ¥256。", _currencySymbols)];
+  [normalizationCard addArrangedSubview:settings_row(
+      @"中文与英文/数字间空格",
+      @"例如“使用 Claude Code 处理 2026 年数据”。", _spaceBetweenCjkAndAscii)];
   _normalizationInput = text_field(@"下午三点二十分跑了三百二十米，价格二百五十六元");
   NSStackView *preview = horizontal_stack(8.0);
   [preview addArrangedSubview:_normalizationInput];
@@ -2579,6 +2584,10 @@ NSString *percent_encode(NSString *text) {
     _currencySymbols.state = normalization.value("currency_symbols", true)
                                  ? NSControlStateValueOn
                                  : NSControlStateValueOff;
+    _spaceBetweenCjkAndAscii.state =
+        normalization.value("space_between_cjk_and_ascii", false)
+            ? NSControlStateValueOn
+            : NSControlStateValueOff;
 
     const Json slm = _config.value("slm", Json::object());
     _slmEnabled.state = slm.value("enabled", false) ? NSControlStateValueOn
@@ -2674,6 +2683,8 @@ NSString *percent_encode(NSString *text) {
         _compactDistances.state == NSControlStateValueOn;
     normalization["currency_symbols"] =
         _currencySymbols.state == NSControlStateValueOn;
+    normalization["space_between_cjk_and_ascii"] =
+        _spaceBetweenCjkAndAscii.state == NSControlStateValueOn;
 
     Json &slm = shared["slm"];
     slm["enabled"] = _slmEnabled.state == NSControlStateValueOn;

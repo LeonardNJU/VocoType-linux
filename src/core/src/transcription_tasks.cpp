@@ -362,7 +362,7 @@ void TranscriptionTaskManager::run_task(const std::shared_ptr<Task> &task,
     return;
   }
   cleanup.remove_now();
-  task->mark_final(polished.text, polished.reason);
+  task->mark_final(asr_.format_final_text(polished.text), polished.reason);
 }
 
 } // namespace vocotype::core

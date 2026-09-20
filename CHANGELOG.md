@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- “数字与格式（ITN）”新增“中文与英文/数字间空格”开关。开启后在相邻中文与 ASCII 英文或数字之间添加空格，默认关闭。
 - Fcitx5 adds `PanelStyle=ultra_minimal`: recording and post-release processing use a compact ellipsis animation while keeping live recognition preview and hiding polish intermediates. Existing `minimal` is relabeled as concise; `animated` is unchanged.
 
 ### Changed

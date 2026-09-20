@@ -40,6 +40,7 @@ bash scripts/install/ibus/install.sh --install-system-deps --download-models
 
 可配置输入设备、采样率、最短录音、实时 preedit、ITN，并管理：
 
+- 识别后的中文与英文/数字之间的空格；
 - Fcitx 状态面板的 `minimal`（简洁）、`ultra_minimal`（极简）与
   `animated` 样式；极简模式在录音和松键后的处理阶段循环显示省略号，
   不展示润色中间结果；

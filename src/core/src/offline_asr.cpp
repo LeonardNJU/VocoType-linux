@@ -1,4 +1,5 @@
 #include "vocotype/core/offline_asr.hpp"
+#include "vocotype/common/spacing.hpp"
 
 #include <unistd.h>
 
@@ -62,7 +63,8 @@ Json error_response(const std::string &error) {
 
 OfflineAsrProcess::OfflineAsrProcess(OfflineAsrConfig config,
                                      NormalizationConfig normalization)
-    : config_(std::move(config)), normalizer_(normalization) {}
+    : config_(std::move(config)), normalization_(std::move(normalization)),
+      normalizer_(normalization_) {}
 
 bool OfflineAsrProcess::enabled() const noexcept { return config_.enabled; }
 
@@ -241,6 +243,12 @@ Json OfflineAsrProcess::transcribe(const Json &request) {
 std::string OfflineAsrProcess::normalize_text(const std::string &text) {
   std::lock_guard lock(request_mutex_);
   return normalizer_.normalize(text);
+}
+
+std::string OfflineAsrProcess::format_final_text(std::string text) const {
+  return normalization_.space_between_cjk_and_ascii
+             ? vocotype::common::space_between_cjk_and_ascii(std::move(text))
+             : text;
 }
 
 std::string OfflineAsrProcess::build_native_hotwords(const std::string &extra) {
