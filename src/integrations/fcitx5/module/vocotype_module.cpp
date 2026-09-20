@@ -86,6 +86,16 @@ constexpr std::array<const char *, 8> POLISHING_ANIMATION_FRAMES = {
     "✨ 正在润色   ●   ", "✨ 正在润色  ●    ",
 };
 
+constexpr std::array<const char *, 8> ULTRA_MINIMAL_RECORDING_FRAMES = {
+    "🎤 录音中.", "🎤 录音中..", "🎤 录音中...", "🎤 录音中.",
+    "🎤 录音中..", "🎤 录音中...", "🎤 录音中.", "🎤 录音中..",
+};
+
+constexpr std::array<const char *, 8> PROCESSING_ANIMATION_FRAMES = {
+    "处理中.", "处理中..", "处理中...", "处理中.",
+    "处理中..", "处理中...", "处理中.", "处理中..",
+};
+
 void editDebugLog(const std::string &message) {
     const char *path = std::getenv("VOCOTYPE_FCITX5_DEBUG_LOG");
     if (!path || *path == '\0') {
@@ -472,7 +482,9 @@ void VoCoTypeModule::applyConfig() {
     block_when_composing_ = config_.blockWhenComposing.value();
     strip_trailing_period_on_commit_ =
         config_.stripTrailingPeriodOnCommit.value();
-    animate_panel_ = toLower(config_.panelStyle.value()) == "animated";
+    const std::string panel_style = toLower(config_.panelStyle.value());
+    animate_panel_ = panel_style == "animated";
+    ultra_minimal_panel_ = panel_style == "ultra_minimal";
 }
 
 bool VoCoTypeModule::hasActiveComposition(fcitx::InputContext *ic) const {
@@ -1256,6 +1268,8 @@ void VoCoTypeModule::startRecording(fcitx::InputContext *ic, bool long_mode,
     if (edit_mode) {
     showVoiceEditStatusBar(ic, "🎤 语音编辑中...",
                                "松开按键后识别编辑指令");
+    } else if (ultra_minimal_panel_) {
+    startPanelAnimation(ic, PanelAnimationKind::UltraMinimalRecording);
     } else if (animate_panel_) {
     startPanelAnimation(ic, long_mode ? PanelAnimationKind::RecordingLong
                       : PanelAnimationKind::Recording);
@@ -1327,6 +1341,8 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
         if (edit_mode) {
       showVoiceEditStatusBar(ic, "✍️ 正在识别编辑指令...",
                 "指令：等待识别结果...");
+        } else if (ultra_minimal_panel_) {
+            startPanelAnimation(ic, PanelAnimationKind::Processing);
         } else {
             showPanelMessage(ic, "⏳ 识别中");
         }
@@ -1681,9 +1697,13 @@ void VoCoTypeModule::startPolishPolling(fcitx::InputContext *ic,
     active_polish_started_us_ = fcitx::now(CLOCK_MONOTONIC);
     polish_poll_in_flight_ = false;
     polish_poll_timer_.reset();
-    showPanelMessage(
-        ic, polish_enabled ? "⏳ 识别中"
-                           : "⏳ 识别中（按 Esc 或继续输入可取消）");
+    if (ultra_minimal_panel_) {
+        startPanelAnimation(ic, PanelAnimationKind::Processing);
+    } else {
+        showPanelMessage(
+            ic, polish_enabled ? "⏳ 识别中"
+                               : "⏳ 识别中（按 Esc 或继续输入可取消）");
+    }
     schedulePolishPoll(ic->watch());
 }
 
@@ -1718,6 +1738,7 @@ void VoCoTypeModule::schedulePolishPoll(
             if (watchdog_expired) {
                 const bool was_polish = active_polish_enabled_;
                 cancelActivePolishTask();
+                stopPanelAnimation();
                 if (ic_ptr && ic_ptr->hasFocus()) {
                     showTemporaryMessage(
                         ic_ptr, was_polish ? "❌ 润色任务超时，已取消"
@@ -1844,7 +1865,7 @@ void VoCoTypeModule::handlePolishPollResult(
         return;
     }
 
-    if (polish_enabled) {
+    if (polish_enabled && !ultra_minimal_panel_) {
         showPolishProgress(ic, active_polish_preview_, active_polish_original_);
     }
     schedulePolishPoll(ic->watch());
@@ -1977,6 +1998,10 @@ void VoCoTypeModule::showAnimationFrame(fcitx::InputContext *ic) {
         frames = &LONG_RECORDING_ANIMATION_FRAMES;
     } else if (panel_animation_kind_ == PanelAnimationKind::Polishing) {
         frames = &POLISHING_ANIMATION_FRAMES;
+    } else if (panel_animation_kind_ == PanelAnimationKind::UltraMinimalRecording) {
+        frames = &ULTRA_MINIMAL_RECORDING_FRAMES;
+    } else if (panel_animation_kind_ == PanelAnimationKind::Processing) {
+        frames = &PROCESSING_ANIMATION_FRAMES;
     }
     recording_status_text_ =
         (*frames)[recording_animation_frame_index_ % frames->size()];

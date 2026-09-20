@@ -85,7 +85,7 @@ FCITX_CONFIGURATION(
     fcitx::HiddenOption<bool> stripTrailingPeriodOnCommit{
         this, "StripTrailingPeriodOnCommit", "提交时移除尾部句号", false};
     fcitx::HiddenOption<std::string> panelStyle{
-        this, "PanelStyle", "状态提示样式（minimal 或 animated）", "minimal"};);
+        this, "PanelStyle", "状态提示样式（minimal、ultra_minimal 或 animated）", "minimal"};);
 
 class VoCoTypeModule final : public fcitx::AddonInstance {
 public:
@@ -103,6 +103,8 @@ private:
         Recording,
         RecordingLong,
         Polishing,
+        UltraMinimalRecording,
+        Processing,
     };
 
   enum class VoiceHotkeyMode {
@@ -244,6 +246,7 @@ private:
     bool block_when_composing_ = true;
     bool strip_trailing_period_on_commit_ = false;
     bool animate_panel_ = false;
+    bool ultra_minimal_panel_ = false;
 
     bool ptt_pressed_ = false;
     bool ptt_suppressed_ = false;
