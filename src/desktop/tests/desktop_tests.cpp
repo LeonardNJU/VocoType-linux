@@ -102,6 +102,7 @@ int main() {
   assert(hotkey_safety_error(parse_hotkey("Ctrl+C")).find("常用系统") !=
          std::string::npos);
   assert(hotkey_safety_error(parse_hotkey("Alt_R")).empty());
+  assert(hotkey_safety_error(parse_hotkey("Shift+space")).empty());
   assert(hotkey_safety_error(parse_hotkey("F8")).empty());
   assert(hotkey_safety_error(parse_hotkey("Ctrl+Shift+F8")).empty());
 

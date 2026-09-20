@@ -937,6 +937,9 @@ void save_audio_config(SettingsWindow &window) {
 }
 
 void save_config(SettingsWindow &window) {
+  const bool hotkeys_changed = window.transcribe_hotkey_changed ||
+                               window.polish_hotkey_changed ||
+                               window.edit_hotkey_changed;
   for (const HotkeySlot slot :
        {HotkeySlot::transcribe, HotkeySlot::polish, HotkeySlot::edit}) {
     const bool check_external = hotkey_changed_for_slot(window, slot);
@@ -997,18 +1000,26 @@ void save_config(SettingsWindow &window) {
   };
   window.config.erase("hotkeys");
   vocotype::desktop::write_shared_config(window.config);
-  vocotype::desktop::write_ibus_hotkeys(runtime_hotkeys);
+  if (hotkeys_changed)
+    vocotype::desktop::write_ibus_hotkeys(runtime_hotkeys);
 
-  update_fcitx_config({
-      {"PTTKey", fcitx_hotkey_string(window.transcribe_hotkey)},
-      {"PolishKey", fcitx_hotkey_string(window.polish_hotkey)},
-      {"EditKey", fcitx_hotkey_string(window.edit_hotkey)},
+  std::vector<std::pair<std::string, std::string>> fcitx_values{
+      {"MinRecordingMs",
+       std::to_string(gtk_spin_button_get_value_as_int(window.minimum_recording))},
       {"PanelStyle", style_index == 1 ? "animated" : "minimal"},
       {"BlockWhenComposing",
        gtk_switch_get_active(window.fcitx_block_composing) ? "True" : "False"},
       {"StripTrailingPeriodOnCommit",
        gtk_switch_get_active(window.fcitx_strip_period) ? "True" : "False"},
-  });
+  };
+  if (hotkeys_changed) {
+    fcitx_values.insert(
+        fcitx_values.begin(),
+        {{"PTTKey", fcitx_hotkey_string(window.transcribe_hotkey)},
+         {"PolishKey", fcitx_hotkey_string(window.polish_hotkey)},
+         {"EditKey", fcitx_hotkey_string(window.edit_hotkey)}});
+  }
+  update_fcitx_config(fcitx_values);
   if (selected_framework(window) == "ibus") {
     const char *active =
         gtk_combo_box_get_active_id(GTK_COMBO_BOX(window.rime_schema));

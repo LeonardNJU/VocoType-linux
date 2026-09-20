@@ -47,39 +47,44 @@ struct RecorderOutputState {
 
 FCITX_CONFIGURATION(
     VoCoTypeModuleConfig,
-    fcitx::Option<fcitx::Key, fcitx::KeyConstrain> pttKey{
+    // Fcitx 配置工具只展示这一项，并直接启动完整设置中心。下面的运行时
+    // 字段仍参与配置加载、保存和 D-Bus SetConfig，但不再生成第二套表单。
+    fcitx::ExternalOption settingsCenter{
+        this, "SettingsCenter", "打开 VoCoType 完整设置",
+        "vocotype-settings"};
+    fcitx::HiddenOption<fcitx::Key, fcitx::KeyConstrain> pttKey{
         this, "PTTKey", "按住说话主键", fcitx::Key(FcitxKey_F9),
         fcitx::KeyConstrain({fcitx::KeyConstrainFlag::AllowModifierLess,
                              fcitx::KeyConstrainFlag::AllowModifierOnly})};
-    fcitx::Option<int, fcitx::IntConstrain> pttHoldThresholdMs{
+    fcitx::HiddenOption<int, fcitx::IntConstrain> pttHoldThresholdMs{
         this, "PTTHoldThresholdMs", "开始录音所需长按阈值（毫秒）", 0,
         fcitx::IntConstrain(0, 2000)};
-    fcitx::Option<fcitx::Key, fcitx::KeyConstrain> polishKey{
+    fcitx::HiddenOption<fcitx::Key, fcitx::KeyConstrain> polishKey{
         this, "PolishKey", "按住说话并进行 AI 润色",
         fcitx::Key(FcitxKey_F9, fcitx::KeyState::Shift),
         fcitx::KeyConstrain({fcitx::KeyConstrainFlag::AllowModifierLess,
                              fcitx::KeyConstrainFlag::AllowModifierOnly})};
-    fcitx::Option<fcitx::Key, fcitx::KeyConstrain> editKey{
+    fcitx::HiddenOption<fcitx::Key, fcitx::KeyConstrain> editKey{
         this, "EditKey", "按住说话并执行语音编辑",
         fcitx::Key(FcitxKey_F9, fcitx::KeyState::Ctrl),
         fcitx::KeyConstrain({fcitx::KeyConstrainFlag::AllowModifierLess,
                              fcitx::KeyConstrainFlag::AllowModifierOnly})};
-    fcitx::Option<int, fcitx::IntConstrain> minRecordingMs{
+    fcitx::HiddenOption<int, fcitx::IntConstrain> minRecordingMs{
         this, "MinRecordingMs", "最短有效录音时长（毫秒）", 1000,
         fcitx::IntConstrain(0, 5000)};
-    fcitx::Option<int, fcitx::IntConstrain> polishMinChars{
+    fcitx::HiddenOption<int, fcitx::IntConstrain> polishMinChars{
         this, "PolishMinChars", "AI 润色最少字数", 8,
         fcitx::IntConstrain(0, 2000)};
-    fcitx::Option<int, fcitx::IntConstrain> polishTimeoutMs{
+    fcitx::HiddenOption<int, fcitx::IntConstrain> polishTimeoutMs{
         this, "PolishTimeoutMs", "AI 流式输出空闲超时（毫秒）", 20000,
         fcitx::IntConstrain(1000, 120000)};
-    fcitx::Option<bool> enableThinking{this, "EnableThinking",
-                                       "允许模型 thinking / reasoning", false};
-    fcitx::Option<bool> blockWhenComposing{
+    fcitx::HiddenOption<bool> enableThinking{
+        this, "EnableThinking", "允许模型 thinking / reasoning", false};
+    fcitx::HiddenOption<bool> blockWhenComposing{
         this, "BlockWhenComposing", "存在未提交预编辑时禁止开始录音", true};
-    fcitx::Option<bool> stripTrailingPeriodOnCommit{
+    fcitx::HiddenOption<bool> stripTrailingPeriodOnCommit{
         this, "StripTrailingPeriodOnCommit", "提交时移除尾部句号", false};
-    fcitx::Option<std::string> panelStyle{
+    fcitx::HiddenOption<std::string> panelStyle{
         this, "PanelStyle", "状态提示样式（minimal 或 animated）", "minimal"};);
 
 class VoCoTypeModule final : public fcitx::AddonInstance {
