@@ -1,5 +1,7 @@
 #include "vocotype/core/slm_client.hpp"
 
+#include "vocotype/common/slm_profiles.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -17,15 +19,6 @@ namespace vocotype::core {
 namespace {
 
 using Clock = std::chrono::steady_clock;
-
-constexpr std::string_view kSystemPrompt =
-    R"PROMPT(你是中文语音转写文本的后处理器。
-
-目标：在不改变原意、不新增事实的前提下，做最小必要修正，让文本通顺、自然、易读。
-
-仅允许修正标点、断句、明显口头禅、重复词、同音错词、漏字和多字。技术字符串、英文、缩写、模型名、版本号、路径、命令、参数和代码片段应优先保持原样。不确定时保留原样。
-
-只输出最终文本，不要解释。)PROMPT";
 
 class CurlGlobal final {
 public:
@@ -716,8 +709,12 @@ PolishResult SlmClient::polish(const std::string &text,
   if (config_.remote_stream) {
     return stream_polish(text, enable_thinking, {});
   }
+  // 普通润色在发起请求前读取一次完整 profile 快照；complete() 本身保持
+  // 自定义 system prompt 原样，以免语音编辑路径混入润色 profile。
+  const std::string profile_prompt = vocotype::common::compose_profile_prompt(
+      vocotype::common::load_profile_document());
   const CompletionResult completion = complete(
-      std::string(kSystemPrompt), text, config_.max_tokens, enable_thinking);
+      profile_prompt, text, config_.max_tokens, enable_thinking);
   result.success = completion.success;
   result.reason = completion.reason;
   result.error = completion.error;
@@ -743,10 +740,12 @@ PolishResult SlmClient::stream_polish(const std::string &text,
     return result;
   }
   if (!config_.remote_stream) {
+    const std::string profile_prompt =
+        vocotype::common::compose_profile_prompt(
+            vocotype::common::load_profile_document());
     const PolishResult completed = [&] {
       const CompletionResult response =
-          complete(std::string(kSystemPrompt), text, config_.max_tokens,
-                   enable_thinking);
+          complete(profile_prompt, text, config_.max_tokens, enable_thinking);
       PolishResult value;
       value.original_text = text;
       value.text = response.success ? response.text : text;
@@ -778,6 +777,9 @@ PolishResult SlmClient::stream_polish(const std::string &text,
   context.callback = &callback;
   context.idle_timeout_ms = config_.stream_idle_timeout_ms;
   context.last_event = Clock::now();
+  // 读取一次不可变快照，后续流式事件处理期间的热切换只影响下一次调用。
+  const std::string profile_prompt = vocotype::common::compose_profile_prompt(
+      vocotype::common::load_profile_document());
 
   try {
     ensure_curl_initialized();
@@ -786,8 +788,8 @@ PolishResult SlmClient::stream_polish(const std::string &text,
       throw std::runtime_error("curl_easy_init returned null");
     }
     const std::string payload =
-        build_payload(std::string(kSystemPrompt), trim(text),
-                      config_.remote_max_tokens, true, enable_thinking)
+        build_payload(profile_prompt, trim(text), config_.remote_max_tokens, true,
+                      enable_thinking)
             .dump();
     char error_buffer[CURL_ERROR_SIZE] = {};
     curl_easy_setopt(handle.get(), CURLOPT_URL, config_.endpoint.c_str());
