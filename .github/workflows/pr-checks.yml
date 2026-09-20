@@ -1,0 +1,46 @@
+name: PR checks
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vocotype-pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Install native test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake pkg-config ripgrep libfcitx5core-dev nlohmann-json3-dev \
+            libgtk-3-dev libcurl4-openssl-dev libssl-dev \
+            libportaudio2 portaudio19-dev libasound2-dev libsqlite3-dev libboost-dev
+      - name: Run native test suite
+        run: make test
+
+  windows:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v6
+      - name: Configure Windows native integration
+        shell: pwsh
+        run: cmake -S src/integrations/windows -B build/windows -DBUILD_TESTING=ON
+      - name: Build Windows native integration
+        shell: pwsh
+        run: cmake --build build/windows --config Release --parallel
+      - name: Run Windows self-test
+        shell: pwsh
+        run: ctest --test-dir build/windows -C Release --output-on-failure
+      - name: Probe executable metadata
+        shell: pwsh
+        run: build/windows/Release/vocotype-windows.exe --help
