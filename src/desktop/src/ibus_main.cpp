@@ -347,6 +347,8 @@ int rime_mask(guint state) {
     result |= 1 << 2;
   if (state & IBUS_MOD1_MASK)
     result |= 1 << 3;
+  if (state & IBUS_RELEASE_MASK)
+    result |= 1 << 30;
   return result;
 }
 
@@ -771,7 +773,9 @@ gboolean process_key_event(IBusEngine *base, guint keyval, guint keycode,
     }
   }
 
-  if (is_switch_hotkey(keyval, state_mask) || release)
+  // Rime needs releases (with its 1 << 30 release flag) for schema Shift
+  // switches. Keep desktop input-source shortcuts outside the engine.
+  if (is_switch_hotkey(keyval, state_mask))
     return false;
   if (!state.rime)
     state.rime = std::make_unique<vocotype::desktop::RimeSession>();
