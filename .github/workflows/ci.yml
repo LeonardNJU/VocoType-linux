@@ -3,7 +3,6 @@ name: Test and build packages
 on:
   push:
     branches: [master]
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -31,7 +30,6 @@ jobs:
         run: make test
 
   nix:
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
@@ -68,7 +66,6 @@ jobs:
           nix path-info -Sh ./result-workers ./result-fcitx5 ./result-ibus ./result-universal
 
   release-contract:
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -104,7 +101,6 @@ jobs:
           if-no-files-found: error
 
   native-streaming:
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
@@ -144,7 +140,6 @@ jobs:
         run: build/windows/Release/vocotype-windows.exe --help
 
   macos:
-    if: github.event_name != 'pull_request'
     runs-on: macos-15
     timeout-minutes: 180
     steps:
@@ -192,7 +187,6 @@ jobs:
           compression-level: 0
 
   deb:
-    if: github.event_name != 'pull_request'
     needs: native-streaming
     runs-on: ubuntu-22.04
     steps:
@@ -252,7 +246,6 @@ jobs:
           compression-level: 0
 
   rpm:
-    if: github.event_name != 'pull_request'
     needs: native-streaming
     runs-on: ubuntu-24.04
     container: fedora:44
@@ -297,7 +290,6 @@ jobs:
           compression-level: 0
 
   arch:
-    if: github.event_name != 'pull_request'
     needs: native-streaming
     runs-on: ubuntu-24.04
     container: archlinux:base-devel
