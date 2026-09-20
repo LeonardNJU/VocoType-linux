@@ -184,14 +184,20 @@ try:
     release(IBus.KEY_Shift_L, int(IBus.ModifierType.SHIFT_MASK))
     expect_chinese(sample("after Shift+A"))
 
-    # The Rime schema reserves Ctrl+Shift+2; it must not toggle the ASCII mode.
-    key(IBus.KEY_Control_L)
-    key(IBus.KEY_Shift_L, int(IBus.ModifierType.CONTROL_MASK))
-    key(ord("2"), int(IBus.ModifierType.CONTROL_MASK | IBus.ModifierType.SHIFT_MASK))
-    release(ord("2"), int(IBus.ModifierType.CONTROL_MASK | IBus.ModifierType.SHIFT_MASK))
-    release(IBus.KEY_Shift_L, int(IBus.ModifierType.CONTROL_MASK | IBus.ModifierType.SHIFT_MASK))
-    release(IBus.KEY_Control_L, int(IBus.ModifierType.CONTROL_MASK))
-    expect_chinese(sample("after Ctrl+Shift+2"))
+    # Ctrl+Shift+2 must take the same Rime release path as a real chord, not
+    # be swallowed as a desktop shortcut. It therefore toggles ASCII and back.
+    def ctrl_shift_2():
+        key(IBus.KEY_Control_L)
+        key(IBus.KEY_Shift_L, int(IBus.ModifierType.CONTROL_MASK))
+        key(ord("2"), int(IBus.ModifierType.CONTROL_MASK | IBus.ModifierType.SHIFT_MASK))
+        release(ord("2"), int(IBus.ModifierType.CONTROL_MASK | IBus.ModifierType.SHIFT_MASK))
+        release(IBus.KEY_Shift_L, int(IBus.ModifierType.CONTROL_MASK | IBus.ModifierType.SHIFT_MASK))
+        release(IBus.KEY_Control_L, int(IBus.ModifierType.CONTROL_MASK))
+
+    ctrl_shift_2()
+    expect_ascii(sample("Ctrl+Shift+2 Chinese-to-ASCII"))
+    ctrl_shift_2()
+    expect_chinese(sample("Ctrl+Shift+2 ASCII-to-Chinese"))
 
     context.focus_out()
     context.destroy()

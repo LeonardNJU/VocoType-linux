@@ -312,13 +312,10 @@ void update_rime_ui(VocotypeEngine *engine) {
 }
 
 bool is_switch_hotkey(guint keyval, guint state) {
-  if ((state & (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK)) ==
-      (IBUS_CONTROL_MASK | IBUS_SHIFT_MASK))
-    return true;
   if (keyval == IBUS_KEY_space && (state & (IBUS_SUPER_MASK | IBUS_MOD4_MASK)))
     return true;
   if ((keyval == IBUS_KEY_Shift_L || keyval == IBUS_KEY_Shift_R) &&
-      (state & (IBUS_MOD1_MASK | IBUS_CONTROL_MASK)))
+      (state & IBUS_MOD1_MASK))
     return true;
   return false;
 }
