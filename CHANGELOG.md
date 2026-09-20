@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Fcitx5 adds `PanelStyle=ultra_minimal`: recording and post-release processing use a compact ellipsis animation while keeping live recognition preview and hiding polish intermediates. Existing `minimal` is relabeled as concise; `animated` is unchanged.
+
 ### Changed
 
 - Add editable SLM post-processing profiles and contextual vocabulary, reloaded for each post-processing request and managed from Settings.
