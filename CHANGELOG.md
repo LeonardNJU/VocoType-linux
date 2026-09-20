@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Add editable SLM post-processing profiles and contextual vocabulary, reloaded for each post-processing request and managed from Settings.
 - Make the Fcitx5 VoCoType configuration entry open the existing full Settings center, which owns the three voice-hotkey recorders and conflict validation.
 
 ### Fixed
