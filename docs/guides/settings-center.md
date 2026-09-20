@@ -40,7 +40,9 @@ bash scripts/install/ibus/install.sh --install-system-deps --download-models
 
 可配置输入设备、采样率、最短录音、实时 preedit、ITN，并管理：
 
-- Fcitx 状态面板的 `minimal` / `animated` 样式；
+- Fcitx 状态面板的 `minimal`（简洁）、`ultra_minimal`（极简）与
+  `animated` 样式；极简模式在录音和松键后的处理阶段循环显示省略号，
+  不展示润色中间结果；
 - 存在未提交预编辑时是否阻止录音；
 - 提交时是否移除尾部句号；
 - 三套可录制的语音快捷键及冲突校验；
