@@ -92,6 +92,12 @@ install -Dm755 "$PROJECT_DIR/scripts/install/common/install-native-user.sh" \
 install -Dm755 "$PROJECT_DIR/scripts/install/common/uninstall-native-user.sh" \
   "$source_root/scripts/install/common/uninstall-native-user.sh"
 
+install -Dm644 "$PROJECT_DIR/scripts/install/common/desktop-integration.sh" \
+  "$source_root/scripts/install/common/desktop-integration.sh"
+install -Dm644 "$PROJECT_DIR/resources/desktop/io.github.LeonardNJU.VoCoType.Settings.desktop" \
+  "$source_root/resources/desktop/io.github.LeonardNJU.VoCoType.Settings.desktop"
+install -Dm644 "$PROJECT_DIR/web/icon-192.png" "$source_root/web/icon-192.png"
+
 # Compile the desktop/runtime-facing programs for the target distribution.
 cmake -S "$PROJECT_DIR/src/desktop" -B "$DESKTOP_BUILD" \
   -DCMAKE_BUILD_TYPE=Release \
