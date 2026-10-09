@@ -777,6 +777,14 @@ gboolean process_key_event(IBusEngine *base, guint keyval, guint keycode,
   // switches. Keep desktop input-source shortcuts outside the engine.
   if (is_switch_hotkey(keyval, state_mask))
     return false;
+  // Wayland text-input clients (Chrome/Electron) deliver keys through the IM
+  // keyboard grab before compositor shortcuts run, and rime_mask() drops the
+  // Super modifier — feeding such combos to rime types a bare letter and
+  // swallows desktop shortcuts like Win+E (#79). Hand them back to the
+  // desktop. VoCoType's own hotkeys were matched above, so Super-based
+  // voice hotkeys keep working.
+  if (state_mask & (IBUS_SUPER_MASK | IBUS_MOD4_MASK))
+    return false;
   if (!state.rime)
     state.rime = std::make_unique<vocotype::desktop::RimeSession>();
   if (!state.rime->available())
