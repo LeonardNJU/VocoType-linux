@@ -281,6 +281,34 @@ protect:
   require(!migrate_config_layout().changed,
           "config layout migration is idempotent");
 
+  // The IBus candidate orientation (issue #77) shares ibus.json with hotkeys.
+  // Saving it must not disturb hotkeys, hotkey saves must not roll it back,
+  // and the extra framework-only key must never turn ibus.json into the
+  // runtime config through the legacy detection path.
+  vocotype::desktop::write_ibus_candidates_horizontal(true);
+  Json oriented_ibus = read_json_file(ibus_config_path(), false);
+  require(oriented_ibus["hotkeys"].value("transcribe", "") == "Alt_R" &&
+              oriented_ibus.value("candidates_horizontal", false),
+          "candidate orientation save preserves migrated IBus hotkeys");
+  require(read_ibus_candidates_horizontal(),
+          "candidate orientation round-trips through ibus.json");
+  vocotype::desktop::write_ibus_hotkeys(Json{{"transcribe", "F7"},
+                                             {"polish", "Shift+F7"},
+                                             {"edit", "Ctrl+F7"}});
+  oriented_ibus = read_json_file(ibus_config_path(), false);
+  require(oriented_ibus["hotkeys"].value("transcribe", "") == "F7" &&
+              oriented_ibus.value("candidates_horizontal", false),
+          "hotkey save preserves the IBus candidate orientation");
+  require(runtime_config_path() == shared_config_path(),
+          "framework-only ibus.json keys stay out of legacy config detection");
+  require(!migrate_config_layout().changed,
+          "orientation-aware ibus.json stays migration-idempotent");
+  vocotype::desktop::write_ibus_candidates_horizontal(false);
+  require(!read_ibus_candidates_horizontal() &&
+              read_json_file(ibus_config_path(), false)["hotkeys"]
+                  .value("transcribe", "") == "F7",
+          "disabling the orientation keeps hotkeys intact");
+
   {
     std::ofstream audio_override(audio_config_path());
     audio_override << "[audio]\n"

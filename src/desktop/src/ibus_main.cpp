@@ -82,6 +82,7 @@ struct EngineState {
   int polish_min_chars = 8;
   int polish_timeout_ms = 20000;
   bool enable_thinking = false;
+  bool candidates_horizontal = false;
 };
 
 typedef struct _VocotypeEngine {
@@ -239,6 +240,11 @@ void load_engine_config(EngineState &state) {
             : (config.contains("hotkeys") && config["hotkeys"].is_object()
                    ? config["hotkeys"]
                    : Json::object());
+    state.candidates_horizontal =
+        ibus_config.contains("candidates_horizontal") &&
+                ibus_config["candidates_horizontal"].is_boolean()
+            ? ibus_config["candidates_horizontal"].get<bool>()
+            : false;
     if (!hotkeys.empty()) {
       state.transcribe_hotkey = vocotype::desktop::parse_hotkey(
           hotkeys.value("transcribe", "F9"), kDefaultTranscribeHotkey);
@@ -301,6 +307,9 @@ void update_rime_ui(VocotypeEngine *engine) {
   IBusLookupTable *table = ibus_lookup_table_new(
       static_cast<guint>(std::clamp(context.page_size, 1, 16)),
       static_cast<guint>(std::max(0, context.highlighted)), true, false);
+  ibus_lookup_table_set_orientation(
+      table, state.candidates_horizontal ? IBUS_ORIENTATION_HORIZONTAL
+                                         : IBUS_ORIENTATION_VERTICAL);
   for (const auto &candidate : context.candidates) {
     std::string display = candidate.text;
     if (!candidate.comment.empty())

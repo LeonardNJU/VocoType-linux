@@ -15,6 +15,17 @@ std::string trim(std::string value) {
   const auto last = value.find_last_not_of(" \t\r\n");
   return value.substr(first, last - first + 1);
 }
+
+// ibus.json owns IBus-specific hotkeys plus framework-only UI preferences such
+// as the candidate orientation. Normalization preserves those keys so unrelated
+// hotkey saves and layout migrations stay lossless and idempotent.
+Json normalize_ibus_config(const Json &existing, const Json &hotkeys) {
+  Json normalized{{"hotkeys", hotkeys}};
+  const auto horizontal = existing.find("candidates_horizontal");
+  if (horizontal != existing.end() && horizontal->is_boolean())
+    normalized["candidates_horizontal"] = *horizontal;
+  return normalized;
+}
 } // namespace
 std::filesystem::path home_path() {
   if (const char *home = std::getenv("HOME"); home && *home)
@@ -68,7 +79,10 @@ std::filesystem::path runtime_config_path() {
     try {
       const Json value = read_json_file(ibus, false);
       for (auto iterator = value.begin(); iterator != value.end(); ++iterator) {
-        if (iterator.key() != "hotkeys")
+        // "hotkeys" and "candidates_horizontal" are the documented IBus-only
+        // keys. Any other key means this is a legacy full runtime config.
+        if (iterator.key() != "hotkeys" &&
+            iterator.key() != "candidates_horizontal")
           return ibus;
       }
     } catch (const std::exception &) {
@@ -165,7 +179,7 @@ ConfigLayoutMigration migrate_config_layout() {
       {"polish", source_hotkeys.value("polish", "Shift+F9")},
       {"edit", source_hotkeys.value("edit", "Ctrl+F9")},
   };
-  const Json normalized_ibus = {{"hotkeys", hotkeys}};
+  const Json normalized_ibus = normalize_ibus_config(existing_ibus, hotkeys);
   if (existing_ibus != normalized_ibus) {
     write_json_file_atomic(ibus_path, normalized_ibus);
     result.changed = true;
@@ -226,7 +240,30 @@ void write_ibus_hotkeys(const Json &hotkeys) {
       {"polish", hotkeys.value("polish", "Shift+F9")},
       {"edit", hotkeys.value("edit", "Ctrl+F9")},
   };
-  write_json_file_atomic(ibus_config_path(), Json{{"hotkeys", normalized}});
+  // Preserve framework-only preferences such as candidates_horizontal so a
+  // hotkey save never rolls back an unrelated IBus setting.
+  write_json_file_atomic(ibus_config_path(),
+                         normalize_ibus_config(read_ibus_config(true),
+                                               normalized));
+}
+bool read_ibus_candidates_horizontal() {
+  const Json config = read_ibus_config(true);
+  const auto horizontal = config.find("candidates_horizontal");
+  return horizontal != config.end() && horizontal->is_boolean() &&
+         horizontal->get<bool>();
+}
+void write_ibus_candidates_horizontal(bool horizontal) {
+  const Json existing = read_ibus_config(true);
+  const Json &source =
+      existing.contains("hotkeys") && existing["hotkeys"].is_object()
+          ? existing["hotkeys"]
+          : Json::object();
+  Json value{{"hotkeys",
+              {{"transcribe", source.value("transcribe", "F9")},
+               {"polish", source.value("polish", "Shift+F9")},
+               {"edit", source.value("edit", "Ctrl+F9")}}},
+             {"candidates_horizontal", horizontal}};
+  write_json_file_atomic(ibus_config_path(), value);
 }
 void write_macos_hotkeys(const Json &hotkeys) {
   if (!hotkeys.is_object())
