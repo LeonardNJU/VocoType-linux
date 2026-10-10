@@ -707,6 +707,10 @@ for token in 'candidates_horizontal' 'ibus_lookup_table_set_orientation'; do
   rg -Fq "$token" src/desktop/src/ibus_main.cpp || \
     fail "IBus engine candidate orientation wiring is missing: $token"
 done
+# config.json may carry 0/1 numbers for switches; value<bool>() would throw and
+# silently drop the rest of load_engine_config (hotkeys and orientation).
+rg -Fq 'config_bool(slm, "enable_thinking", false)' src/desktop/src/ibus_main.cpp || \
+  fail "IBus config load aborts on numeric switch values"
 for token in 'Json normalize_ibus_config' \
              'bool read_ibus_candidates_horizontal()' \
              'void write_ibus_candidates_horizontal(bool horizontal)'; do
