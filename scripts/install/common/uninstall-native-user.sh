@@ -101,7 +101,9 @@ if [[ "$PURGE_RUNTIME" == true ]]; then
   rm -rf "$HOME/.local/lib/vocotype-native" "$HOME/.local/lib/vocotype-streaming"
 fi
 if ! fcitx_present && ! ibus_present; then
-  rm -f "$HOME/.local/bin/vocotype-settings"
+  . "$SCRIPT_DIR/desktop-integration.sh"
+  remove_desktop_entries
+  command rm -f "$HOME/.local/bin/vocotype-settings"
 fi
 if [[ "$REMOVE_USER_DATA" == true ]]; then
   rm -rf "${XDG_CONFIG_HOME:-$HOME/.config}/vocotype"

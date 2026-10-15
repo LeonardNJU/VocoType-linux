@@ -455,4 +455,8 @@ case "$FRAMEWORK" in
   universal) install_fcitx; install_ibus ;;
 esac
 cleanup_legacy_runtime
+# Both source and package activation install a discoverable settings entry.
+. "$SCRIPT_DIR/desktop-integration.sh"
+install_desktop_entries "$PROJECT_DIR" "$USER_BIN/vocotype-settings"
+log "The VoCoType settings entry is installed in the application menu."
 log "✓ Native-only runtime installed. Configuration and model caches were preserved."

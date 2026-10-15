@@ -184,6 +184,10 @@ AI页配置 OpenAI-compatible endpoint、model、API key、超时、SSE与thinki
 
 若端点不在本机，转写文本会发送到该接口；语音编辑还会发送当前应用提供的 surrounding text、光标与选区。
 
+### Linux 应用菜单
+
+完成用户安装或系统包的用户激活后，可从应用菜单搜索「VoCoType 设置」，直接打开设置中心。
+
 ### Playground、诊断与设置中心
 
 Linux使用 GTK 3/C++设置中心，macOS使用 AppKit原生设置中心。两端均覆盖模型、麦克风、AI、术语、诊断和教程；macOS另外负责首次安装/升级 InputMethodKit组件。设置文本区域支持系统原生 `⌘Z`，同时兼容 `Ctrl+Z`撤销和对应重做快捷键。
