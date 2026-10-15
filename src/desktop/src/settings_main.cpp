@@ -116,8 +116,10 @@ struct SettingsWindow {
   GtkSwitch *fcitx_block_composing = nullptr;
   GtkSwitch *fcitx_strip_period = nullptr;
   GtkComboBoxText *rime_schema = nullptr;
+  GtkSwitch *ibus_candidates_horizontal = nullptr;
   GtkWidget *rime_resource_row = nullptr;
   GtkWidget *rime_schema_row = nullptr;
+  GtkWidget *ibus_candidates_row = nullptr;
   GtkWidget *fcitx_composing_row = nullptr;
   GtkWidget *fcitx_advanced_section = nullptr;
   GtkWidget *fcitx_advanced_card = nullptr;
@@ -1025,6 +1027,8 @@ void save_config(SettingsWindow &window) {
   vocotype::desktop::write_shared_config(window.config);
   if (hotkeys_changed)
     vocotype::desktop::write_ibus_hotkeys(runtime_hotkeys);
+  vocotype::desktop::write_ibus_candidates_horizontal(
+      gtk_switch_get_active(window.ibus_candidates_horizontal));
 
   std::vector<std::pair<std::string, std::string>> fcitx_values{
       {"MinRecordingMs",
@@ -2574,6 +2578,10 @@ void populate_from_config(SettingsWindow &window) {
       window,
       yaml_scalar_value(vocotype::desktop::config_dir() / "rime/user.yaml",
                         "previously_selected_schema", "luna_pinyin"));
+  const Json ibus_preferences = vocotype::desktop::read_ibus_config(true);
+  gtk_switch_set_active(
+      window.ibus_candidates_horizontal,
+      json_bool(ibus_preferences, "candidates_horizontal", false));
 
   if (framework == "ibus")
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(window.ibus_framework_radio),
@@ -3190,7 +3198,7 @@ GtkWidget *build_recognition(SettingsWindow &window) {
                      FALSE, 0);
 
   window.ibus_advanced_section = sui::make_section_heading(
-      "IBus：Rime 输入方案",
+      "IBus：高级选项",
       "仅用于 VoCoType IBus 独立引擎；Fcitx 5 用户无需配置此项。");
   gtk_box_pack_start(GTK_BOX(page.content), window.ibus_advanced_section, FALSE,
                      FALSE, 0);
@@ -3202,6 +3210,13 @@ GtkWidget *build_recognition(SettingsWindow &window) {
       GTK_WIDGET(window.rime_schema));
   gtk_box_pack_start(GTK_BOX(window.ibus_advanced_card), window.rime_schema_row,
                      FALSE, FALSE, 0);
+  window.ibus_candidates_horizontal = GTK_SWITCH(sui::make_switch());
+  window.ibus_candidates_row = sui::make_row(
+      "候选词横排显示",
+      "内嵌 Rime 键盘输入时候选词窗口水平排列；关闭后恢复默认竖排。保存后切回输入框即生效。",
+      GTK_WIDGET(window.ibus_candidates_horizontal));
+  gtk_box_pack_start(GTK_BOX(window.ibus_advanced_card),
+                     window.ibus_candidates_row, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(page.content), window.ibus_advanced_card, FALSE,
                      FALSE, 0);
 
@@ -5000,6 +5015,8 @@ void activate(GtkApplication *application, gpointer user_data) {
         {"ibus_advanced_visible", visible(window->ibus_advanced_card)},
         {"rime_schema_visible", visible(window->ibus_advanced_card) &&
                                     visible(window->rime_schema_row)},
+        {"ibus_candidates_visible", visible(window->ibus_advanced_card) &&
+                                        visible(window->ibus_candidates_row)},
         {"fcitx_panel_visible", visible(window->fcitx_panel_card)},
         {"fcitx_output_visible", visible(window->fcitx_output_card)},
         {"fcitx_advanced_visible", visible(window->fcitx_advanced_card)},

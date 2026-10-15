@@ -82,6 +82,7 @@ struct EngineState {
   int polish_min_chars = 8;
   int polish_timeout_ms = 20000;
   bool enable_thinking = false;
+  bool candidates_horizontal = false;
 };
 
 typedef struct _VocotypeEngine {
@@ -219,6 +220,21 @@ Snapshot capture_snapshot(VocotypeEngine *engine) {
   return snapshot;
 }
 
+// config.json may store switch values as 0/1 numbers (legacy or migrated
+// data). nlohmann's value<bool>() throws type_error on a number, and the
+// enclosing catch would then silently drop the hotkeys and the candidate
+// orientation. Read booleans tolerantly instead.
+bool config_bool(const Json &object, const char *key, bool fallback) {
+  const auto iterator = object.find(key);
+  if (iterator == object.end() || iterator->is_null())
+    return fallback;
+  if (iterator->is_boolean())
+    return iterator->get<bool>();
+  if (iterator->is_number_integer() || iterator->is_number_unsigned())
+    return iterator->get<long long>() != 0;
+  return fallback;
+}
+
 void load_engine_config(EngineState &state) {
   try {
     (void)vocotype::desktop::migrate_config_layout();
@@ -231,7 +247,7 @@ void load_engine_config(EngineState &state) {
       const auto &slm = config["slm"];
       state.polish_min_chars = std::max(0, slm.value("min_chars", 8));
       state.polish_timeout_ms = std::max(1000, slm.value("timeout_ms", 20000));
-      state.enable_thinking = slm.value("enable_thinking", false);
+      state.enable_thinking = config_bool(slm, "enable_thinking", false);
     }
     const Json hotkeys =
         ibus_config.contains("hotkeys") && ibus_config["hotkeys"].is_object()
@@ -239,6 +255,11 @@ void load_engine_config(EngineState &state) {
             : (config.contains("hotkeys") && config["hotkeys"].is_object()
                    ? config["hotkeys"]
                    : Json::object());
+    state.candidates_horizontal =
+        ibus_config.contains("candidates_horizontal") &&
+                ibus_config["candidates_horizontal"].is_boolean()
+            ? ibus_config["candidates_horizontal"].get<bool>()
+            : false;
     if (!hotkeys.empty()) {
       state.transcribe_hotkey = vocotype::desktop::parse_hotkey(
           hotkeys.value("transcribe", "F9"), kDefaultTranscribeHotkey);
@@ -301,6 +322,9 @@ void update_rime_ui(VocotypeEngine *engine) {
   IBusLookupTable *table = ibus_lookup_table_new(
       static_cast<guint>(std::clamp(context.page_size, 1, 16)),
       static_cast<guint>(std::max(0, context.highlighted)), true, false);
+  ibus_lookup_table_set_orientation(
+      table, state.candidates_horizontal ? IBUS_ORIENTATION_HORIZONTAL
+                                         : IBUS_ORIENTATION_VERTICAL);
   for (const auto &candidate : context.candidates) {
     std::string display = candidate.text;
     if (!candidate.comment.empty())

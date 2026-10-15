@@ -39,6 +39,8 @@ Json read_ibus_config(bool missing_ok = true);
 Json read_macos_config(bool missing_ok = true);
 void write_shared_config(Json value);
 void write_ibus_hotkeys(const Json &hotkeys);
+void write_ibus_candidates_horizontal(bool horizontal);
+bool read_ibus_candidates_horizontal();
 void write_macos_hotkeys(const Json &hotkeys);
 AudioConfig load_audio_config(const std::filesystem::path &path = {});
 std::string backend_socket_path();

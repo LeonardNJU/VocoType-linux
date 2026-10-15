@@ -699,6 +699,29 @@ if rg -Fq 'if (keyval == IBUS_KEY_F9)' src/desktop/src/ibus_main.cpp; then
   fail "IBus still hard-codes F9 in its key event handler"
 fi
 
+# Issue #77: the IBus candidate orientation stays configurable end-to-end.
+# ibus.json may carry framework-only keys; hotkey saves and layout migration
+# must preserve them, legacy detection must not swallow them, and the engine
+# must apply the orientation to every lookup table it builds.
+for token in 'candidates_horizontal' 'ibus_lookup_table_set_orientation'; do
+  rg -Fq "$token" src/desktop/src/ibus_main.cpp || \
+    fail "IBus engine candidate orientation wiring is missing: $token"
+done
+# config.json may carry 0/1 numbers for switches; value<bool>() would throw and
+# silently drop the rest of load_engine_config (hotkeys and orientation).
+rg -Fq 'config_bool(slm, "enable_thinking", false)' src/desktop/src/ibus_main.cpp || \
+  fail "IBus config load aborts on numeric switch values"
+for token in 'Json normalize_ibus_config' \
+             'bool read_ibus_candidates_horizontal()' \
+             'void write_ibus_candidates_horizontal(bool horizontal)'; do
+  rg -Fq -- "$token" src/desktop/src/config.cpp || \
+    fail "IBus candidate orientation config support is missing: $token"
+done
+rg -Fq '!= "candidates_horizontal"' src/desktop/src/config.cpp || \
+  fail "legacy ibus.json detection does not exempt framework-only keys"
+rg -Fq 'ibus_candidates_horizontal' src/desktop/src/settings_main.cpp || \
+  fail "settings does not expose the IBus candidate orientation switch"
+
 # macOS must be built from a clean arm64 runner and join the exact Release set.
 for workflow in .github/workflows/ci.yml .github/workflows/release.yml; do
   for token in 'runs-on: macos-15' 'ALLOW_ADHOC_TEST: 1' \
