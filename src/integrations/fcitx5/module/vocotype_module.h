@@ -177,6 +177,8 @@ private:
   void showPolishProgress(fcitx::InputContext *ic, const std::string &preview,
                             const std::string &original_text);
     void cancelActivePolishTask();
+    bool roughRecognitionAcceptable() const;
+    void commitRoughRecognition(fcitx::InputContext *ic, std::string text);
 
   void armPendingRecordingStart(fcitx::InputContext *ic, bool long_mode,
                                   bool edit_mode,
@@ -254,6 +256,9 @@ private:
     bool ptt_suppressed_ = false;
     bool is_recording_ = false;
     bool transcription_start_pending_ = false;
+    bool transcription_pending_long_mode_ = false;
+    // Space arrived before the rough text did; commit it as soon as it lands.
+    bool accept_rough_requested_ = false;
     std::shared_ptr<std::atomic_bool> backend_start_pending_ =
         std::make_shared<std::atomic_bool>(false);
     std::shared_ptr<AsrPrewarmState> asr_prewarm_;

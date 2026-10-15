@@ -876,6 +876,21 @@ void VoCoTypeModule::handleKeyEvent(fcitx::KeyEvent &event) {
             return;
         }
     }
+    // Space while polishing accepts the rough recognition as-is, waiting for
+    // it when the key arrives before the first recognition result. Space rather
+    // than Enter: a late press after the polished commit only adds a space
+    // instead of submitting a chat message.
+    if (!event.isRelease() && roughRecognitionAcceptable() &&
+        key.check(FcitxKey_space)) {
+        if (!active_polish_original_.empty()) {
+            commitRoughRecognition(ic, active_polish_original_);
+        } else {
+            accept_rough_requested_ = true;
+            showPanelMessage(ic, "⏳ 识别中，完成后直接上屏粗识别文本");
+        }
+        event.filterAndAccept();
+        return;
+    }
     if ((transcription_start_pending_ || !active_polish_task_id_.empty()) &&
         !event.isRelease()) {
         cancelActivePolishTask();
@@ -1218,6 +1233,7 @@ void VoCoTypeModule::startRecording(fcitx::InputContext *ic, bool long_mode,
     recording_long_mode_ = long_mode;
     recording_edit_mode_ = edit_mode;
     recording_edit_snapshot_ = edit_snapshot;
+    accept_rough_requested_ = false;
     active_ic_ = ic->watch();
     const uint64_t generation = ++recording_generation_;
     auto output_state = recorder_output_state_;
@@ -1322,6 +1338,7 @@ void VoCoTypeModule::stopRecording(bool transcribe) {
     const auto asr_prewarm = stopAsrPrewarm();
     if (transcribe && !edit_mode) {
         transcription_start_pending_ = true;
+        transcription_pending_long_mode_ = long_mode;
     } else if (!transcribe) {
         active_voice_session_id_ = 0;
     }
@@ -1698,7 +1715,9 @@ void VoCoTypeModule::startPolishPolling(fcitx::InputContext *ic,
     active_polish_started_us_ = fcitx::now(CLOCK_MONOTONIC);
     polish_poll_in_flight_ = false;
     polish_poll_timer_.reset();
-    if (ultra_minimal_panel_) {
+    if (accept_rough_requested_) {
+        // Keep the "commit rough text when ready" notice on screen.
+    } else if (ultra_minimal_panel_) {
         startPanelAnimation(ic, PanelAnimationKind::Processing);
     } else {
         showPanelMessage(
@@ -1788,6 +1807,10 @@ void VoCoTypeModule::handlePolishPollResult(
     if (!result.success) {
         const std::string fallback =
             polish_enabled ? active_polish_original_ : std::string();
+        if (accept_rough_requested_ && !fallback.empty()) {
+            commitRoughRecognition(ic, fallback);
+            return;
+        }
         active_polish_task_id_.clear();
         active_polish_enabled_ = false;
         active_polish_session_id_ = 0;
@@ -1817,6 +1840,12 @@ void VoCoTypeModule::handlePolishPollResult(
         if (event.kind == "delta" && !event.preview.empty()) {
             active_polish_preview_ = event.preview;
         }
+    }
+
+    if (accept_rough_requested_ && polish_enabled &&
+        !active_polish_original_.empty()) {
+        commitRoughRecognition(ic, active_polish_original_);
+        return;
     }
 
     if (result.status == "final") {
@@ -1853,6 +1882,10 @@ void VoCoTypeModule::handlePolishPollResult(
                        ? (polish_enabled ? "润色已取消" : "识别已取消")
                        : (polish_enabled ? "润色失败" : "识别失败"))
                 : result.error;
+        if (accept_rough_requested_ && !fallback.empty()) {
+            commitRoughRecognition(ic, fallback);
+            return;
+        }
         active_polish_task_id_.clear();
         active_polish_enabled_ = false;
         active_polish_session_id_ = 0;
@@ -1866,7 +1899,7 @@ void VoCoTypeModule::handlePolishPollResult(
         return;
     }
 
-    if (polish_enabled && !ultra_minimal_panel_) {
+    if (polish_enabled && !ultra_minimal_panel_ && !accept_rough_requested_) {
         showPolishProgress(ic, active_polish_preview_, active_polish_original_);
     }
     schedulePolishPoll(ic->watch());
@@ -1898,8 +1931,9 @@ void VoCoTypeModule::showPolishProgress(fcitx::InputContext *ic,
     auto candidates = std::make_unique<fcitx::CommonCandidateList>();
     candidates->setPageSize(2);
     fcitx::Text original;
-    original.append(original_text.empty() ? "粗识别文本：等待识别结果..."
-                                          : "粗识别文本：" + original_text);
+    original.append(original_text.empty()
+                        ? "粗识别文本：等待识别结果..."
+                        : "粗识别文本（空格采用）：" + original_text);
     candidates->append<fcitx::DisplayOnlyCandidateWord>(original);
     if (!preview.empty()) {
         fcitx::Text preview_text;
@@ -1926,6 +1960,8 @@ void VoCoTypeModule::cancelActivePolishTask() {
         }).detach();
     }
     transcription_start_pending_ = false;
+    transcription_pending_long_mode_ = false;
+    accept_rough_requested_ = false;
     active_polish_task_id_.clear();
     active_polish_enabled_ = false;
     active_polish_session_id_ = 0;
@@ -1935,6 +1971,23 @@ void VoCoTypeModule::cancelActivePolishTask() {
     active_polish_started_us_ = 0;
     active_voice_session_id_ = 0;
     active_ic_ = fcitx::TrackableObjectReference<fcitx::InputContext>();
+}
+
+bool VoCoTypeModule::roughRecognitionAcceptable() const {
+    // Includes the short PTT release grace window, before stopRecording runs.
+    if (is_recording_ && recording_long_mode_ && ptt_release_timer_) {
+        return true;
+    }
+    if (transcription_start_pending_) {
+        return transcription_pending_long_mode_;
+    }
+    return !active_polish_task_id_.empty() && active_polish_enabled_;
+}
+
+void VoCoTypeModule::commitRoughRecognition(fcitx::InputContext *ic,
+                                            std::string text) {
+    cancelActivePolishTask();
+    commitText(ic, text, strip_trailing_period_on_commit_);
 }
 
 void VoCoTypeModule::showPanelMessage(fcitx::InputContext *ic,
