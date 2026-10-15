@@ -64,7 +64,11 @@ struct Runtime {
   std::string logs_string;
   std::string prebuilt_string;
   std::string staging_string;
-  const char *modules[2]{"default", nullptr};
+  // "plugins" activates librime's plugin scanner (librime-lua, librime-octagram,
+  // ...) on distributions that ship dynamic rime plugins; the "lua" module is
+  // only registered after the plugin library is loaded, so listing it here
+  // without "plugins" would have no effect.
+  const char *modules[3]{"default", "plugins", nullptr};
 
   void initialize() {
     std::lock_guard lock(mutex);
@@ -251,7 +255,9 @@ bool deploy_rime_workspace(const std::filesystem::path &user_data_dir,
     std::filesystem::create_directories(logs_string);
     const std::string prebuilt_string = (shared / "build").string();
     const std::string staging_string = (user_data_dir / "build").string();
-    const char *modules[] = {"default", nullptr};
+    // Keep in sync with Runtime::initialize(): "plugins" loads optional
+    // librime plugins (lua, octagram, ...) when present.
+    const char *modules[] = {"default", "plugins", nullptr};
     RIME_STRUCT(RimeTraits, traits);
     traits.shared_data_dir = shared_string.c_str();
     traits.user_data_dir = user_string.c_str();
