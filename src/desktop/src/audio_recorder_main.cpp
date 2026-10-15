@@ -3,6 +3,7 @@
 #include <libproc.h>
 #endif
 #include "vocotype/desktop/audio.hpp"
+#include "vocotype/desktop/audio_quality.hpp"
 #include "vocotype/desktop/config.hpp"
 #include "vocotype/desktop/ipc.hpp"
 #include "vocotype/desktop/streaming_preview.hpp"
@@ -497,6 +498,19 @@ int main(int argc, char **argv) {
       if (preview_thread.joinable())
         preview_thread.join();
       throw std::runtime_error("recording produced no audio samples");
+    }
+
+    if (!has_usable_microphone_signal(finished)) {
+      preview_accepting.store(false);
+      {
+        std::lock_guard lock(queue_mutex);
+        preview_queue.clear();
+        preview_done = true;
+      }
+      queue_cv.notify_all();
+      preview_thread.join();
+      throw std::runtime_error(
+          "microphone signal is near zero; check input device, mute switch and microphone permissions");
     }
 
     const auto path = create_secure_wav_path();

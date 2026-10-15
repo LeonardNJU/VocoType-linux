@@ -1,5 +1,6 @@
 #include "vocotype/common/terms_yaml.hpp"
 #include "vocotype/desktop/audio.hpp"
+#include "vocotype/desktop/audio_quality.hpp"
 #include "vocotype/desktop/config.hpp"
 #include "vocotype/desktop/fcitx_profile.hpp"
 #include "vocotype/desktop/hotkey.hpp"
@@ -46,6 +47,15 @@ int main() {
   require(audio_probe_stderr.empty(),
           "audio enumeration must not emit ALSA/JACK probe noise");
 
+  require(!has_usable_microphone_signal({}), "empty microphone capture rejected");
+  require(!has_usable_microphone_signal(std::vector<std::int16_t>(16000, 0)),
+          "digital silence rejected");
+  require(!has_usable_microphone_signal(std::vector<std::int16_t>(16000, 2)),
+          "near-zero mic noise rejected");
+  require(has_usable_microphone_signal(std::vector<std::int16_t>(16000, 100)),
+          "quiet but real speech preserved");
+  require(has_usable_microphone_signal({0, -32768, 0}),
+          "negative PCM16 peak handled without overflow");
   const std::vector<std::int16_t> source{0, 1000, 2000, 3000};
   const auto doubled = resample_linear(source, 4, 8);
   assert(doubled.size() == 8);
