@@ -171,6 +171,9 @@ stdenv.mkDerivation (finalAttrs: {
     cat > "$out/bin/vocotype-settings" <<WRAPPER
 #!${stdenv.shell}
 export PATH="$out/bin:$out/libexec:\${PATH:-}"
+if [ -z "\$VOCOTYPE_PROJECT_DIR" ]; then
+  export VOCOTYPE_PROJECT_DIR="$out/share/vocotype"
+fi
 exec "$out/libexec/vocotype-settings" "\$@"
 WRAPPER
     cat > "$out/bin/vocotype-core" <<WRAPPER
@@ -204,6 +207,8 @@ WRAPPER
     install -Dm644 web/icon-512.png \
       "$out/share/icons/hicolor/512x512/apps/vocotype.png"
     install -Dm644 resources/templates/terms.yaml "$out/share/vocotype/terms.yaml"
+    install -Dm755 scripts/install/common/reapply-kde-input-method.sh \
+      "$out/share/vocotype/scripts/install/common/reapply-kde-input-method.sh"
 
     ${lib.optionalString withIbus ''
       mv "$out/libexec/vocotype-ibus-engine" \

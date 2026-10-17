@@ -196,10 +196,8 @@ for token in \
   rg -Fq -- "$token" src/desktop scripts/install/common/install-native-user.sh || \
     fail "Issue #4 Fcitx repair capability missing: $token"
 done
-rg -Fq 'app-org.fcitx.Fcitx5@autostart.service' "$settings" ||   fail "settings repair does not restart Fcitx through the desktop session"
-if rg -Fq 'run_command({"fcitx5", "-r", "-d"})' "$settings"; then
-  fail "settings repair can launch Fcitx without desktop environment checks"
-fi
+bash scripts/test/fcitx-restart.sh || fail "Fcitx desktop restart policy failed"
+bash scripts/test/recorder-silence.sh || fail "recorder silence cleanup failed"
 
 # Core lifecycle must use the persistent user service when installed. A
 # settings window must never replace it with a parent-bound temporary child.
@@ -335,10 +333,10 @@ for service in scripts/install/common/install-native-user.sh \
 done
 
 
-# The tracked source tree contains no Python implementation or dependency
-# manifest. Local build caches and historical staging directories are ignored.
-if git ls-files '*.py' | grep -q .; then
-  fail "Python source remains in the repository"
+# Product code stays native; Python is allowed only in development tests.
+# Installed/build paths are checked separately above.
+if git ls-files '*.py' ':!:scripts/test/**' | grep -q .; then
+  fail "Python source remains outside development tests"
 fi
 if git ls-files 'pyproject.toml' 'uv.lock' 'requirements*.txt' | grep -q .; then
   fail "Python dependency manifest remains in the repository"

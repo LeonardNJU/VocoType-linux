@@ -84,6 +84,31 @@ desktop_session_available() {
 }
 
 restart_fcitx_desktop() {
+  FCITX_RESTART_DEFERRED=false
+  if [[ "${XDG_SESSION_TYPE:-}" == wayland &&
+        ( "${XDG_CURRENT_DESKTOP:-}" == *KDE* || "${XDG_CURRENT_DESKTOP:-}" == *Plasma* ) ]]; then
+    local status
+    if bash "$SCRIPT_DIR/reapply-kde-input-method.sh"; then
+      return 0
+    else
+      status=$?
+      if [[ "$status" != 2 ]]; then return "$status"; fi
+    fi
+    FCITX_RESTART_DEFERRED=true
+    log "输入法重启和 addon 加载验证已暂缓；请在系统设置中重新应用 Fcitx 5 后运行 Doctor。"
+    return 0
+  fi
+  if [[ "${XDG_SESSION_TYPE:-}" != x11 || -z "${XDG_CURRENT_DESKTOP:-}" ||
+        -n "${WAYLAND_DISPLAY:-}" || -z "${DISPLAY:-}" ]]; then
+    if [[ "${XDG_CURRENT_DESKTOP:-}" == *KDE* || "${XDG_CURRENT_DESKTOP:-}" == *Plasma* ]]; then
+      log "Fcitx 模块已安装；请在系统设置 → 虚拟键盘中取消当前输入法并应用，再重新选择 Fcitx 5 并应用。"
+    else
+      log "Fcitx 模块已安装；当前不是已确认的 X11 桌面会话，请通过桌面的输入法设置重新应用输入法，或注销后重新登录。"
+    fi
+    log "输入法重启和 addon 加载验证已暂缓；重新应用输入法后请运行 Doctor。"
+    FCITX_RESTART_DEFERRED=true
+    return 0
+  fi
   local unit='app-org.fcitx.Fcitx5@autostart.service'
   if manager_available; then
     local load_state manager_environment
@@ -91,16 +116,16 @@ restart_fcitx_desktop() {
     manager_environment=$(manager_user show-environment 2>/dev/null || true)
     if [[ "$load_state" == loaded ]] &&
        grep -Eq '^(DISPLAY|WAYLAND_DISPLAY)=' <<<"$manager_environment"; then
-      manager_user restart "$unit"
+      manager_user restart "$unit" || return $?
       return 0
     fi
   fi
-  if command -v fcitx5 >/dev/null 2>&1 &&
-     [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]]; then
-    env -u FCITX_ADDON_DIRS fcitx5 -r -d >/dev/null 2>&1 || true
+  if command -v fcitx5 >/dev/null 2>&1; then
+    env -u FCITX_ADDON_DIRS fcitx5 -r -d || return $?
     return 0
   fi
-  log "Fcitx 5 module installed; desktop restart deferred because no graphical session is available."
+  log "Fcitx 5 restart failed: fcitx5 was not found."
+  return 1
 }
 
 install_deps() {
@@ -385,8 +410,10 @@ EOF_SERVICE
     manager_user enable vocotype-fcitx5-backend.service >/dev/null
     manager_user restart vocotype-fcitx5-backend.service
   fi
-  restart_fcitx_desktop
-  verify_fcitx_addon_enabled
+  restart_fcitx_desktop || return $?
+  if [[ "$FCITX_RESTART_DEFERRED" != true ]]; then
+    verify_fcitx_addon_enabled
+  fi
 }
 
 install_ibus() {

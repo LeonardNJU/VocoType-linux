@@ -508,7 +508,8 @@ int main(int argc, char **argv) {
         preview_done = true;
       }
       queue_cv.notify_all();
-      preview_thread.join();
+      if (preview_thread.joinable())
+        preview_thread.join();
       throw std::runtime_error(
           "microphone signal is near zero; check input device, mute switch and microphone permissions");
     }
