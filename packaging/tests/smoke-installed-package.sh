@@ -99,6 +99,7 @@ fi
 
 bash -n /usr/share/vocotype/scripts/install/common/install-native-user.sh
 bash -n /usr/share/vocotype/scripts/install/common/uninstall-native-user.sh
+bash -n /usr/share/vocotype/scripts/install/common/reapply-kde-input-method.sh
 [[ "$includes_ibus" != true ]] || "$(dirname "$0")/smoke-ibus-registry.sh"
 [[ "$includes_fcitx" != true ]] || "$(dirname "$0")/smoke-fcitx-addon.sh"
 echo "PACKAGE_NATIVE_RUNTIME_OK version=$expected_version flavor=$flavor"

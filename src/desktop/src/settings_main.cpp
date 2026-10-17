@@ -1049,7 +1049,8 @@ void save_config(SettingsWindow &window) {
          {"PolishKey", fcitx_hotkey_string(window.polish_hotkey)},
          {"EditKey", fcitx_hotkey_string(window.edit_hotkey)}});
   }
-  update_fcitx_config(fcitx_values);
+  if (selected_framework(window) == "fcitx5")
+    update_fcitx_config(fcitx_values);
   if (selected_framework(window) == "ibus") {
     const char *active =
         gtk_combo_box_get_active_id(GTK_COMBO_BOX(window.rime_schema));
@@ -1521,6 +1522,28 @@ bool set_fcitx_addon_enabled(const std::string &name, bool enabled,
 }
 
 Json restart_fcitx_desktop_session() {
+  const char *desktop = std::getenv("XDG_CURRENT_DESKTOP");
+  const char *session = std::getenv("XDG_SESSION_TYPE");
+  const char *wayland = std::getenv("WAYLAND_DISPLAY");
+  const char *display = std::getenv("DISPLAY");
+  const bool kde =
+      desktop && (std::string(desktop).find("KDE") != std::string::npos ||
+                  std::string(desktop).find("Plasma") != std::string::npos);
+  if (kde && session && std::string(session) == "wayland") {
+    const auto script =
+        project_root() / "scripts/install/common/reapply-kde-input-method.sh";
+    Json result = run_command({"bash", script.string()});
+    if (result.value("success", false))
+      result["method"] = "kde-config-notify";
+    return result;
+  }
+  if (!desktop || !*desktop || !session || std::string(session) != "x11" ||
+      (wayland && *wayland) || !display || !*display) {
+    const std::string guidance =
+        kde ? "请在系统设置 → 虚拟键盘中取消当前输入法并应用，再重新选择 Fcitx 5 并应用。"
+            : "当前不是已确认的 X11 桌面会话；请通过桌面的输入法设置重新应用输入法，或注销后重新登录。";
+    return {{"success", false}, {"manual_required", true}, {"error", guidance}};
+  }
   const std::string manager = vocotype::desktop::find_executable(
       std::string("system") + "ctl", {"/usr/bin/systemctl", "/bin/systemctl"});
   if (!manager.empty()) {
@@ -1532,24 +1555,19 @@ Json restart_fcitx_desktop_session() {
       const Json restarted = run_command({manager, "--user", "restart", unit});
       if (restarted.value("success", false))
         return {{"success", true}, {"method", "systemd-autostart"}};
+      return {{"success", false},
+              {"error", "Fcitx 5 用户服务重启失败：" +
+                            restarted.value("error", "unknown")}};
     }
   }
 
-  const bool graphical =
-      (std::getenv("DISPLAY") && *std::getenv("DISPLAY")) ||
-      (std::getenv("WAYLAND_DISPLAY") && *std::getenv("WAYLAND_DISPLAY"));
-  if (graphical) {
-    const Json restarted =
-        run_command({"sh", "-c", "exec env -u FCITX_ADDON_DIRS fcitx5 -r -d"});
-    if (restarted.value("success", false))
-      return {{"success", true}, {"method", "desktop-process"}};
-  }
-
-  const Json reloaded = run_command({"fcitx5-remote", "-r"});
-  if (reloaded.value("success", false))
-    return {{"success", true}, {"method", "remote-reload"}};
-  return {{"success", false},
-          {"error", "无法通过桌面会话重启 Fcitx 5；请重新登录桌面后重试"}};
+  const Json restarted =
+      run_command({"env", "-u", "FCITX_ADDON_DIRS", "fcitx5", "-r", "-d"});
+  if (restarted.value("success", false))
+    return {{"success", true}, {"method", "desktop-process"}};
+  return {
+      {"success", false},
+      {"error", "Fcitx 5 重启失败：" + restarted.value("error", "unknown")}};
 }
 
 Json restart_fcitx_with_vocotype() {
@@ -1844,16 +1862,9 @@ void update_fcitx_config(
   Json live = query_live_fcitx_config();
   const bool installed = framework_installed("fcitx5");
   if (!live.value("success", false) && installed) {
-    const Json restarted = restart_fcitx_with_vocotype();
-    if (!restarted.value("success", false))
-      throw std::runtime_error(
-          "Fcitx 已安装但无法载入 VoCoType 配置：" +
-          restarted.value("error", live.value("error", "unknown")));
-    live = query_live_fcitx_config();
-    if (!live.value("success", false))
-      throw std::runtime_error(
-          "Fcitx 已重启，但 VoCoType 运行配置仍不可用：" +
-          live.value("error", "unknown"));
+    throw std::runtime_error(
+        "Fcitx 已安装，但运行配置不可用；请先通过桌面的输入法设置重新应用 Fcitx 5，再保存设置：" +
+        live.value("error", "unknown"));
   }
 
   if (live.value("success", false)) {
@@ -2750,6 +2761,9 @@ GtkWidget *build_overview(SettingsWindow &window) {
                 if (!result.value("success", false))
                   set_label(self->overview_status,
                             "安装失败：\n" + result.value("error", "unknown"));
+                else
+                  set_label(self->overview_status,
+                            result.value("output", "安装完成"));
               });
         }),
         &window);
@@ -2811,7 +2825,9 @@ GtkWidget *build_overview(SettingsWindow &window) {
                 set_label(self->overview_status,
                           result.value("success", false)
                               ? "✓ 输入法框架已完成重启"
-                              : "重启失败：" +
+                              : (result.value("manual_required", false)
+                                     ? "需要重新应用输入法："
+                                     : "重启失败：") +
                                     result.value("error", "unknown"));
               });
         }),

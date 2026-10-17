@@ -91,6 +91,8 @@ install -Dm755 "$PROJECT_DIR/scripts/install/common/install-native-user.sh" \
   "$source_root/scripts/install/common/install-native-user.sh"
 install -Dm755 "$PROJECT_DIR/scripts/install/common/uninstall-native-user.sh" \
   "$source_root/scripts/install/common/uninstall-native-user.sh"
+install -Dm755 "$PROJECT_DIR/scripts/install/common/reapply-kde-input-method.sh" \
+  "$source_root/scripts/install/common/reapply-kde-input-method.sh"
 
 install -Dm644 "$PROJECT_DIR/scripts/install/common/desktop-integration.sh" \
   "$source_root/scripts/install/common/desktop-integration.sh"

@@ -196,10 +196,7 @@ for token in \
   rg -Fq -- "$token" src/desktop scripts/install/common/install-native-user.sh || \
     fail "Issue #4 Fcitx repair capability missing: $token"
 done
-rg -Fq 'app-org.fcitx.Fcitx5@autostart.service' "$settings" ||   fail "settings repair does not restart Fcitx through the desktop session"
-if rg -Fq 'run_command({"fcitx5", "-r", "-d"})' "$settings"; then
-  fail "settings repair can launch Fcitx without desktop environment checks"
-fi
+bash scripts/test/fcitx-restart.sh || fail "Fcitx desktop restart policy failed"
 
 # Core lifecycle must use the persistent user service when installed. A
 # settings window must never replace it with a parent-bound temporary child.
