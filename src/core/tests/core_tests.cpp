@@ -772,6 +772,24 @@ void test_offline_asr(const std::filesystem::path &worker_path) {
             "async recording was not removed after completion");
   }
 
+  // The model manager honors MODELSCOPE_CACHE. Core must resolve its
+  // punctuation snapshot from the same non-default location (issue #73).
+  {
+    const auto cache = root / "custom-modelscope-cache";
+    const auto punc = cache / "models" / config.offline_asr.punc_model;
+    std::filesystem::create_directories(punc);
+    ::setenv("MODELSCOPE_CACHE", cache.c_str(), 1);
+    AppConfig with_punc = config;
+    with_punc.offline_asr.use_punc = true;
+    {
+      CoreDispatcher dispatcher(with_punc);
+      const Json prepared = dispatcher.dispatch({{"type", "asr_prepare"}});
+      require(prepared.value("success", false),
+              "Core ignored the ModelScope cache for punctuation model");
+    }
+    ::unsetenv("MODELSCOPE_CACHE");
+  }
+
   std::filesystem::remove_all(root);
 }
 

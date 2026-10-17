@@ -146,6 +146,16 @@ std::filesystem::path OfflineAsrProcess::resolve_model_dir(
     candidates.emplace_back(expand_user_path(configured_dir));
   }
   if (!model_name.empty()) {
+    // Match the ModelScope model manager's MODELSCOPE_CACHE/models layout.
+    // Previously downloads into a configured cache were invisible to Core.
+    const std::string modelscope_cache = environment_value("MODELSCOPE_CACHE");
+    if (!modelscope_cache.empty())
+      candidates.emplace_back(std::filesystem::path(modelscope_cache) /
+                              "models" / model_name);
+    const std::string xdg_cache = environment_value("XDG_CACHE_HOME");
+    if (!xdg_cache.empty())
+      candidates.emplace_back(std::filesystem::path(xdg_cache) /
+                              "modelscope/hub/models" / model_name);
     const std::string home = environment_value("HOME");
     if (!home.empty()) {
       candidates.emplace_back(std::filesystem::path(home) / ".cache" /

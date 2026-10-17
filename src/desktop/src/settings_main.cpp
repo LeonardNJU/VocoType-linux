@@ -210,7 +210,8 @@ void update_fcitx_config(
     const std::vector<std::pair<std::string, std::string>> &values);
 void set_label(GtkLabel *label, const std::string &text);
 std::string file_text(const std::filesystem::path &path);
-Json run_command(const std::vector<std::string> &arguments);
+Json run_command(const std::vector<std::string> &arguments,
+                 const std::function<void(const Json &)> &progress = {});
 Hotkey &hotkey_for_slot(SettingsWindow &window, HotkeySlot slot) {
   switch (slot) {
   case HotkeySlot::polish:
@@ -1415,7 +1416,8 @@ std::filesystem::path project_root() {
   return std::filesystem::current_path();
 }
 
-Json run_command(const std::vector<std::string> &arguments) {
+Json run_command(const std::vector<std::string> &arguments,
+                 const std::function<void(const Json &)> &progress) {
   if (arguments.empty())
     return {{"success", false}, {"error", "empty command"}};
   int output_pipe[2]{};
@@ -1442,6 +1444,7 @@ Json run_command(const std::vector<std::string> &arguments) {
   }
   close(output_pipe[1]);
   std::string output;
+  std::string pending_progress;
   std::array<char, 4096> buffer{};
   for (;;) {
     const ssize_t count = read(output_pipe[0], buffer.data(), buffer.size());
@@ -1450,8 +1453,30 @@ Json run_command(const std::vector<std::string> &arguments) {
     if (count <= 0)
       break;
     output.append(buffer.data(), static_cast<std::size_t>(count));
-    if (output.size() > 2U * 1024U * 1024U)
+    if (progress) {
+      pending_progress.append(buffer.data(), static_cast<std::size_t>(count));
+      std::size_t line_end = 0;
+      while ((line_end = pending_progress.find('\n')) != std::string::npos) {
+        const auto line = pending_progress.substr(0, line_end);
+        pending_progress.erase(0, line_end + 1);
+        const Json event = Json::parse(line, nullptr, false);
+        if (event.is_object() && event.value("type", "") == "progress") {
+          try {
+            progress(event);
+          } catch (const std::exception &) {
+            // UI progress reporting must never interrupt a download.
+          }
+        }
+      }
+      if (pending_progress.size() > 64 * 1024)
+        pending_progress.clear();
+      // Model downloads can last hours. Keep draining their progress stream
+      // instead of filling the pipe and stalling the worker at 2 MiB.
+      if (output.size() > 2U * 1024U * 1024U)
+        output.erase(0, output.size() - 256U * 1024U);
+    } else if (output.size() > 2U * 1024U * 1024U) {
       break;
+    }
   }
   close(output_pipe[0]);
   int status = 0;
@@ -2051,12 +2076,12 @@ Json install_integration(const std::string &framework) {
       {"bash", script.string(), "--framework", framework, "--non-interactive"});
 }
 
-Json download_models() {
+Json download_models(const std::function<void(const Json &)> &progress = {}) {
   const std::string manager = native_model_manager();
   if (manager.empty())
     return {{"success", false},
             {"error", "native model manager was not found"}};
-  return run_command({manager, "--download", "--all"});
+  return run_command({manager, "--download", "--all"}, progress);
 }
 
 std::string file_text(const std::filesystem::path &path) {
@@ -2903,10 +2928,27 @@ GtkWidget *build_overview(SettingsWindow &window) {
   g_signal_connect_swapped(
       models, "clicked", G_CALLBACK(+[](SettingsWindow *self) {
         set_label(self->overview_status, "正在校验并下载原生 ASR 模型…");
-        run_async([] { return download_models(); },
-                  [self](Json result) {
+        run_async(
+            [self] {
+              return download_models([self](const Json &event) {
+                const auto downloaded = event.value("downloaded", 0LL);
+                const auto total = event.value("total", 0LL);
+                std::ostringstream message;
+                message << "模型下载中：" << event.value("file", "")
+                        << "  " << std::fixed << std::setprecision(1)
+                        << (static_cast<double>(downloaded) / 1048576.0) << " MiB";
+                if (total > 0)
+                  message << " / " << (static_cast<double>(total) / 1048576.0)
+                          << " MiB (" << (100 * downloaded / total) << "%)";
+                const std::string label = message.str();
+                post_idle([self, label] { set_label(self->overview_status, label); });
+              });
+            },
+            [self](Json result) {
                     refresh_overview(*self);
-                    if (!result.value("success", false))
+                    if (result.value("success", false))
+                      set_label(self->overview_status, "✓ ASR 模型校验与下载完成");
+                    else
                       set_label(self->overview_status,
                                 "模型准备失败：\n" +
                                     result.value("error", "unknown"));
