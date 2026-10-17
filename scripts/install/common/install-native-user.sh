@@ -12,7 +12,7 @@ SAMPLE_RATE=""
 usage() {
   cat <<'HELP'
 Usage: install-native-user.sh [options]
-  --framework fcitx5|ibus|universal
+  --framework fcitx5|ibus|universal|flatpak-fcitx5
   --non-interactive
   --download-models
   --install-system-deps
@@ -37,7 +37,7 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
-case "$FRAMEWORK" in fcitx5|ibus|universal) ;; *) echo "invalid framework" >&2; exit 2 ;; esac
+case "$FRAMEWORK" in fcitx5|ibus|universal|flatpak-fcitx5) ;; *) echo "invalid framework" >&2; exit 2 ;; esac
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR=$(cd "$SCRIPT_DIR/../../.." && pwd)
@@ -399,6 +399,34 @@ EOF_SERVICE
   fi
 }
 
+# Fcitx5 runs in Flatpak while recorder/Core stay on the host.
+# Keep a separate socket so a host Fcitx or IBus installation is unaffected.
+install_flatpak_core_service() {
+  manager_available || {
+    echo "Flatpak Fcitx5 integration needs a running user systemd manager." >&2
+    return 1
+  }
+  mkdir -p "$USER_SERVICE_DIR"
+  cat > "$USER_SERVICE_DIR/vocotype-flatpak-backend.service" <<'EOF_FLATPAK'
+[Unit]
+Description=VoCoType host Core for Flatpak Fcitx5
+
+[Service]
+Type=simple
+RuntimeDirectory=vocotype-flatpak
+RuntimeDirectoryMode=0700
+ExecStart=%h/.local/bin/vocotype-fcitx5-backend --socket-path %t/vocotype-flatpak/core.sock
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+EOF_FLATPAK
+  manager_user daemon-reload
+  manager_user enable vocotype-flatpak-backend.service >/dev/null
+  manager_user restart vocotype-flatpak-backend.service
+}
+
 install_fcitx() {
   if [[ "$SOURCE_MODE" == true ]]; then
     local build="$PROJECT_DIR/build/fcitx-native-user"
@@ -479,12 +507,18 @@ write_terms_template
 write_audio_override
 install_user_launchers
 verify_models
-# Core is shared by Fcitx5 and IBus; keep it alive independently of either IM.
-install_core_service
+# Flatpak only installs host helpers, never the native Fcitx addon.
+# Standard installation retains its existing shared native Core service.
+if [[ "$FRAMEWORK" == flatpak-fcitx5 ]]; then
+  install_flatpak_core_service
+else
+  install_core_service
+fi
 case "$FRAMEWORK" in
   fcitx5) install_fcitx ;;
   ibus) install_ibus ;;
   universal) install_fcitx; install_ibus ;;
+  flatpak-fcitx5) ;;
 esac
 cleanup_legacy_runtime
 # Both source and package activation install a discoverable settings entry.

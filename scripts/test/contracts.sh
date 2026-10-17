@@ -197,6 +197,7 @@ for token in \
     fail "Issue #4 Fcitx repair capability missing: $token"
 done
 bash scripts/test/fcitx-restart.sh || fail "Fcitx desktop restart policy failed"
+bash scripts/test/flatpak-fcitx5.sh || fail "Flatpak Fcitx5 extension/bridge contract failed"
 bash scripts/test/recorder-silence.sh || fail "recorder silence cleanup failed"
 
 # Core lifecycle must use the persistent user service when installed. A

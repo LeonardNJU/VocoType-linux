@@ -12,11 +12,11 @@ while [[ $# -gt 0 ]]; do
     --keep-system-integration) KEEP_SYSTEM_INTEGRATION=true; shift ;;
     --remove-system-integration) KEEP_SYSTEM_INTEGRATION=false; shift ;;
     --keep-system-component|--remove-system-component|--yes|--non-interactive) shift ;;
-    -h|--help) echo "Usage: $0 --framework fcitx5|ibus|universal [--purge-runtime] [--remove-user-data] [--keep-system-integration]"; exit 0 ;;
+    -h|--help) echo "Usage: $0 --framework fcitx5|ibus|universal|flatpak-fcitx5 [--purge-runtime] [--remove-user-data] [--keep-system-integration]"; exit 0 ;;
     *) shift ;;
   esac
 done
-case "$FRAMEWORK" in fcitx5|ibus|universal) ;; *) echo "invalid framework" >&2; exit 2;; esac
+case "$FRAMEWORK" in fcitx5|ibus|universal|flatpak-fcitx5) ;; *) echo "invalid framework" >&2; exit 2;; esac
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR=$(cd "$SCRIPT_DIR/../../.." && pwd)
 SYSTEM_PREFIX=${VOCOTYPE_SYSTEM_PREFIX:-/usr}
@@ -68,6 +68,13 @@ restart_ibus_bounded() {
 }
 
 case "$FRAMEWORK" in
+  flatpak-fcitx5)
+    if command -v "$(manager_cmd)" >/dev/null 2>&1; then
+      manager_user disable --now vocotype-flatpak-backend.service >/dev/null 2>&1 || true
+    fi
+    rm -f "$HOME/.config/systemd/user/vocotype-flatpak-backend.service"
+    # Never remove the native addon or other framework's service.
+    ;;
   fcitx5|universal)
     rm -f "$HOME/.local/bin/vocotype-fcitx5-recorder"
     rm -f "$HOME/.local/lib/fcitx5/vocotype.so" "$HOME/.local/lib64/fcitx5/libvocotype.so"
@@ -96,7 +103,8 @@ esac
 if [[ "$PURGE_RUNTIME" == true ]]; then
   rm -rf "$HOME/.local/lib/vocotype-native" "$HOME/.local/lib/vocotype-streaming"
 fi
-if ! fcitx_present && ! ibus_present; then
+if ! fcitx_present && ! ibus_present &&
+   [[ ! -f "$HOME/.config/systemd/user/vocotype-flatpak-backend.service" ]]; then
   # Only shut down the shared Core once both input-method integrations are gone.
   if command -v "$(manager_cmd)" >/dev/null 2>&1; then
     manager_user disable --now vocotype-fcitx5-backend.service >/dev/null 2>&1 || true
@@ -114,6 +122,7 @@ if command -v "$(manager_cmd)" >/dev/null 2>&1; then
   manager_user daemon-reload >/dev/null 2>&1 || true
 fi
 case "$FRAMEWORK" in
+  flatpak-fcitx5) echo "VoCoType Flatpak Fcitx5 host service 已卸载；请另行撤销 Flatpak override 和 addon。" ;;
   fcitx5) echo "VoCoType（Fcitx 5）integration 已卸载；用户配置已保留。" ;;
   ibus) echo "VoCoType（IBus）integration 已卸载；用户配置已保留。" ;;
   universal) echo "VoCoType integrations 已卸载；用户配置已保留。" ;;

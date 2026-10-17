@@ -1,0 +1,33 @@
+# Experimental Fcitx5 Flatpak extension, matching the upstream master branch.
+app-id: org.fcitx.Fcitx5.Addon.VocoType
+branch: master
+runtime: org.fcitx.Fcitx5
+runtime-version: master
+sdk: org.kde.Sdk//6.11
+build-extension: true
+separate-locales: false
+build-options:
+  prefix: /app/addons/VocoType
+  no-debuginfo: true
+  strip: true
+modules:
+  - name: vocotype-fcitx-module
+    buildsystem: cmake-ninja
+    subdir: src/integrations/fcitx5/module
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DCMAKE_INSTALL_LIBDIR=lib
+      - -DVOCOTYPE_FCITX5_RECORDER_PATH=/app/addons/VocoType/bin/vocotype-fcitx5-recorder
+      - -DVOCOTYPE_FCITX5_BACKEND_PATH=/app/addons/VocoType/bin/vocotype-fcitx5-backend
+    sources:
+      - type: dir
+        path: source
+  - name: vocotype-host-bridge
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 host-recorder.sh /app/addons/VocoType/bin/vocotype-fcitx5-recorder
+      - install -Dm755 host-backend.sh /app/addons/VocoType/bin/vocotype-fcitx5-backend
+      - install -Dm644 vocotype.conf /app/addons/VocoType/share/fcitx5/addon/vocotype.conf
+    sources:
+      - type: dir
+        path: bridges

@@ -2,6 +2,8 @@
 
 VoCoType 在 Fcitx 5 中是一个**全局 Module**，不是需要切换到的独立输入法。你可以继续使用原有的 Rime、拼音、Mozc 或键盘布局，通过已配置的语音快捷键调用 VoCoType；普通识别默认是 `F9`。
 
+使用 Flatpak Fcitx5 的用户可参考 [Flatpak Fcitx5 实验接入](flatpak-fcitx5.md)。
+
 ## 安装后如何使用
 
 1. 在 **VoCoType 设置** 中安装 / 修复 Fcitx 5 集成；
