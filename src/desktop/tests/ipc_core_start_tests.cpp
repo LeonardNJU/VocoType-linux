@@ -1,6 +1,8 @@
 #include "vocotype/desktop/ipc.hpp"
 
 #include <chrono>
+#include <cerrno>
+#include <sys/wait.h>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -135,6 +137,48 @@ int main(int argc, char **argv) {
   }
 
   std::filesystem::remove(failure_socket);
+
+  // Exit 0 means the singleton lock belongs to another Core that may still
+  // be starting. The client should discover its socket rather than failing.
+  {
+    std::ofstream script(executable);
+    script << "#!/bin/sh\nexit 0\n";
+  }
+  const std::string race_socket =
+      "/tmp/vocotype-ipc-race-" + std::to_string(::getpid()) + ".sock";
+  std::filesystem::remove(race_socket);
+  std::thread delayed_owner([&] {
+    std::this_thread::sleep_for(std::chrono::milliseconds(400));
+    const pid_t owner = ::fork();
+    if (owner == 0) {
+      ::execl(fake_core.c_str(), fake_core.c_str(),
+              "--socket-path", race_socket.c_str(), static_cast<char *>(nullptr));
+      ::_exit(127);
+    }
+    if (owner > 0) {
+      int status = 0;
+      while (::waitpid(owner, &status, 0) < 0 && errno == EINTR) {}
+    }
+  });
+  const auto competing = vocotype::desktop::ensure_native_core_status(
+      race_socket, {}, 3000);
+  success &= require(competing.ready,
+                     "duplicate exit 0 should wait for socket from the lock owner: " +
+                         competing.error);
+  if (competing.ready)
+    (void)vocotype::desktop::unix_json_request(
+        race_socket, {{"type", "shutdown"}}, 1000);
+  delayed_owner.join();
+
+  const std::string orphan_socket =
+      "/tmp/vocotype-ipc-orphan-" + std::to_string(::getpid()) + ".sock";
+  const auto missing_owner = vocotype::desktop::ensure_native_core_status(
+      orphan_socket, {}, 500);
+  success &= require(!missing_owner.ready && missing_owner.exit_code == 0 &&
+                         missing_owner.error.find("singleton lock held") !=
+                             std::string::npos,
+                     "exit 0 with no reachable Core must give a clear bounded error");
+
   std::filesystem::remove_all(temporary);
   if (!success)
     return 1;

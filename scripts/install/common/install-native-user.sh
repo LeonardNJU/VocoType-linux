@@ -375,11 +375,11 @@ LAUNCH
     "$USER_BIN/vocotype-fcitx5-recorder" "$USER_BIN/vocotype-settings"
 }
 
-install_fcitx() {
+install_core_service() {
   mkdir -p "$USER_SERVICE_DIR"
   cat > "$USER_SERVICE_DIR/vocotype-fcitx5-backend.service" <<EOF_SERVICE
 [Unit]
-Description=VoCoType Native Fcitx 5 Backend
+Description=VoCoType Native Core Backend
 After=graphical-session.target
 PartOf=graphical-session.target
 
@@ -392,6 +392,14 @@ RestartSec=3
 [Install]
 WantedBy=default.target
 EOF_SERVICE
+  if manager_available; then
+    manager_user daemon-reload
+    manager_user enable vocotype-fcitx5-backend.service >/dev/null
+    manager_user restart vocotype-fcitx5-backend.service
+  fi
+}
+
+install_fcitx() {
   if [[ "$SOURCE_MODE" == true ]]; then
     local build="$PROJECT_DIR/build/fcitx-native-user"
     cmake -S "$PROJECT_DIR/src/integrations/fcitx5/module" -B "$build" -DCMAKE_BUILD_TYPE=Release
@@ -405,11 +413,6 @@ EOF_SERVICE
     echo "✓ Installed the Fcitx module in the user prefix; no root privilege was required."
   fi
   migrate_legacy_fcitx_profile
-  if manager_available; then
-    manager_user daemon-reload
-    manager_user enable vocotype-fcitx5-backend.service >/dev/null
-    manager_user restart vocotype-fcitx5-backend.service
-  fi
   restart_fcitx_desktop || return $?
   if [[ "$FCITX_RESTART_DEFERRED" != true ]]; then
     verify_fcitx_addon_enabled
@@ -476,6 +479,8 @@ write_terms_template
 write_audio_override
 install_user_launchers
 verify_models
+# Core is shared by Fcitx5 and IBus; keep it alive independently of either IM.
+install_core_service
 case "$FRAMEWORK" in
   fcitx5) install_fcitx ;;
   ibus) install_ibus ;;

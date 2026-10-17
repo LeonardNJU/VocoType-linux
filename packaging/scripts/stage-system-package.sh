@@ -169,15 +169,18 @@ else
   echo "Native ASR bundle missing; development staging is incomplete" >&2
 fi
 
+# Both IBus-only and Fcitx installations need a persistent Core service.
+install -Dm755 "$PROJECT_DIR/packaging/common/bin/vocotype-fcitx5-backend" \
+  "$DESTDIR$PREFIX/bin/vocotype-fcitx5-backend"
+install -Dm644 "$PROJECT_DIR/packaging/common/systemd/vocotype-fcitx5-backend.service" \
+  "$DESTDIR$PREFIX/lib/systemd/user/vocotype-fcitx5-backend.service"
+
 if [[ "$INCLUDES_FCITX5" == true ]]; then
-  install -Dm755 "$PROJECT_DIR/packaging/common/bin/vocotype-fcitx5-backend" \
-    "$DESTDIR$PREFIX/bin/vocotype-fcitx5-backend"
+  # The recorder and addon remain Fcitx-specific.
   install -Dm755 "$PROJECT_DIR/packaging/common/bin/vocotype-fcitx5-recorder" \
     "$DESTDIR$PREFIX/bin/vocotype-fcitx5-recorder"
   install -Dm644 "$PROJECT_DIR/src/integrations/fcitx5/data/vocotype.conf" \
     "$DESTDIR$PREFIX/share/fcitx5/addon/vocotype.conf"
-  install -Dm644 "$PROJECT_DIR/packaging/common/systemd/vocotype-fcitx5-backend.service" \
-    "$DESTDIR$PREFIX/lib/systemd/user/vocotype-fcitx5-backend.service"
   if [[ "$SKIP_MODULE_BUILD" != true ]]; then
     if [[ "$LIBDIR" == "$PREFIX/"* ]]; then cmake_libdir=${LIBDIR#"$PREFIX/"}
     elif [[ "$LIBDIR" == /* ]]; then cmake_libdir=${LIBDIR#/}

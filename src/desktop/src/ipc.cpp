@@ -445,6 +445,23 @@ ensure_native_core_status(const std::string &requested_socket,
     if (waited == child) {
       stderr_text += read_available(descriptors[0]);
       ::close(descriptors[0]);
+      // Core exits zero when another process holds the singleton lock.
+      // That winner may still be initializing its socket. Do not interpret
+      // this as a crash or spawn more competing instances: wait boundedly.
+      if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+        while (std::chrono::steady_clock::now() < deadline) {
+          if (native_core_ready(socket, 200)) {
+            clear_native_core_error(socket);
+            return {true, {}, -1};
+          }
+          std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        const std::string error =
+            "native core singleton lock held, but no reachable socket became ready "
+            "within " + std::to_string(bounded_wait) + " ms";
+        remember_native_core_error(socket, error);
+        return {false, error, 0};
+      }
       const std::string error = child_failure_message(status, stderr_text);
       remember_native_core_error(socket, error);
       const int exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;

@@ -60,8 +60,10 @@ case "$FORMAT" in
     if [[ "$INCLUDES_FCITX" == true ]]; then
       build+=('BuildRequires:  fcitx5-devel')
       requires+=('Requires:       fcitx5')
-      files+=('%{_bindir}/vocotype-fcitx5-backend' '%{_bindir}/vocotype-fcitx5-recorder' '%{_libdir}/fcitx5/vocotype.so' '%{_datadir}/fcitx5/addon/vocotype.conf' '%{_userunitdir}/vocotype-fcitx5-backend.service')
+      files+=('%{_bindir}/vocotype-fcitx5-recorder' '%{_libdir}/fcitx5/vocotype.so' '%{_datadir}/fcitx5/addon/vocotype.conf')
     fi
+    # The core launcher and unit are shared by both package flavors.
+    files+=('%{_bindir}/vocotype-fcitx5-backend' '%{_userunitdir}/vocotype-fcitx5-backend.service')
     conflicts=(); for item in "${CONFLICT_LIST[@]}"; do conflicts+=("Conflicts:      $item"); done
     : > "$OUTPUT"
     while IFS= read -r line || [[ -n "$line" ]]; do

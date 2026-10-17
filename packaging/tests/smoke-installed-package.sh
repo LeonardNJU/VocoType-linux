@@ -84,8 +84,10 @@ else
   ! runtime_executable vocotype-ibus-engine >/dev/null 2>&1
 fi
 
+[[ -x /usr/bin/vocotype-fcitx5-backend ]]
+[[ -f /usr/lib/systemd/user/vocotype-fcitx5-backend.service ||
+   -f /usr/lib64/systemd/user/vocotype-fcitx5-backend.service ]]
 if [[ "$includes_fcitx" == true ]]; then
-  [[ -x /usr/bin/vocotype-fcitx5-backend ]]
   [[ -x /usr/bin/vocotype-fcitx5-recorder ]]
   [[ -f /usr/share/fcitx5/addon/vocotype.conf ]]
   module=$(find /usr/lib64 /usr/lib -path '*/fcitx5/vocotype.so' \
@@ -93,7 +95,6 @@ if [[ "$includes_fcitx" == true ]]; then
   [[ -n "$module" ]]
   ldd -r "$module" >/dev/null
 else
-  [[ ! -e /usr/bin/vocotype-fcitx5-backend ]]
   [[ ! -e /usr/share/fcitx5/addon/vocotype.conf ]]
 fi
 

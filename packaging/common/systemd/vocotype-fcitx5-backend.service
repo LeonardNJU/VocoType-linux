@@ -1,5 +1,5 @@
 [Unit]
-Description=VoCoType Native Fcitx 5 Backend
+Description=VoCoType Native Core Backend
 After=graphical-session.target
 PartOf=graphical-session.target
 

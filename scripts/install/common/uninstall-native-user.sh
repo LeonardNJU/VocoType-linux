@@ -42,9 +42,9 @@ remove_source_fcitx() {
 }
 
 fcitx_present() {
-  [[ -f "$HOME/.config/systemd/user/vocotype-fcitx5-backend.service" ||
-     -x "$HOME/.local/bin/vocotype-fcitx5-backend" ||
-     -d "$HOME/.local/share/vocotype-fcitx5/backend" ]]
+  [[ -f "$HOME/.local/share/fcitx5/addon/vocotype.conf" ||
+     -f "$HOME/.local/lib/fcitx5/vocotype.so" ||
+     -f "$HOME/.local/lib64/fcitx5/libvocotype.so" ]]
 }
 ibus_present() {
   [[ -f "$HOME/.local/share/ibus/component/vocotype.xml" ||
@@ -69,11 +69,7 @@ restart_ibus_bounded() {
 
 case "$FRAMEWORK" in
   fcitx5|universal)
-    if command -v "$(manager_cmd)" >/dev/null 2>&1; then
-      manager_user disable --now vocotype-fcitx5-backend.service >/dev/null 2>&1 || true
-    fi
-    rm -f "$HOME/.config/systemd/user/vocotype-fcitx5-backend.service"
-    rm -f "$HOME/.local/bin/vocotype-fcitx5-backend" "$HOME/.local/bin/vocotype-fcitx5-recorder"
+    rm -f "$HOME/.local/bin/vocotype-fcitx5-recorder"
     rm -f "$HOME/.local/lib/fcitx5/vocotype.so" "$HOME/.local/lib64/fcitx5/libvocotype.so"
     rm -f "$HOME/.local/share/fcitx5/addon/vocotype.conf"
     rm -f "$HOME/.config/environment.d/fcitx5-vocotype.conf"
@@ -101,6 +97,12 @@ if [[ "$PURGE_RUNTIME" == true ]]; then
   rm -rf "$HOME/.local/lib/vocotype-native" "$HOME/.local/lib/vocotype-streaming"
 fi
 if ! fcitx_present && ! ibus_present; then
+  # Only shut down the shared Core once both input-method integrations are gone.
+  if command -v "$(manager_cmd)" >/dev/null 2>&1; then
+    manager_user disable --now vocotype-fcitx5-backend.service >/dev/null 2>&1 || true
+  fi
+  rm -f "$HOME/.config/systemd/user/vocotype-fcitx5-backend.service"
+  rm -f "$HOME/.local/bin/vocotype-fcitx5-backend"
   . "$SCRIPT_DIR/desktop-integration.sh"
   remove_desktop_entries
   command rm -f "$HOME/.local/bin/vocotype-settings"
