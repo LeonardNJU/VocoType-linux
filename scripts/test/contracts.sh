@@ -335,10 +335,10 @@ for service in scripts/install/common/install-native-user.sh \
 done
 
 
-# The tracked source tree contains no Python implementation or dependency
-# manifest. Local build caches and historical staging directories are ignored.
-if git ls-files '*.py' | grep -q .; then
-  fail "Python source remains in the repository"
+# Product code stays native; Python is allowed only in development tests.
+# Installed/build paths are checked separately above.
+if git ls-files '*.py' ':!:scripts/test/**' | grep -q .; then
+  fail "Python source remains outside development tests"
 fi
 if git ls-files 'pyproject.toml' 'uv.lock' 'requirements*.txt' | grep -q .; then
   fail "Python dependency manifest remains in the repository"
