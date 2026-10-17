@@ -6,8 +6,12 @@
  * FSMN cache behavior remains in upstream libfunasr.
  */
 
+#ifdef _WIN32
+#include "windows_stdin.hpp"
+#else
 #include <poll.h>
 #include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <cerrno>
@@ -190,6 +194,11 @@ class Worker {
                                     : std::min(250, remaining_session_ms());
             if (sessions_.empty() && wait_ms <= 0) return 0;
 
+#ifdef _WIN32
+            const int poll_result = vocotype_wait_stdin(std::max(1, wait_ms));
+            if (poll_result < 0) return 0;
+            if (poll_result == 0) continue;
+#else
             pollfd descriptor{STDIN_FILENO, POLLIN | POLLHUP, 0};
             const int poll_result = ::poll(&descriptor, 1, std::max(1, wait_ms));
             if (poll_result < 0) {
@@ -199,6 +208,7 @@ class Worker {
             if (poll_result == 0) continue;
             if (descriptor.revents & (POLLERR | POLLNVAL)) return 1;
 
+#endif
             std::string line;
             if (!std::getline(std::cin, line)) return 0;
             if (line.empty()) continue;
