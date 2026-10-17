@@ -111,6 +111,26 @@ with tempfile.TemporaryDirectory(prefix="vocotype-kde-test-") as directory:
             assert state["writes"][0] == "" and state["writes"][-1] == selection, state
         if status == 0:
             assert state["owner"] == "new" and "实例已更换" in stdout, (state, stdout)
+    # KWin may store the standard distro-provided Fcitx5 desktop entry.
+    for filename in ("fcitx5.desktop", "fcitx5-wayland-launcher.desktop",
+                     "org.fcitx.Fcitx5.desktop",
+                     "org.fcitx.Fcitx5-wayland-launcher.desktop"):
+        desktop_entry = root / filename
+        desktop_entry.touch()
+        state_file.write_text(json.dumps(dict(selection=str(desktop_entry),
+                                              writes=[], owner="old", scenario="success")))
+        case = subprocess.run(["/usr/bin/bash", str(helper)], env=env,
+                              text=True, capture_output=True, timeout=15)
+        state = json.loads(state_file.read_text())
+        assert case.returncode == 0, (filename, case.stderr)
+        assert state["selection"] == str(desktop_entry), (filename, state)
+    foreign = root / "org.fcitx.Other.desktop"
+    foreign.touch()
+    state_file.write_text(json.dumps(dict(selection=str(foreign),
+                                          writes=[], owner="old", scenario="success")))
+    rejected = subprocess.run(["/usr/bin/bash", str(helper)], env=env,
+                              text=True, capture_output=True, timeout=5)
+    assert rejected.returncode == 2 and not json.loads(state_file.read_text())["writes"]
     # Unsupported desktops must not invoke any KDE command.
     state_file.write_text(json.dumps(dict(selection=str(original), writes=[], owner="old", scenario="success")))
     result = subprocess.run(["/usr/bin/bash", str(helper)], env=dict(env, XDG_CURRENT_DESKTOP="GNOME"),

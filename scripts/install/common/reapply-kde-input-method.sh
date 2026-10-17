@@ -42,7 +42,8 @@ wait_available() {
 
 original=$(read_selection)
 case "$original" in
-  */fcitx5.desktop|*/fcitx5-wayland-launcher.desktop) ;;
+  */fcitx5.desktop|*/fcitx5-wayland-launcher.desktop|\
+  */org.fcitx.Fcitx5.desktop|*/org.fcitx.Fcitx5-wayland-launcher.desktop) ;;
   *) echo "当前 KDE 输入法不是 Fcitx 5，已保留原选项：$original" >&2; exit 2 ;;
 esac
 [[ -f "$original" ]] || { echo "输入法桌面文件不存在：$original" >&2; exit 1; }
