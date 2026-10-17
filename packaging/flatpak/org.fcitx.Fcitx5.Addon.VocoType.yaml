@@ -27,6 +27,7 @@ modules:
     build-commands:
       - install -Dm755 host-recorder.sh /app/addons/VocoType/bin/vocotype-fcitx5-recorder
       - install -Dm755 host-backend.sh /app/addons/VocoType/bin/vocotype-fcitx5-backend
+      - install -Dm755 host-settings.sh /app/addons/VocoType/bin/vocotype-settings
       - install -Dm644 vocotype.conf /app/addons/VocoType/share/fcitx5/addon/vocotype.conf
     sources:
       - type: dir

@@ -19,6 +19,7 @@ test -f "$base/source/src/integrations/fcitx5/common/ipc_client.cpp"
 test -f "$base/source/src/common/include/vocotype/common/spacing.hpp"
 test -f "$base/bridges/host-recorder.sh"
 test -f "$base/bridges/host-backend.sh"
+test -f "$base/bridges/host-settings.sh"
 test -f "$base/bridges/vocotype.conf"
 grep -Fq 'runtime: org.fcitx.Fcitx5' "$manifest"
 grep -Fq 'build-extension: true' "$manifest"
@@ -43,6 +44,9 @@ grep -Fxq -- 'audio with spaces' "$CAPTURE"
 grep -Fxq -- '--flag' "$CAPTURE"
 PATH="$TMP/bin:$PATH" "$ADDON/host-backend.sh"
 grep -Fxq -- 'vocotype-flatpak-backend.service' "$CAPTURE"
+PATH="$TMP/bin:$PATH" "$ADDON/host-settings.sh" '--version'
+grep -Fxq -- '--version' "$CAPTURE"
+grep -Fxq -- 'vocotype-host-settings' "$CAPTURE"
 
 # Permission must require deliberate opt-in. No app-wide filesystem access.
 if PATH="$TMP/bin:$PATH" bash "$ADDON/enable-host-bridge.sh" >"$TMP/no-consent" 2>&1; then

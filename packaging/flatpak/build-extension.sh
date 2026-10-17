@@ -26,6 +26,7 @@ cp -a "$ROOT/src/integrations/fcitx5/common" "$STAGING/source/src/integrations/f
 cp -a "$ROOT/src/common/include" "$STAGING/source/src/common/"
 cp "$ROOT/packaging/flatpak/host-recorder.sh" "$STAGING/bridges/"
 cp "$ROOT/packaging/flatpak/host-backend.sh" "$STAGING/bridges/"
+cp "$ROOT/packaging/flatpak/host-settings.sh" "$STAGING/bridges/"
 cp "$ROOT/src/integrations/fcitx5/data/vocotype.conf" "$STAGING/bridges/"
 cp "$ROOT/packaging/flatpak/org.fcitx.Fcitx5.Addon.VocoType.yaml" "$STAGING/"
 flatpak-builder --force-clean --repo="$OUTPUT/repo" "$OUTPUT/build"   "$STAGING/org.fcitx.Fcitx5.Addon.VocoType.yaml"

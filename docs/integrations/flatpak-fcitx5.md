@@ -6,7 +6,7 @@ VoCoType 现在提供初步的扩展构建方案，不需要更换已有的 Flat
 
 ## 结构
 
-- Flatpak 内安装 /app/addons/VocoType/lib/fcitx5/vocotype.so，处理 F9 等快捷键。
+- Flatpak 内安装 /app/addons/VocoType/lib/fcitx5/vocotype.so，处理 F9 等快捷键，并通过桥接打开宿主设置中心。
 - 宿主机运行录音器和 Core（FunASR），不在 Fcitx 沙盒中加载 AI 模型。
 - Core 使用独立的 $XDG_RUNTIME_DIR/vocotype-flatpak/core.sock，避免影响原有宿主 Fcitx/IBus。
 - 插件使用 flatpak-spawn --host 调用宿主的固定录音器命令以及用户级 Core 服务。
@@ -69,7 +69,7 @@ bash scripts/install/common/uninstall-native-user.sh --framework flatpak-fcitx5
 
 - 真实 Flatpak Fcitx5 插件加载、麦克风录制、KDE Wayland 热键及中文上屏。
 - 宿主机录音器和 Flatpak 插件之间的文件路径/Socket 生命周期、系统重启和休眠恢复。
-- 设置菜单中打开宿主机设置中心的入口；暂时可在宿主机运行 ~/.local/bin/vocotype-settings。
+- 从 Flatpak 附加组件菜单启动宿主设置中心的实际体验；如果桥接失败，可在宿主机运行 ~/.local/bin/vocotype-settings。
 - 上游 Fcitx5 扩展分支或 SDK 版本变化后的兼容性。
 
 这是**实验性实现**，不是已发布的正式 Flatpak 安装包。
