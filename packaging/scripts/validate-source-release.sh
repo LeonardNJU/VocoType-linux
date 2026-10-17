@@ -46,6 +46,9 @@ for required in \
 done
 while IFS= read -r member; do
   case "$member" in
+    # Python-based integration tests are development tools, not runtime code.
+    # They are allowed in the source archive but never in staged packages.
+    VocoType-linux-*/scripts/test/*.py) ;;
     VocoType-linux-*/app/*|VocoType-linux-*/settings_center/*|\
     VocoType-linux-*/fcitx5/backend/*|VocoType-linux-*/ibus/engine.py|\
     VocoType-linux-*/ibus/factory.py|VocoType-linux-*/ibus/main.py|\

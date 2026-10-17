@@ -45,6 +45,14 @@ struct RecorderOutputState {
     std::string audio_path;
 };
 
+// Fcitx 5.1.7 (Ubuntu 24.04) exposes HiddenOption<T> only; newer Fcitx
+// versions also accept a constrain type. Express the same hidden,
+// serializable option using the stable four-parameter Option template.
+template <typename T, typename Constrain = fcitx::NoConstrain<T>>
+using HiddenRuntimeOption =
+    fcitx::Option<T, Constrain, fcitx::DefaultMarshaller<T>,
+                  fcitx::HideInDescription>;
+
 FCITX_CONFIGURATION(
     VoCoTypeModuleConfig,
     // Fcitx 配置工具只展示这一项，并直接启动完整设置中心。下面的运行时
@@ -52,41 +60,41 @@ FCITX_CONFIGURATION(
     fcitx::ExternalOption settingsCenter{
         this, "SettingsCenter", "打开 VoCoType 完整设置",
         "vocotype-settings"};
-    fcitx::HiddenOption<fcitx::Key, fcitx::KeyConstrain> pttKey{
+    HiddenRuntimeOption<fcitx::Key, fcitx::KeyConstrain> pttKey{
         this, "PTTKey", "按住说话主键", fcitx::Key(FcitxKey_F9),
         fcitx::KeyConstrain({fcitx::KeyConstrainFlag::AllowModifierLess,
                              fcitx::KeyConstrainFlag::AllowModifierOnly})};
-    fcitx::HiddenOption<int, fcitx::IntConstrain> pttHoldThresholdMs{
+    HiddenRuntimeOption<int, fcitx::IntConstrain> pttHoldThresholdMs{
         this, "PTTHoldThresholdMs", "开始录音所需长按阈值（毫秒）", 0,
         fcitx::IntConstrain(0, 2000)};
-    fcitx::HiddenOption<fcitx::Key, fcitx::KeyConstrain> polishKey{
+    HiddenRuntimeOption<fcitx::Key, fcitx::KeyConstrain> polishKey{
         this, "PolishKey", "按住说话并进行 AI 润色",
         fcitx::Key(FcitxKey_F9, fcitx::KeyState::Shift),
         fcitx::KeyConstrain({fcitx::KeyConstrainFlag::AllowModifierLess,
                              fcitx::KeyConstrainFlag::AllowModifierOnly})};
-    fcitx::HiddenOption<fcitx::Key, fcitx::KeyConstrain> editKey{
+    HiddenRuntimeOption<fcitx::Key, fcitx::KeyConstrain> editKey{
         this, "EditKey", "按住说话并执行语音编辑",
         fcitx::Key(FcitxKey_F9, fcitx::KeyState::Ctrl),
         fcitx::KeyConstrain({fcitx::KeyConstrainFlag::AllowModifierLess,
                              fcitx::KeyConstrainFlag::AllowModifierOnly})};
-    fcitx::HiddenOption<int, fcitx::IntConstrain> minRecordingMs{
+    HiddenRuntimeOption<int, fcitx::IntConstrain> minRecordingMs{
         this, "MinRecordingMs", "最短有效录音时长（毫秒）", 1000,
         fcitx::IntConstrain(0, 5000)};
-    fcitx::HiddenOption<int, fcitx::IntConstrain> polishMinChars{
+    HiddenRuntimeOption<int, fcitx::IntConstrain> polishMinChars{
         this, "PolishMinChars", "AI 润色最少字数", 8,
         fcitx::IntConstrain(0, 2000)};
-    fcitx::HiddenOption<int, fcitx::IntConstrain> polishTimeoutMs{
+    HiddenRuntimeOption<int, fcitx::IntConstrain> polishTimeoutMs{
         this, "PolishTimeoutMs", "AI 流式输出空闲超时（毫秒）", 20000,
         fcitx::IntConstrain(1000, 120000)};
-    fcitx::HiddenOption<bool> enableThinking{
+    HiddenRuntimeOption<bool> enableThinking{
         this, "EnableThinking", "允许模型 thinking / reasoning", false};
-    fcitx::HiddenOption<bool> blockWhenComposing{
+    HiddenRuntimeOption<bool> blockWhenComposing{
         this, "BlockWhenComposing", "存在未提交预编辑时禁止开始录音", true};
-    fcitx::HiddenOption<bool> stripTrailingPeriodOnCommit{
+    HiddenRuntimeOption<bool> stripTrailingPeriodOnCommit{
         this, "StripTrailingPeriodOnCommit", "提交时移除尾部句号", false};
-    fcitx::HiddenOption<bool> spaceBetweenCjkAndAscii{
+    HiddenRuntimeOption<bool> spaceBetweenCjkAndAscii{
         this, "SpaceBetweenCjkAndAscii", "中文与英文/数字之间加空格", false};
-    fcitx::HiddenOption<std::string> panelStyle{
+    HiddenRuntimeOption<std::string> panelStyle{
         this, "PanelStyle", "状态提示样式（minimal、ultra_minimal 或 animated）", "minimal"};);
 
 class VoCoTypeModule final : public fcitx::AddonInstance {
