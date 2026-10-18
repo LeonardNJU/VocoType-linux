@@ -1,6 +1,11 @@
 #include "vocotype/core/voice_edit_tasks.hpp"
 
+#ifdef _WIN32
+#include <process.h>
+#define getpid _getpid
+#else
 #include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <chrono>

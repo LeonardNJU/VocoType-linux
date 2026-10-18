@@ -7,8 +7,12 @@
  * by allowing the worker to exit after an idle timeout.
  */
 
+#ifdef _WIN32
+#include "windows_stdin.hpp"
+#else
 #include <poll.h>
 #include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <cerrno>
@@ -143,6 +147,10 @@ public:
       if (remaining <= 0) {
         return 0;
       }
+#ifdef _WIN32
+      const int poll_result = vocotype_wait_stdin(remaining);
+      if (poll_result <= 0) return 0;
+#else
       pollfd descriptor{STDIN_FILENO, POLLIN | POLLHUP, 0};
       const int poll_result = ::poll(&descriptor, 1, remaining);
       if (poll_result < 0) {
@@ -158,6 +166,7 @@ public:
         return 1;
       }
 
+#endif
       std::string line;
       if (!std::getline(std::cin, line)) {
         return 0;

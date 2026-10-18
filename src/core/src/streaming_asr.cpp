@@ -1,6 +1,10 @@
 #include "vocotype/core/streaming_asr.hpp"
 
+#ifdef _WIN32
+#include "win_support.hpp"
+#else
 #include <unistd.h>
+#endif
 
 #include <array>
 #include <cstdlib>
@@ -14,8 +18,12 @@ namespace vocotype::core {
 namespace {
 
 bool executable_file(const std::filesystem::path &path) {
+#ifdef _WIN32
+  return std::filesystem::is_regular_file(path);
+#else
   return std::filesystem::is_regular_file(path) &&
          ::access(path.c_str(), X_OK) == 0;
+#endif
 }
 
 std::string environment_value(const char *name) {
@@ -25,6 +33,21 @@ std::string environment_value(const char *name) {
 
 std::vector<std::filesystem::path> path_candidates(const std::string &name) {
   std::vector<std::filesystem::path> result;
+#ifdef _WIN32
+  wchar_t raw[32768]{};
+  DWORD count = GetEnvironmentVariableW(L"PATH", raw, 32768);
+  if(count == 0 || count >= 32768) return result;
+  std::wstring paths(raw, count);
+  std::size_t offset = 0;
+  while(offset <= paths.size()) {
+    auto separator = paths.find(L';', offset);
+    auto directory = paths.substr(offset, separator == std::wstring::npos ? separator : separator-offset);
+    if(!directory.empty()) result.emplace_back(std::filesystem::path(directory) / (vocotype::windows::wide(name) + L".exe"));
+    if(separator == std::wstring::npos) break;
+    offset = separator + 1;
+  }
+  return result;
+#else
   const std::string raw_path = environment_value("PATH");
   std::size_t offset = 0;
   while (offset <= raw_path.size()) {
@@ -41,9 +64,13 @@ std::vector<std::filesystem::path> path_candidates(const std::string &name) {
     offset = separator + 1;
   }
   return result;
+#endif
 }
 
 std::filesystem::path current_executable_dir() {
+#ifdef _WIN32
+  return vocotype::windows::executable_path().parent_path();
+#else
   std::array<char, 4096> buffer{};
   const ssize_t count =
       ::readlink("/proc/self/exe", buffer.data(), buffer.size() - 1);
@@ -52,6 +79,7 @@ std::filesystem::path current_executable_dir() {
   }
   buffer[static_cast<std::size_t>(count)] = '\0';
   return std::filesystem::path(buffer.data()).parent_path();
+#endif
 }
 
 Json error_response(const std::string &error) {
@@ -84,6 +112,9 @@ std::filesystem::path StreamingAsrProcess::resolve_worker_path() const {
     candidates.emplace_back(expand_user_path(config_.worker_path));
   }
 
+#ifdef _WIN32
+  candidates.emplace_back(current_executable_dir() / "vocotype-streaming-worker.exe");
+#endif
   const std::filesystem::path executable_dir = current_executable_dir();
   if (!executable_dir.empty()) {
     candidates.emplace_back(executable_dir / "vocotype-streaming-worker");
