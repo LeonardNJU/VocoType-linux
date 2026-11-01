@@ -4371,7 +4371,9 @@ std::string doctor_report() {
       "vocotype-audio-recorder",
       {vocotype::desktop::home_path() /
            ".local/lib/vocotype-native/bin/vocotype-audio-recorder",
-       "/usr/libexec/vocotype-audio-recorder"});
+       "/usr/libexec/vocotype-audio-recorder",
+       "/usr/lib/vocotype/vocotype-audio-recorder",
+       "/usr/lib64/vocotype/vocotype-audio-recorder"});
   check("C++ core", !core.empty(), core.empty() ? "未找到" : core);
   check("原生录音器", !recorder.empty(),
         recorder.empty() ? "未找到" : recorder);
