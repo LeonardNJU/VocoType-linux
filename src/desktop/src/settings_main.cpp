@@ -1860,7 +1860,17 @@ void set_live_fcitx_config(
   if (!result.value("success", false))
     throw std::runtime_error("无法更新 Fcitx 运行配置：" +
                              result.value("error", "unknown"));
-  verify_fcitx_config_values(query_live_fcitx_config(), values);
+  // Some Fcitx builds apply SetConfig to the running addon without writing
+  // vocotype.conf. Persist the acknowledged values before verifying them.
+  const Json live = query_live_fcitx_config();
+  if (!live.value("success", false) || !live.contains("values"))
+    throw std::runtime_error("Fcitx 运行配置无法读回：" + live.value("error", "unknown"));
+  for (const auto &[key, expected] : values) {
+    if (live["values"].value(key, "") != expected)
+      throw std::runtime_error("Fcitx 运行配置未生效：" + key);
+  }
+  write_fcitx_config_file(values);
+  verify_fcitx_config_values(live, values);
 }
 
 Json reconcile_live_fcitx_config(
@@ -2051,7 +2061,7 @@ Json verify_native_payload() {
   const auto directory = native_payload_directory();
   if (directory.empty())
     return {{"success", false},
-            {"error", "未找到 native payload checksum 清单"}};
+            {"error", "未找到 native payload checksum 清单；请重新安装对应版本的原生软件包，若使用手动安装则检查 /usr/lib/vocotype 或 /usr/lib64/vocotype 下的 .native-payload.sha256"}};
   return run_command(
       {"sh", "-c",
        "cd " + directory.string() + " && sha256sum -c .native-payload.sha256"});
