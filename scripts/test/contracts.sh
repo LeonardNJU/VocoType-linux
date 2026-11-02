@@ -687,7 +687,9 @@ old_sequence = """save_config(*self);
             (void)restart_fcitx_with_vocotype();"""
 assert old_sequence not in source
 assert '"SetConfig", "sv"' in source
-assert "verify_fcitx_config_values(query_live_fcitx_config(), values);" in source
+assert 'const Json live = query_live_fcitx_config();' in source
+assert 'write_fcitx_config_file(values);' in source
+assert 'verify_fcitx_config_values(live, values);' in source
 PY_FCITX_SAVE
 for token in 'hotkeys.value("transcribe"' 'hotkeys.value("polish"' \
              'hotkeys.value("edit"' 'hotkey_mask'; do
