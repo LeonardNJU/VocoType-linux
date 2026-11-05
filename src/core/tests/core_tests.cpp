@@ -1235,6 +1235,28 @@ void test_streaming_asr(const std::filesystem::path &worker_path) {
     require(closed.value("final", false), "preview close was not final");
   }
 
+  // The model manager honors MODELSCOPE_CACHE. Streaming Core must resolve
+  // its snapshot from the same non-default location.
+  {
+    const std::filesystem::path cache =
+        std::filesystem::temp_directory_path() /
+        ("vocotype-streaming-cache-" + std::to_string(::getpid()));
+    std::filesystem::create_directories(cache / "models" /
+                                        config.streaming_asr.model);
+    ::setenv("MODELSCOPE_CACHE", cache.c_str(), 1);
+    AppConfig with_cache = config;
+    with_cache.streaming_asr.model_dir.clear();
+    {
+      CoreDispatcher dispatcher(with_cache);
+      const Json started =
+          dispatcher.dispatch({{"type", "asr_preview_start"}});
+      require(started.value("success", false),
+              "Core ignored the ModelScope cache for streaming model");
+    }
+    ::unsetenv("MODELSCOPE_CACHE");
+    std::filesystem::remove_all(cache);
+  }
+
   std::filesystem::remove_all(model_dir);
 }
 
