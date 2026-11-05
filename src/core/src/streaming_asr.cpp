@@ -119,6 +119,18 @@ std::filesystem::path StreamingAsrProcess::resolve_model_dir() const {
     candidates.emplace_back(expand_user_path(config_.model_dir));
   }
   if (!config_.model.empty()) {
+    // Match the ModelScope model manager's MODELSCOPE_CACHE/models layout.
+    // Previously a custom cache downloaded into was invisible to streaming.
+    const std::string modelscope_cache = environment_value("MODELSCOPE_CACHE");
+    if (!modelscope_cache.empty()) {
+      candidates.emplace_back(std::filesystem::path(modelscope_cache) /
+                              "models" / config_.model);
+    }
+    const std::string xdg_cache = environment_value("XDG_CACHE_HOME");
+    if (!xdg_cache.empty()) {
+      candidates.emplace_back(std::filesystem::path(xdg_cache) /
+                              "modelscope" / "hub" / "models" / config_.model);
+    }
     const std::string home = environment_value("HOME");
     if (!home.empty()) {
       candidates.emplace_back(std::filesystem::path(home) / ".cache" /
@@ -131,8 +143,8 @@ std::filesystem::path StreamingAsrProcess::resolve_model_dir() const {
     }
   }
   throw std::runtime_error(
-      "streaming model directory not found; set FUNASR_STREAMING_MODEL_DIR or "
-      "asr_streaming.model_dir");
+      "streaming model directory not found; set FUNASR_STREAMING_MODEL_DIR, "
+      "asr_streaming.model_dir, or MODELSCOPE_CACHE");
 }
 
 std::vector<std::string> StreamingAsrProcess::worker_arguments(
