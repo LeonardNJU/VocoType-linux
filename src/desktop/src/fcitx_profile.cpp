@@ -353,4 +353,24 @@ bool core_restart_required(const Json &before, const Json &after) {
   return false;
 }
 
+std::string normalize_slm_endpoint(const std::string &endpoint) {
+  const auto first = endpoint.find_first_not_of(" \t\r\n");
+  if (first == std::string::npos)
+    return "";
+  const auto last = endpoint.find_last_not_of(" \t\r\n");
+  std::string url = endpoint.substr(first, last - first + 1);
+  const auto scheme = url.find("://");
+  if (scheme == std::string::npos)
+    return url;
+  const auto path_start = url.find('/', scheme + 3);
+  if (path_start == std::string::npos) {
+    url += "/chat/completions"; // 纯根地址：https://api.deepseek.com
+  } else {
+    std::string path = url.substr(path_start);
+    if (path == "/" || path == "/v1" || path == "/v1/")
+      url = url.substr(0, path_start) + "/v1/chat/completions";
+  }
+  return url;
+}
+
 } // namespace vocotype::desktop

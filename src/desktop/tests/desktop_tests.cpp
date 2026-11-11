@@ -296,6 +296,24 @@ protect:
                                 Json{{"slm", {{"enabled", 1}}}}),
           "AI 配置变化必须触发重启");
 
+  // SLM endpoint 规范化：trim 空白 + 根地址自动补全路径
+  require(normalize_slm_endpoint("  https://api.deepseek.com  ") ==
+              "https://api.deepseek.com/chat/completions",
+          "根地址未补全路径");
+  require(normalize_slm_endpoint("https://api.deepseek.com/") ==
+              "https://api.deepseek.com/v1/chat/completions",
+          "带斜杠根地址未补全");
+  require(normalize_slm_endpoint("https://api.deepseek.com/v1") ==
+              "https://api.deepseek.com/v1/chat/completions",
+          "/v1 地址未补全");
+  require(normalize_slm_endpoint(
+              "https://api.deepseek.com/chat/completions") ==
+              "https://api.deepseek.com/chat/completions",
+          "完整路径不应被改写");
+  require(normalize_slm_endpoint("http://127.0.0.1:18099/chat/completions") ==
+              "http://127.0.0.1:18099/chat/completions",
+          "本地完整路径不应被改写");
+
   const auto layout_root =
       std::filesystem::temp_directory_path() /
       ("vocotype-config-layout-test-" + std::to_string(getpid()));

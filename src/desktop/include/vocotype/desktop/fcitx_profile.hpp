@@ -48,4 +48,9 @@ fcitx_conf_value(const std::filesystem::path &path, const std::string &key);
 // 按需读取；仅当这些启动期配置的子树发生变化时才需要重启 Core。
 bool core_restart_required(const Json &before, const Json &after);
 
+// 规范化 SLM endpoint：去除首尾空白；Core 的 SLM 客户端原样使用 URL，
+// 不做路径拼接，因此根地址（无路径或仅有 "/"）和以 "/v1" 结尾的地址
+// 需要补全 /chat/completions，否则请求会打到根路径得到 404。
+std::string normalize_slm_endpoint(const std::string &endpoint);
+
 } // namespace vocotype::desktop

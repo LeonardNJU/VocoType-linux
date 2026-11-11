@@ -1000,7 +1000,11 @@ void save_config(SettingsWindow &window) {
 
   auto &slm = window.config["slm"];
   slm["enabled"] = gtk_switch_get_active(window.slm_enabled);
-  slm["endpoint"] = gtk_entry_get_text(window.slm_endpoint);
+  slm["endpoint"] = vocotype::desktop::normalize_slm_endpoint(
+      gtk_entry_get_text(window.slm_endpoint));
+  // 把规范化后的值回显到输入框，让用户看到实际生效的地址
+  gtk_entry_set_text(window.slm_endpoint,
+                     slm["endpoint"].get<std::string>().c_str());
   slm["model"] = gtk_entry_get_text(window.slm_model);
   slm["api_key_env"] = gtk_entry_get_text(window.slm_api_key_env);
   const std::string api_key = gtk_entry_get_text(window.slm_api_key);
