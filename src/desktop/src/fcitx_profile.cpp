@@ -322,4 +322,27 @@ const char *fcitx_addon_state_name(FcitxAddonState state) {
   return "unavailable";
 }
 
+std::optional<std::string>
+fcitx_conf_value(const std::filesystem::path &path, const std::string &key) {
+  std::ifstream input(path);
+  if (!input)
+    return std::nullopt;
+  const std::string active_prefix = key + "=";
+  const std::string commented_prefix = "# " + active_prefix;
+  std::optional<std::string> commented;
+  std::string line;
+  while (std::getline(input, line)) {
+    if (line.rfind(active_prefix, 0) == 0)
+      return line.substr(active_prefix.size());
+    if (line.rfind(commented_prefix, 0) == 0) {
+      const std::string value = line.substr(commented_prefix.size());
+      if (!value.empty())
+        commented = value; // 记录文档化的默认值，继续寻找明文行
+      else if (!commented)
+        commented = std::string(); // "# Key="：存在但值为空
+    }
+  }
+  return commented;
+}
+
 } // namespace vocotype::desktop

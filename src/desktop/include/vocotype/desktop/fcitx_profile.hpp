@@ -37,4 +37,10 @@ migrate_legacy_fcitx_profile(const std::filesystem::path &profile);
 
 const char *fcitx_addon_state_name(FcitxAddonState state);
 
+// Fcitx 会把等于内置默认值的配置项写成注释（如 "# EditKey=Control+F9"）。
+// 返回键的有效值：明文行优先，其次解引用带默认值的注释行，
+// 最后是没有注释文档的 "# Key=" 形式；只有键完全缺失时返回 nullopt。
+std::optional<std::string>
+fcitx_conf_value(const std::filesystem::path &path, const std::string &key);
+
 } // namespace vocotype::desktop

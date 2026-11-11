@@ -1838,7 +1838,11 @@ void verify_fcitx_config_values(
     if (observed != expected)
       throw std::runtime_error("Fcitx 运行配置未生效：" + key + " 期望 " +
                                expected + "，实际 " + observed);
-    const std::string persisted = config_value(fcitx_config_path(), key, "");
+    // Fcitx 自己落盘时会把等于默认值的项写成注释；
+    // 解析时必须识别这种形式，否则默认值会被误判为未持久化。
+    const std::string persisted =
+        vocotype::desktop::fcitx_conf_value(fcitx_config_path(), key)
+            .value_or("");
     if (persisted != expected)
       throw std::runtime_error("Fcitx 配置未持久化：" + key + " 期望 " +
                                expected + "，文件中为 " + persisted);
@@ -1883,7 +1887,8 @@ Json reconcile_live_fcitx_config(
   bool changed = false;
   for (const auto &[key, expected] : values) {
     changed = changed || live["values"].value(key, "") != expected ||
-              config_value(fcitx_config_path(), key, "") != expected;
+              vocotype::desktop::fcitx_conf_value(fcitx_config_path(), key)
+                  .value_or("") != expected;
   }
   if (changed)
     set_live_fcitx_config(values);
@@ -2503,7 +2508,9 @@ void populate_from_config(SettingsWindow &window) {
                                const Hotkey &default_hotkey) {
     const std::string value =
         framework == "fcitx5" && has_fcitx_config
-            ? config_value(fcitx_config_path(), fcitx_key, fallback)
+            ? vocotype::desktop::fcitx_conf_value(fcitx_config_path(),
+                                                  fcitx_key)
+                  .value_or(fallback)
             : ibus_hotkeys.value(ibus_key, fallback);
     return vocotype::desktop::parse_hotkey(value, default_hotkey);
   };

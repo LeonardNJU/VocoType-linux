@@ -245,6 +245,37 @@ protect:
   assert((migrated_stat.st_mode & 0777) == 0600);
   std::filesystem::remove_all(test_root);
 
+  // Fcitx 会把等于默认值的配置项写成注释，读取时必须识别。
+  const auto conf_root =
+      std::filesystem::temp_directory_path() /
+      ("vocotype-fcitx-conf-test-" + std::to_string(getpid()));
+  std::filesystem::remove_all(conf_root);
+  std::filesystem::create_directories(conf_root);
+  const auto conf = conf_root / "vocotype.conf";
+  {
+    std::ofstream output(conf);
+    output << "# 按住说话主键\n"
+              "PTTKey=Alt_R\n"
+              "# 按住说话并执行语音编辑\n"
+              "# EditKey=Control+F9\n"
+              "# PanelStyle=\n"
+              "# 最短有效录音时长（毫秒）\n"
+              "# MinRecordingMs=1000\n";
+  }
+  require(fcitx_conf_value(conf, "PTTKey").value_or("") == "Alt_R",
+          "明文配置项未被读取");
+  require(fcitx_conf_value(conf, "EditKey").value_or("") == "Control+F9",
+          "注释形式的默认值被误判为未持久化");
+  require(fcitx_conf_value(conf, "PanelStyle").has_value() &&
+              fcitx_conf_value(conf, "PanelStyle").value().empty(),
+          "\"# Key=\" 形式应解析为空值而非缺失");
+  require(!fcitx_conf_value(conf, "Missing").has_value(),
+          "不存在的键应返回 nullopt");
+  require(!fcitx_conf_value(conf_root / "nonexistent.conf", "EditKey")
+               .has_value(),
+          "文件不存在时应返回 nullopt");
+  std::filesystem::remove_all(conf_root);
+
   const auto layout_root =
       std::filesystem::temp_directory_path() /
       ("vocotype-config-layout-test-" + std::to_string(getpid()));
