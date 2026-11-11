@@ -5113,8 +5113,10 @@ void activate(GtkApplication *application, gpointer user_data) {
           const Json before = self->core_restart_pending.is_null()
                                   ? self->config
                                   : self->core_restart_pending;
-          const Json after = self->config;
           save_config(*self);
+          // 必须在 save_config 之后取新值：把控件写回 config 之前，
+          // before/after 会是同一份旧配置，导致永远判断为无需重启。
+          const Json after = self->config;
           if (!vocotype::desktop::core_restart_required(before, after)) {
             show_settings_message(
                 *self, GTK_MESSAGE_INFO, "设置已保存",
