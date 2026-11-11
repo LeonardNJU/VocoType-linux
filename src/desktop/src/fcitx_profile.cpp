@@ -345,4 +345,12 @@ fcitx_conf_value(const std::filesystem::path &path, const std::string &key) {
   return commented;
 }
 
+bool core_restart_required(const Json &before, const Json &after) {
+  for (const char *key : {"asr", "asr_streaming", "audio", "slm"}) {
+    if (before.value(key, Json::object()) != after.value(key, Json::object()))
+      return true;
+  }
+  return false;
+}
+
 } // namespace vocotype::desktop

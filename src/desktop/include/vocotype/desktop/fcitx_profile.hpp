@@ -43,4 +43,9 @@ const char *fcitx_addon_state_name(FcitxAddonState state);
 std::optional<std::string>
 fcitx_conf_value(const std::filesystem::path &path, const std::string &key);
 
+// Core 只在启动时读取 config.json。asr/asr_streaming/audio/slm 之外的配置
+// （快捷键、用户词典、normalization、ui）要么走 DBus 热生效，要么由 Core
+// 按需读取；仅当这些启动期配置的子树发生变化时才需要重启 Core。
+bool core_restart_required(const Json &before, const Json &after);
+
 } // namespace vocotype::desktop

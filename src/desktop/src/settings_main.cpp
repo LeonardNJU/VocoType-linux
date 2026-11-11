@@ -201,9 +201,18 @@ struct SettingsWindow {
   std::vector<std::pair<double, double>> waveform;
   std::filesystem::path last_recording;
   Json config = Json::object();
+
+  // 异步应用 Core 重启的状态（仅保存流程使用）
+  GtkButton *save_button = nullptr;
+  bool core_apply_in_flight = false;
+  bool core_apply_queued = false;
+  Json core_restart_pending = Json::object();
 };
 
 std::filesystem::path fcitx_config_path();
+void show_settings_message(SettingsWindow &window, GtkMessageType type,
+                           const std::string &title,
+                           const std::string &message);
 std::string config_value(const std::filesystem::path &path,
                          const std::string &key, const std::string &fallback);
 void update_fcitx_config(
@@ -1154,6 +1163,25 @@ bool terminate_owned_core() {
   }
   closedir(directory);
   return found;
+}
+
+// 应用 Core 重启的收尾：恢复按钮状态；有排队的新保存则继续应用最新配置
+void finish_core_apply(SettingsWindow *self, Json result) {
+  const bool success = result.value("success", false);
+  if (success) {
+    show_settings_message(*self, GTK_MESSAGE_INFO, "设置已保存",
+                          "通用设置、AI 配置和当前输入法框架选项已应用。");
+  } else {
+    set_label(self->hotkey_status,
+              "配置已写入；Core 应用失败：" + result.value("error", "unknown"));
+  }
+  self->core_apply_in_flight = false;
+  if (self->core_apply_queued) {
+    self->core_apply_queued = false;
+    gtk_button_clicked(GTK_BUTTON(self->save_button));
+  } else if (self->save_button) {
+    gtk_widget_set_sensitive(GTK_WIDGET(self->save_button), TRUE);
+  }
 }
 
 bool restart_core_for_settings() {
@@ -3547,16 +3575,25 @@ GtkWidget *build_slm(SettingsWindow &window) {
         }
         set_label(self->slm_status,
                   "⏳ 正在发送真实测试请求；可能产生延迟或费用…");
+        Json before;
         try {
+          before = self->core_restart_pending.is_null() ? self->config
+                                                       : self->core_restart_pending;
           save_config(*self);
         } catch (const std::exception &error) {
           set_label(self->slm_status,
                     std::string("保存配置失败：") + error.what());
           return;
         }
+        // slm 配置只在 Core 启动时读取：有变化才重启，没变化直接测试
+        const bool need_restart =
+            vocotype::desktop::core_restart_required(before, self->config) &&
+            !self->core_apply_in_flight;
+        if (vocotype::desktop::core_restart_required(before, self->config))
+          self->core_restart_pending = self->config;
         run_async(
-            [] {
-              if (!restart_core_for_settings())
+            [need_restart] {
+              if (need_restart && !restart_core_for_settings())
                 return Json{{"success", false},
                             {"error", "Core 用户服务未能启动"}};
               return vocotype::desktop::unix_json_request(
@@ -5056,16 +5093,54 @@ void activate(GtkApplication *application, gpointer user_data) {
                    window);
   gtk_stack_set_visible_child_name(window->stack, "overview");
 
+  window->save_button = GTK_BUTTON(save);
   g_signal_connect_swapped(
       save, "clicked", G_CALLBACK(+[](SettingsWindow *self) {
+        if (self->core_apply_in_flight) {
+          // 上一次重启还没结束：保存配置并入队，避免并发 systemctl restart
+          try {
+            self->core_restart_pending = self->config;
+            save_config(*self);
+            self->core_apply_queued = true;
+            set_label(self->hotkey_status, "已保存；等待 Core 应用上一批更改后生效");
+          } catch (const std::exception &error) {
+            show_settings_message(*self, GTK_MESSAGE_ERROR, "保存设置失败",
+                                  error.what());
+          }
+          return;
+        }
         try {
+          const Json before = self->core_restart_pending.is_null()
+                                  ? self->config
+                                  : self->core_restart_pending;
+          const Json after = self->config;
           save_config(*self);
-          const bool ready = restart_core_for_settings();
-          show_settings_message(
-              *self, GTK_MESSAGE_INFO, "设置已保存",
-              ready ? "通用设置、AI 配置和当前输入法框架选项已应用。"
-                    : "配置已写入；Core 将在下一次语音输入时按需启动。");
+          if (!vocotype::desktop::core_restart_required(before, after)) {
+            show_settings_message(
+                *self, GTK_MESSAGE_INFO, "设置已保存",
+                "通用设置、AI 配置和当前输入法框架选项已应用。");
+            return;
+          }
+          // 音频/模型/AI 参数有变化：异步重启 Core，界面不再冻结
+          self->core_restart_pending = after;
+          self->core_apply_in_flight = true;
+          if (self->save_button)
+            gtk_widget_set_sensitive(GTK_WIDGET(self->save_button), FALSE);
+          set_label(self->hotkey_status,
+                    "已保存；正在后台重启 Core 应用音频/模型更改（期间暂不可语音输入）…");
+          run_async(
+              [] {
+                const bool ready = restart_core_for_settings();
+                return Json{{"success", ready},
+                            {"error", ready ? "" : "用户服务启动失败"}};
+              },
+              [self](Json result) {
+                finish_core_apply(self, std::move(result));
+              });
         } catch (const std::exception &error) {
+          self->core_apply_in_flight = false;
+          if (self->save_button)
+            gtk_widget_set_sensitive(GTK_WIDGET(self->save_button), TRUE);
           show_settings_message(*self, GTK_MESSAGE_ERROR, "保存设置失败",
                                 error.what());
         }

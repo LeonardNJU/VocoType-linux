@@ -276,6 +276,26 @@ protect:
           "文件不存在时应返回 nullopt");
   std::filesystem::remove_all(conf_root);
 
+  // 只有启动期配置（asr/asr_streaming/audio/slm）变化才需要重启 Core。
+  require(!core_restart_required(Json::object(), Json::object()),
+          "空配置不应触发重启");
+  require(!core_restart_required(Json{{"ui", {{"lifecycle_framework", "fcitx5"}}}},
+                                 Json{{"ui", {{"lifecycle_framework", "ibus"}}}}),
+          "界面/框架设置不应触发重启");
+  require(!core_restart_required(
+              Json{{"normalization", {{"enabled", 0}}}},
+              Json{{"normalization", {{"enabled", 1}}}}),
+          "normalization 按需读取，不应触发重启");
+  require(core_restart_required(Json{{"audio", {{"sample_rate", 44100}}}},
+                                Json{{"audio", {{"sample_rate", 48000}}}}),
+          "采样率变化必须触发重启");
+  require(core_restart_required(Json{{"asr_streaming", {{"enabled", 0}}}},
+                                Json{{"asr_streaming", {{"enabled", 1}}}}),
+          "实时预览开关必须触发重启");
+  require(core_restart_required(Json::object(),
+                                Json{{"slm", {{"enabled", 1}}}}),
+          "AI 配置变化必须触发重启");
+
   const auto layout_root =
       std::filesystem::temp_directory_path() /
       ("vocotype-config-layout-test-" + std::to_string(getpid()));
