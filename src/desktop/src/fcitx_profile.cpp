@@ -322,4 +322,55 @@ const char *fcitx_addon_state_name(FcitxAddonState state) {
   return "unavailable";
 }
 
+std::optional<std::string>
+fcitx_conf_value(const std::filesystem::path &path, const std::string &key) {
+  std::ifstream input(path);
+  if (!input)
+    return std::nullopt;
+  const std::string active_prefix = key + "=";
+  const std::string commented_prefix = "# " + active_prefix;
+  std::optional<std::string> commented;
+  std::string line;
+  while (std::getline(input, line)) {
+    if (line.rfind(active_prefix, 0) == 0)
+      return line.substr(active_prefix.size());
+    if (line.rfind(commented_prefix, 0) == 0) {
+      const std::string value = line.substr(commented_prefix.size());
+      if (!value.empty())
+        commented = value; // 记录文档化的默认值，继续寻找明文行
+      else if (!commented)
+        commented = std::string(); // "# Key="：存在但值为空
+    }
+  }
+  return commented;
+}
+
+bool core_restart_required(const Json &before, const Json &after) {
+  for (const char *key : {"asr", "asr_streaming", "audio", "slm"}) {
+    if (before.value(key, Json::object()) != after.value(key, Json::object()))
+      return true;
+  }
+  return false;
+}
+
+std::string normalize_slm_endpoint(const std::string &endpoint) {
+  const auto first = endpoint.find_first_not_of(" \t\r\n");
+  if (first == std::string::npos)
+    return "";
+  const auto last = endpoint.find_last_not_of(" \t\r\n");
+  std::string url = endpoint.substr(first, last - first + 1);
+  const auto scheme = url.find("://");
+  if (scheme == std::string::npos)
+    return url;
+  const auto path_start = url.find('/', scheme + 3);
+  if (path_start == std::string::npos) {
+    url += "/chat/completions"; // 纯根地址：https://api.deepseek.com
+  } else {
+    std::string path = url.substr(path_start);
+    if (path == "/" || path == "/v1" || path == "/v1/")
+      url = url.substr(0, path_start) + "/v1/chat/completions";
+  }
+  return url;
+}
+
 } // namespace vocotype::desktop
