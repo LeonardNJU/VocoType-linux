@@ -1849,8 +1849,28 @@ void verify_fcitx_config_values(
   }
 }
 
-void set_live_fcitx_config(
+// 只推送运行中模块实际暴露的配置项。模块可能比设置中心旧
+// （例如 5.0.9 的设置中心配 5.0.1 的模块，后者还没有
+// SpaceBetweenCjkAndAscii），推送未知项会让后续校验永远失败。
+std::vector<std::pair<std::string, std::string>>
+filter_supported_fcitx_values(
+    const Json &live,
     const std::vector<std::pair<std::string, std::string>> &values) {
+  std::vector<std::pair<std::string, std::string>> supported;
+  for (const auto &[key, value] : values) {
+    if (live["values"].contains(key))
+      supported.emplace_back(key, value);
+  }
+  return supported;
+}
+
+void set_live_fcitx_config(
+    const std::vector<std::pair<std::string, std::string>> &all_values) {
+  Json probe = query_live_fcitx_config();
+  if (!probe.value("success", false) || !probe.contains("values"))
+    throw std::runtime_error("Fcitx 运行配置无法读回：" +
+                             probe.value("error", "unknown"));
+  const auto values = filter_supported_fcitx_values(probe, all_values);
   std::vector<std::string> command{
       "busctl", "--user", "call", kFcitxService, kFcitxControllerPath,
       kFcitxControllerInterface, "SetConfig", "sv", kFcitxVoCoTypeConfigUri,
@@ -1873,7 +1893,9 @@ void set_live_fcitx_config(
     if (live["values"].value(key, "") != expected)
       throw std::runtime_error("Fcitx 运行配置未生效：" + key);
   }
-  write_fcitx_config_file(values);
+  // 文件保留全量（含运行中模块尚不支持的项），供模块升级后使用；
+  // 但只校验运行实例支持且已推送的项。
+  write_fcitx_config_file(all_values);
   verify_fcitx_config_values(live, values);
 }
 
@@ -1884,8 +1906,9 @@ Json reconcile_live_fcitx_config(
     return {{"success", false},
             {"error", live.value("error", "Fcitx 运行配置不可用")}};
 
+  const auto supported = filter_supported_fcitx_values(live, values);
   bool changed = false;
-  for (const auto &[key, expected] : values) {
+  for (const auto &[key, expected] : supported) {
     changed = changed || live["values"].value(key, "") != expected ||
               vocotype::desktop::fcitx_conf_value(fcitx_config_path(), key)
                   .value_or("") != expected;
@@ -1893,7 +1916,7 @@ Json reconcile_live_fcitx_config(
   if (changed)
     set_live_fcitx_config(values);
   else
-    verify_fcitx_config_values(live, values);
+    verify_fcitx_config_values(live, supported);
   return {{"success", true}, {"changed", changed}};
 }
 
